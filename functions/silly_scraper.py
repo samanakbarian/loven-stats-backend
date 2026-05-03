@@ -206,7 +206,7 @@ def scrape_eliteprospects():
     return articles
 
 def save_to_gcs(data):
-    file_name = f"raw/silly_season/scraped_{datetime.now().strftime('%Y%md%H%M%S')}.json"
+    file_name = f"raw/silly_season/scraped_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     try:
         storage_client = storage.Client()
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
