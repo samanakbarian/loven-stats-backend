@@ -107,11 +107,11 @@ def get_silly_season():
     try:
         storage_client = storage.Client()
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
-        # Hämta blob med prefix raw/silly_season/scraped_ sorterat på namn fallande
+        # Hämta blob med prefix raw/silly_season/scraped_ sorterat på senast uppdaterad
         blobs = list(bucket.list_blobs(prefix="raw/silly_season/scraped_"))
         
         if blobs:
-            latest_blob = sorted(blobs, key=lambda b: b.name, reverse=True)[0]
+            latest_blob = sorted(blobs, key=lambda b: b.updated or b.time_created, reverse=True)[0]
             content = latest_blob.download_as_string()
             data = json.loads(content)
             scraped_articles = data.get("news_feed", [])
