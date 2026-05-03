@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
 from datetime import datetime
 
+import re
 from silly_season_data import SILLY_SEASON_BASELINE
 
 app = FastAPI(
@@ -34,8 +35,51 @@ def health_check():
     return {"status": "healthy"}
 
 def normalize_title(title):
-    import re
     return re.sub(r'[^\wåäö\s]', '', title.lower()).strip()
+
+# Keyword-based fallback classification for articles that Gemini incorrectly tagged as ÖVRIGT
+TRANSFER_KEYWORDS = {
+    'BEKRÄFTAT_NYFÖRVÄRV': ['nyförvärv', 'klar för björklöven', 'skrivit på', 'signerar', 'värvning', 'ansluter till björklöven', 'ansluter till löven'],
+    'BEKRÄFTAD_FÖRLUST': ['lämnar björklöven', 'lämnar löven', 'massflytt från björklöven', 'massflykt från björklöven', 'tackar av', 'följer inte med'],
+    'KONTRAKTSFÖRLÄNGNING': ['förlänger med björklöven', 'förlängde med björklöven', 'förlänger med löven', 'förlängde med löven', 'nytt kontrakt med björklöven', 'stannar i löven', 'stannar i björklöven'],
+    'HETT_RYKTE': ['rykte', 'ryktas till björklöven', 'ryktas till löven', 'intresse för', 'uppges', 'spekuleras', 'sillyrummet'],
+}
+
+def reclassify_tag(article):
+    """Keyword-based fallback: reclassifies ÖVRIGT articles that clearly are transfer news."""
+    tag = article.get("tag", "ÖVRIGT")
+    if tag != "ÖVRIGT":
+        return article
+    
+    text = (article.get("title", "") + " " + article.get("body", "")).lower()
+    
+    # Check if the article is about a player leaving Björklöven specifically
+    is_bjorkloven_subject = any(kw in text for kw in ['björklöven', 'bjorkloven', 'löven'])
+    if not is_bjorkloven_subject:
+        return article
+    
+    # Check for direct transfer keywords combined with Björklöven context
+    for new_tag, keywords in TRANSFER_KEYWORDS.items():
+        if any(kw in text for kw in keywords):
+            article["tag"] = new_tag
+            return article
+    
+    # Looser matching: "lämnar" + björklöven context
+    if any(kw in text for kw in ['lämnar', 'klar för']):
+        # Check if the leaving/joining is about Björklöven or another team
+        # "X lämnar Björklöven" = BEKRÄFTAD_FÖRLUST
+        # "X lämnar Y — klar för Björklöven" = BEKRÄFTAT_NYFÖRVÄRV 
+        if 'lämnar' in text and ('björklöven' in text.split('lämnar')[1] if 'lämnar' in text else False):
+            article["tag"] = "BEKRÄFTAD_FÖRLUST"
+        elif 'klar för' in text and any(kw in text.split('klar för')[1] for kw in ['björklöven', 'löven'] if 'klar för' in text):
+            article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
+        elif 'lämnar' in text:
+            article["tag"] = "BEKRÄFTAD_FÖRLUST"
+    
+    if any(kw in text for kw in ['förlänger', 'förlängde', 'förlängd']):
+        article["tag"] = "KONTRAKTSFÖRLÄNGNING"
+    
+    return article
 
 def deduplicate_articles(scraped, baseline):
     seen = set()
@@ -82,6 +126,9 @@ def get_silly_season():
     for i, article in enumerate(new_articles):
         article["id"] = f"scraped-{i}"
         article["scraped"] = True
+        
+        # Reclassify articles that Gemini incorrectly tagged as ÖVRIGT
+        reclassify_tag(article)
         
         # Om tiden saknas, försök extrahera den eller sätt aktuell tid
         if "time" not in article:
