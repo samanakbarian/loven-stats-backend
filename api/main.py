@@ -37,50 +37,56 @@ def health_check():
 def normalize_title(title):
     return re.sub(r'[^\wåäö\s]', '', title.lower()).strip()
 
-# Keyword-based fallback classification for articles that Gemini incorrectly tagged as ÖVRIGT
-TRANSFER_KEYWORDS = {
-    'BEKRÄFTAT_NYFÖRVÄRV': ['nyförvärv', 'klar för björklöven', 'skrivit på', 'signerar', 'värvning', 'ansluter till björklöven', 'ansluter till löven'],
-    'BEKRÄFTAD_FÖRLUST': ['lämnar björklöven', 'lämnar löven', 'massflytt från björklöven', 'massflykt från björklöven', 'tackar av', 'följer inte med'],
-    'KONTRAKTSFÖRLÄNGNING': ['förlänger med björklöven', 'förlängde med björklöven', 'förlänger med löven', 'förlängde med löven', 'nytt kontrakt med björklöven', 'stannar i löven', 'stannar i björklöven'],
-    'HETT_RYKTE': ['rykte', 'ryktas till björklöven', 'ryktas till löven', 'intresse för', 'uppges', 'spekuleras', 'sillyrummet'],
-}
 
 def reclassify_tag(article):
-    """Keyword-based fallback: reclassifies ÖVRIGT articles that clearly are transfer news."""
+    """
+    Conservative keyword-based fallback: only reclassifies ÖVRIGT articles where
+    the TITLE clearly indicates a direct Björklöven transfer action.
+    
+    Gemini is usually right to tag things ÖVRIGT — we only override when the title
+    unambiguously is about a player joining/leaving/extending with Björklöven.
+    """
     tag = article.get("tag", "ÖVRIGT")
     if tag != "ÖVRIGT":
         return article
     
-    text = (article.get("title", "") + " " + article.get("body", "")).lower()
+    title = article.get("title", "").lower()
     
-    # Check if the article is about a player leaving Björklöven specifically
-    is_bjorkloven_subject = any(kw in text for kw in ['björklöven', 'bjorkloven', 'löven'])
-    if not is_bjorkloven_subject:
+    # Only reclassify based on TITLE, not body (body often mentions Björklöven in passing)
+    title_mentions_bjorkloven = any(kw in title for kw in ['björklöven', 'bjorkloven'])
+    # Be careful with 'löven' — too short, matches 'slöven', 'Gullöven' etc.
+    # Only match ' löven' or start-of-string 'löven'
+    if not title_mentions_bjorkloven:
+        if title.startswith('löven') or ' löven' in title:
+            title_mentions_bjorkloven = True
+    
+    if not title_mentions_bjorkloven:
         return article
     
-    # Check contract extensions FIRST (highest priority — "förlängde" + "skrivit på" should be extension, not signing)
-    if any(kw in text for kw in ['förlänger', 'förlängde', 'förlängd']):
+    # Exclude "tidigare Björklöven-spelaren" / "ex-Björklöven" patterns (former players, not current squad)
+    if any(kw in title for kw in ['tidigare', 'ex-', 'f.d.', 'före detta', 'forna']):
+        return article
+    
+    # Now check for specific transfer actions IN THE TITLE tied to Björklöven
+    # "X förlänger/förlängde med Björklöven"
+    if any(kw in title for kw in ['förlänger', 'förlängde', 'förlängd']):
         article["tag"] = "KONTRAKTSFÖRLÄNGNING"
         return article
     
-    # Check for direct transfer keywords combined with Björklöven context
-    for new_tag, keywords in TRANSFER_KEYWORDS.items():
-        if any(kw in text for kw in keywords):
-            article["tag"] = new_tag
-            return article
+    # "X lämnar Björklöven" / "massflykt från Björklöven"  
+    if any(phrase in title for phrase in ['lämnar björklöven', 'lämnar löven', 'från björklöven', 'från löven']):
+        article["tag"] = "BEKRÄFTAD_FÖRLUST"
+        return article
     
-    # Looser matching: "lämnar" + björklöven context
-    if any(kw in text for kw in ['lämnar', 'klar för']):
-        # Check if the leaving/joining is about Björklöven or another team
-        # "X lämnar Björklöven" = BEKRÄFTAD_FÖRLUST
-        # "X lämnar Y — klar för Björklöven" = BEKRÄFTAT_NYFÖRVÄRV 
-        if 'lämnar' in text and ('björklöven' in text.split('lämnar')[1] if 'lämnar' in text else False):
-            article["tag"] = "BEKRÄFTAD_FÖRLUST"
-        elif 'klar för' in text and any(kw in text.split('klar för')[1] for kw in ['björklöven', 'löven'] if 'klar för' in text):
-            article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
-        elif 'lämnar' in text:
-            article["tag"] = "BEKRÄFTAD_FÖRLUST"
+    # "X klar för Björklöven" / "X ansluter till Björklöven" / "nyförvärv"
+    if any(phrase in title for phrase in ['klar för björklöven', 'klar för löven', 'ansluter till björklöven', 'ansluter till löven']):
+        article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
+        return article
+    if 'nyförvärv' in title and title_mentions_bjorkloven:
+        article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
+        return article
     
+    # Don't reclassify anything else — trust Gemini's judgment
     return article
 
 def deduplicate_articles(scraped, baseline):
