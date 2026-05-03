@@ -23,13 +23,18 @@ Björklöven vann HockeyAllsvenskan 25/26 och spelar i **SHL säsongen 26/27** m
 - [ ] Auto-refresh var 5:e minut i frontend
 - [ ] AI-sentimentmätare per rykte (0–100%)
 
-### 1B. Data Warehouse Setup
-- [ ] Skapa BigQuery-datasets (`raw_sportradar`, `raw_eliteprospects`, `raw_content`, `loven_staging`, `loven_marts`, `loven_ai`)
-- [ ] Installera dbt-bigquery
-- [ ] Initiera dbt-projekt i `loven-stats-backend/dbt/`
-- [ ] Skapa staging-modeller (parsa befintlig GCS-data)
-- [ ] Skapa mart-modeller (stjärnschema: facts + dims)
-- [ ] Köra `dbt build` → verifiera end-to-end
+### 1B. Data Warehouse Setup ✅ GRUNDLAGT
+- [x] Skapa BigQuery-datasets (`raw_sportradar`, `raw_eliteprospects`, `raw_content`, `loven_staging`, `loven_marts`, `loven_ai`)
+- [x] Installera dbt-bigquery (Python 3.12 venv i `slutspel/dbt-venv/`)
+- [x] Initiera dbt-projekt i `slutspel/dbt/`
+- [x] Skapa staging-modeller (`stg_sr_matches`, `stg_sr_events`, `stg_sr_standings`)
+- [x] Skapa mart-modeller (`dim_matches` 199 rader, `dim_teams` 14 lag, `dim_seasons` 1 säsong)
+- [x] Köra `dbt build` → 6/6 modeller PASS, 6/6 tester PASS
+- [x] Ladda rå-JSON (200 summaries, 1 timeline, standings) från GCS till BigQuery
+- [ ] `dim_players` — behöver spelardata från timelines/EP
+- [ ] `fact_match_events` — behöver fler timelines
+- [ ] `fact_player_game_stats` — beror på fact_match_events
+- [ ] `fact_on_ice` — behöver lineup-data (SHL only)
 
 ### 1C. Roster → Riktig Data
 - [ ] Nytt API-endpoint: `GET /api/v1/roster`

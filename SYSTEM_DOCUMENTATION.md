@@ -155,12 +155,18 @@
 - GCS-filer namnges med `%Y%m%d_%H%M%S`, sorteras på `blob.updated` timestamp
 - Frontend (old + v2) visar live-data
 
-### 6.2. Data Warehouse Design (Maj 2026) 📐
+### 6.2. Data Warehouse & dbt (Maj 2026) ✅
+- 6 BigQuery-datasets skapade (`raw_sportradar`, `raw_eliteprospects`, `raw_content`, `loven_staging`, `loven_marts`, `loven_ai`)
 - Stjärnschema designat i `docs/DATA_WAREHOUSE_DESIGN.md`
 - Stödjer: Basic stats → Corsi/Fenwick → xG → AI (Gemini)
 - Multi-source: Sportradar + EliteProspects + Scrapers
 - Multi-league: SHL + HA + J20
 - Player ID Crosswalk löser matchning Sportradar ↔ EP
+- dbt-projekt med Python 3.12 venv (`slutspel/dbt/`)
+  - 3 staging-modeller: `stg_sr_matches`, `stg_sr_events`, `stg_sr_standings`
+  - 3 mart-modeller: `dim_matches` (199 matcher), `dim_teams` (14 lag), `dim_seasons`
+  - 6/6 modeller PASS, 6/6 tester PASS
+- Rådata laddad: 200 summaries + 1 timeline + standings → BigQuery
 
 ### 6.3. Frontend 2.0 (Pågående)
 - React/Vite/TypeScript med Zustand state management
@@ -177,4 +183,5 @@
 | Systemdokumentation | `SYSTEM_DOCUMENTATION.md` (båda repos) | Detta dokument |
 | Data Warehouse Design | `loven-stats-backend/docs/DATA_WAREHOUSE_DESIGN.md` | Fullständigt stjärnschema |
 | Roadmap | `loven-stats-backend/docs/ROADMAP.md` | Fasad plan med milstolpar |
+| Affärsmodell | `loven-stats-backend/docs/BUSINESS_MODEL.md` | Monetisering & intäktsströmmar |
 | Frontend 2.0 Spec | `slutspel/FRONTEND_2.0_SPECS.md` | UX/UI-krav och teknisk stack |
