@@ -73,13 +73,19 @@ def reclassify_tag(article):
         article["tag"] = "KONTRAKTSFÖRLÄNGNING"
         return article
     
-    # "X lämnar Björklöven" / "massflykt från Björklöven"  
-    if any(phrase in title for phrase in ['lämnar björklöven', 'lämnar löven', 'från björklöven', 'från löven']):
+    # "X lämnar Björklöven" / "massflykt från Björklöven" (also handle missing spaces from HTML parsing)
+    if any(phrase in title for phrase in [
+        'lämnar björklöven', 'lämnarbjörklöven', 'lämnar löven', 'lämnarlöven',
+        'från björklöven', 'frånbjörklöven', 'från löven', 'frånlöven',
+    ]):
         article["tag"] = "BEKRÄFTAD_FÖRLUST"
         return article
     
     # "X klar för Björklöven" / "X ansluter till Björklöven" / "nyförvärv"
-    if any(phrase in title for phrase in ['klar för björklöven', 'klar för löven', 'ansluter till björklöven', 'ansluter till löven']):
+    if any(phrase in title for phrase in [
+        'klar för björklöven', 'klar förbjörklöven', 'klar för löven', 'klar förlöven',
+        'ansluter till björklöven', 'ansluter tillbjörklöven', 'ansluter till löven',
+    ]):
         article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
         return article
     if 'nyförvärv' in title and title_mentions_bjorkloven:
