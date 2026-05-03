@@ -58,16 +58,16 @@ def reclassify_tag(article):
     if not is_bjorkloven_subject:
         return article
     
+    # Check contract extensions FIRST (highest priority — "förlängde" + "skrivit på" should be extension, not signing)
+    if any(kw in text for kw in ['förlänger', 'förlängde', 'förlängd']):
+        article["tag"] = "KONTRAKTSFÖRLÄNGNING"
+        return article
+    
     # Check for direct transfer keywords combined with Björklöven context
     for new_tag, keywords in TRANSFER_KEYWORDS.items():
         if any(kw in text for kw in keywords):
             article["tag"] = new_tag
             return article
-    
-    # Check contract extensions first (high priority — don't misclassify as departures)
-    if any(kw in text for kw in ['förlänger', 'förlängde', 'förlängd']):
-        article["tag"] = "KONTRAKTSFÖRLÄNGNING"
-        return article
     
     # Looser matching: "lämnar" + björklöven context
     if any(kw in text for kw in ['lämnar', 'klar för']):
