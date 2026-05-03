@@ -64,6 +64,11 @@ def reclassify_tag(article):
             article["tag"] = new_tag
             return article
     
+    # Check contract extensions first (high priority — don't misclassify as departures)
+    if any(kw in text for kw in ['förlänger', 'förlängde', 'förlängd']):
+        article["tag"] = "KONTRAKTSFÖRLÄNGNING"
+        return article
+    
     # Looser matching: "lämnar" + björklöven context
     if any(kw in text for kw in ['lämnar', 'klar för']):
         # Check if the leaving/joining is about Björklöven or another team
@@ -75,9 +80,6 @@ def reclassify_tag(article):
             article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
         elif 'lämnar' in text:
             article["tag"] = "BEKRÄFTAD_FÖRLUST"
-    
-    if any(kw in text for kw in ['förlänger', 'förlängde', 'förlängd']):
-        article["tag"] = "KONTRAKTSFÖRLÄNGNING"
     
     return article
 
