@@ -1,0 +1,228 @@
+import functions_framework
+import requests
+from bs4 import BeautifulSoup
+import json
+import logging
+from datetime import datetime
+import os
+from google.cloud import storage
+import vertexai
+from vertexai.generative_models import GenerativeModel, GenerationConfig
+
+logging.basicConfig(level=logging.INFO)
+
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
+PROJECT_ID = "granskaren-d51a1"
+LOCATION = "europe-west1" # Eller us-central1 om det strular
+
+BJORKLOVEN_KEYWORDS = ['björklöven', 'bjorkloven', 'löven', 'björklövens', 'visionite arena', 'lövenbloggen']
+TRANSFER_KEYWORDS = {
+    'BEKRÄFTAT_NYFÖRVÄRV': ['nyförvärv', 'klar för', 'skrivit på', 'signerar', 'värvning', 'ansluter'],
+    'BEKRÄFTAD_FÖRLUST': ['lämnar', 'tackar av', 'inte förlänger', 'klar för annan', 'säljer'],
+    'KONTRAKTSFÖRLÄNGNING': ['förlänger', 'nytt kontrakt', 'skriver nytt'],
+    'HETT_RYKTE': ['rykte', 'ryktas', 'intresse', 'uppges', 'spekuleras'],
+}
+
+def is_relevant(text):
+    text_lower = text.lower()
+    return any(kw in text_lower for kw in BJORKLOVEN_KEYWORDS)
+
+def classify_tag(text):
+    text_lower = text.lower()
+    for tag, keywords in TRANSFER_KEYWORDS.items():
+        if any(kw in text_lower for kw in keywords):
+            return tag
+    return 'ÖVRIGT'
+
+def fetch_url(url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        logging.error(f"Kunde inte hämta {url}: {e}")
+        return None
+
+def analyze_with_gemini(text):
+    """Använder Vertex AI (GenerativeModel) för att klassificera och analysera nyheter."""
+    try:
+        vertexai.init(project=PROJECT_ID, location=LOCATION)
+        model = GenerativeModel("gemini-1.5-flash")
+        
+        prompt = f"""Analysera följande hockeynyhet/rykte med fokus på IF Björklöven:
+"{text}"
+
+Din uppgift är att avgöra om nyheten handlar om Björklövens LAGBYGGE (spelare in, ut, förlängningar, rykten om detta).
+Exempel på vad som INTE är Björklövens lagbygge: En spelare går till ett annat lag men artikeln nämner att han "spelat i Björklöven tidigare", eller att ett annat lag värvar och Björklöven nämns i förbigående. Sådana ska taggas "ÖVRIGT".
+
+Returnera ENBART ett giltigt JSON-objekt med följande nycklar:
+"tag": Välj exakt EN av [BEKRÄFTAT_NYFÖRVÄRV, BEKRÄFTAD_FÖRLUST, KONTRAKTSFÖRLÄNGNING, HETT_RYKTE, ÖVRIGT]. Välj ÖVRIGT om det inte primärt handlar om en spelare till/från Björklöven.
+"sentiment_pct": Siffra 0-100 för hur bra fansen tycker detta är (50 för neutralt/övrigt).
+"pros": Lista med 1-2 korta strängar om fördelar (om tillämpligt).
+"cons": Lista med 1-2 korta strängar om nackdelar (om tillämpligt).
+"impact_type": "positive", "negative" eller null.
+"impact_text": Kort text om påverkan, t.ex. "+25 poäng" eller "-18 min/match", eller null.
+"""
+
+        response = model.generate_content(
+            prompt,
+            generation_config=GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            )
+        )
+        data = json.loads(response.text)
+        # Ensure tag is valid
+        if data.get("tag") not in TRANSFER_KEYWORDS.keys() and data.get("tag") != "ÖVRIGT":
+            data["tag"] = "ÖVRIGT"
+        return data
+    except Exception as e:
+        logging.error(f"Gemini error: {e}")
+        return {"tag": "ÖVRIGT", "sentiment_pct": 50, "pros": ["Analys misslyckades"], "cons": [], "impact_type": None, "impact_text": None}
+
+import concurrent.futures
+
+def process_article(item, source):
+    # Helper to process a single article to allow parallel processing
+    if source == "bjorkloven.com":
+        text = item['text']
+        link = item['link']
+        title = item['text']
+        body = ""
+    elif source == "MrMadhawk (Expressen)":
+        title = item['title']
+        body = item['body']
+        link = item['link']
+        text = title + " " + body
+    elif source == "HockeySverige":
+        title = item['title']
+        body = ""
+        link = item['link']
+        text = title
+    elif source == "EliteProspects":
+        title = item['title']
+        body = item['body']
+        link = item['link']
+        text = body
+        
+    ai_data = analyze_with_gemini(text)
+    tag = ai_data.get("tag", "ÖVRIGT")
+    
+    impact = None
+    if tag != "HETT_RYKTE" and tag != "ÖVRIGT" and ai_data.get("impact_type"):
+         impact = {
+             "type": ai_data.get("impact_type"),
+             "impact_toi": ai_data.get("impact_text"),
+             "impact_points": ai_data.get("impact_text")
+         }
+         
+    return {
+        "title": title,
+        "body": body[:200] if body else "",
+        "source": source,
+        "url": link,
+        "date": datetime.now().isoformat(),
+        "tag": tag,
+        "ai_analysis": ai_data if tag == "HETT_RYKTE" else None,
+        "impact": impact
+    }
+
+def scrape_bjorkloven_official():
+    url = 'https://www.bjorkloven.com/nyheter'
+    html = fetch_url(url)
+    items_to_process = []
+    if not html: return []
+    soup = BeautifulSoup(html, 'html.parser')
+    for item in soup.select('article, .news-item, a'):
+        title_el = item.select_one('h2, h3, .title')
+        text = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
+        link = item.get('href', '') if not title_el else (item.find('a').get('href', '') if item.find('a') else '')
+        if len(text) > 20 and is_relevant(text):
+            full_link = f"https://www.bjorkloven.com{link}" if link and not link.startswith('http') else link
+            items_to_process.append({"text": text, "link": full_link})
+            
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        articles = list(executor.map(lambda i: process_article(i, "bjorkloven.com"), items_to_process))
+    return articles
+
+def scrape_mrmadhawk():
+    url = 'https://www.expressen.se/sok/?q=Björklöven'
+    html = fetch_url(url)
+    items_to_process = []
+    if not html: return []
+    soup = BeautifulSoup(html, 'html.parser')
+    for item in soup.select('a.list-page__item__link'):
+        title_el = item.select_one('h2')
+        if not title_el: continue
+        title = title_el.get_text(strip=True)
+        body = item.select_one('p').get_text(strip=True) if item.select_one('p') else ""
+        link = item.get('href', '')
+        if is_relevant(title + " " + body):
+            full_link = f"https://www.expressen.se{link}" if not link.startswith('http') else link
+            items_to_process.append({"title": title, "body": body, "link": full_link})
+            
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        articles = list(executor.map(lambda i: process_article(i, "MrMadhawk (Expressen)"), items_to_process))
+    return articles
+
+def scrape_hockeysverige():
+    url = 'https://hockeysverige.se/senaste-nytt/'
+    html = fetch_url(url)
+    items_to_process = []
+    if not html: return []
+    soup = BeautifulSoup(html, 'html.parser')
+    for item in soup.select('article, .post, .entry'):
+        title_el = item.select_one('h2, h3, a.entry-title')
+        if not title_el: continue
+        title = title_el.get_text(strip=True)
+        link = title_el.get('href', '') if title_el.name == 'a' else (title_el.find('a').get('href', '') if title_el.find('a') else "")
+        if len(title) > 10 and is_relevant(title):
+            items_to_process.append({"title": title, "link": link})
+            
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        articles = list(executor.map(lambda i: process_article(i, "HockeySverige"), items_to_process))
+    return articles
+
+def scrape_eliteprospects():
+    url = 'https://www.eliteprospects.com/transfers'
+    html = fetch_url(url)
+    items_to_process = []
+    if not html: return []
+    soup = BeautifulSoup(html, 'html.parser')
+    for row in soup.select('div[class*="TransactionsTable_row"]'):
+        text = row.get_text(strip=True)
+        if is_relevant(text):
+            items_to_process.append({
+                "title": f"EP TRANSFER: {text[:50]}...", 
+                "body": text, 
+                "link": "https://www.eliteprospects.com/transfers"
+            })
+            
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        articles = list(executor.map(lambda i: process_article(i, "EliteProspects"), items_to_process))
+    return articles
+
+def save_to_gcs(data):
+    file_name = f"raw/silly_season/scraped_{datetime.now().strftime('%Y%md%H%M%S')}.json"
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(file_name)
+        blob.upload_from_string(json.dumps(data, ensure_ascii=False), content_type='application/json')
+    except Exception as e:
+        logging.error(f"GCS error: {e}")
+
+@functions_framework.http
+def run_scraper(request):
+    logging.info("Startar Silly Season Scraper (VertexAI SDK, Parallellt)...")
+    all_articles = []
+    all_articles.extend(scrape_bjorkloven_official())
+    all_articles.extend(scrape_mrmadhawk())
+    all_articles.extend(scrape_hockeysverige())
+    all_articles.extend(scrape_eliteprospects())
+    unique_articles = {a['url']: a for a in all_articles if a.get('url')}.values()
+    save_to_gcs({"news_feed": list(unique_articles)})
+    return json.dumps({"status": "success", "articles_found": len(unique_articles)}), 200, {'Content-Type': 'application/json'}
