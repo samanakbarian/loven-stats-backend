@@ -4,6 +4,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
+from google.cloud import bigquery
 from datetime import datetime
 
 import re
@@ -25,6 +26,9 @@ app.add_middleware(
 )
 
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
+BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", "")
+BQ_DATASET = os.environ.get("BQ_DATASET", "loven_marts")
+BQ_LOVENLAGET_TABLE = os.environ.get("BQ_LOVENLAGET_TABLE", "mart_lovenlaget_snapshot")
 
 @app.get("/")
 def read_root():
@@ -162,6 +166,145 @@ def get_silly_season():
     baseline["_meta"]["scrapedArticles"] = len(scraped_articles)
     
     return baseline
+
+
+def compute_freshness_status(last_refresh_iso: str | None) -> str:
+    if not last_refresh_iso:
+        return "unknown"
+    try:
+        refreshed_at = datetime.fromisoformat(last_refresh_iso.replace("Z", "+00:00"))
+    except Exception:
+        return "unknown"
+
+    age_seconds = (datetime.now(refreshed_at.tzinfo) - refreshed_at).total_seconds()
+    if age_seconds <= 6 * 3600:
+        return "fresh"
+    if age_seconds <= 24 * 3600:
+        return "stale"
+    return "critical"
+
+
+@app.get("/api/v1/lovenlaget")
+def get_lovenlaget_snapshot():
+    """
+    Startsides-snapshot för nya frontenden.
+    Returnerar komprimerade signaler med konsekvenstext + meta/freshness.
+    """
+    try:
+        bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
+        table_fqn = f"`{bq_client.project}.{BQ_DATASET}.{BQ_LOVENLAGET_TABLE}`"
+        query = f"""
+            select *
+            from {table_fqn}
+            order by snapshot_at desc
+            limit 1
+        """
+        rows = list(bq_client.query(query).result())
+        if rows:
+            row = rows[0]
+            return {
+                "title": "Lövenläget",
+                "season": "2026/2027",
+                "league": row.get("league") or "SHL",
+                "readiness": {
+                    "score": int(row.get("readiness_score") or 0),
+                    "summary": row.get("readiness_summary") or "",
+                },
+                "critical_now": [
+                    row.get("critical_1") or "",
+                    row.get("critical_2") or "",
+                    row.get("critical_3") or "",
+                ],
+                "latest_impact": {
+                    "title": row.get("latest_impact_title") or "Inga nya signaler ännu",
+                    "impact_level": row.get("latest_impact_level") or "medium",
+                    "meaning": row.get("latest_impact_meaning") or "Vi väntar på nya verifierade signaler.",
+                },
+                "squad_status": {
+                    "goalies": row.get("goalies_status") or "bevaka",
+                    "defense": row.get("defense_status") or "bevaka",
+                    "centers": row.get("centers_status") or "bevaka",
+                    "forwards": row.get("forwards_status") or "bevaka",
+                },
+                "economy_status": {
+                    "risk_level": row.get("economy_risk_level") or "okänd",
+                    "budget_pressure": row.get("economy_budget_pressure") or "okänd",
+                    "next_question": row.get("economy_next_question") or "Vad behöver prioriteras nu?",
+                },
+                "meta": {
+                    "schema_version": row.get("schema_version") or "v1",
+                    "generated_at": datetime.utcnow().isoformat() + "Z",
+                    "source_updated_at": row.get("source_updated_at").isoformat() if row.get("source_updated_at") else None,
+                    "freshness_status": row.get("freshness_status") or "unknown",
+                    "new_signals": int(row.get("new_signals") or 0),
+                    "scraped_articles": int(row.get("scraped_articles") or 0),
+                    "expiring_contracts": int(row.get("expiring_contracts") or 0),
+                },
+            }
+    except Exception as e:
+        logging.warning(f"Kunde inte läsa mart_lovenlaget_snapshot från BigQuery, fallback till heuristik: {e}")
+
+    silly = get_silly_season()
+    meta = silly.get("_meta", {})
+    source_updated_at = meta.get("lastRefresh")
+    freshness_status = compute_freshness_status(source_updated_at)
+
+    roster = silly.get("roster", [])
+    departures = silly.get("confirmed_departures", [])
+    signings = silly.get("confirmed_signings", [])
+    expiring = silly.get("expiring_contracts", [])
+
+    gk_count = sum(1 for p in roster if p.get("pos") == "GK")
+    d_count = sum(1 for p in roster if p.get("pos") in ("LD", "RD"))
+    c_count = sum(1 for p in roster if p.get("pos") == "CE")
+    fw_count = sum(1 for p in roster if p.get("pos") in ("LW", "RW", "CE"))
+
+    readiness_score = max(45, min(90, 62 + len(signings) * 2 - max(0, len(departures) - 5)))
+    critical_now = [
+        "Toppback saknas",
+        "Centerdjup osäkert" if c_count < 4 else "Centerdjup behöver spets",
+        "Ekonomiskt tryck måste bevakas",
+    ]
+
+    latest_signal = None
+    if silly.get("news_feed"):
+        latest_signal = silly["news_feed"][0]
+
+    return {
+        "title": "Lövenläget",
+        "season": silly.get("season", "2026/2027"),
+        "league": silly.get("league", "SHL"),
+        "readiness": {
+            "score": readiness_score,
+            "summary": "Nära, men två luckor kan sänka bygget.",
+        },
+        "critical_now": critical_now,
+        "latest_impact": {
+            "title": latest_signal.get("title") if latest_signal else "Inga nya signaler ännu",
+            "impact_level": "high" if len(departures) > len(signings) else "medium",
+            "meaning": "Det här flyttar nålen direkt och påverkar lagbalansen." if latest_signal else "Vi väntar på nya verifierade signaler.",
+        },
+        "squad_status": {
+            "goalies": "stabilt" if gk_count >= 2 else "bevaka",
+            "defense": "kritisk lucka" if d_count < 8 else "bevaka",
+            "centers": "bevaka" if c_count < 4 else "stabilt",
+            "forwards": "stabilt" if fw_count >= 10 else "bevaka",
+        },
+        "economy_status": {
+            "risk_level": "medel",
+            "budget_pressure": "högt",
+            "next_question": "Har klubben råd med två spetsnamn?",
+        },
+        "meta": {
+            "schema_version": "v1",
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "source_updated_at": source_updated_at,
+            "freshness_status": freshness_status,
+            "new_signals": meta.get("newArticles", 0),
+            "scraped_articles": meta.get("scrapedArticles", 0),
+            "expiring_contracts": len(expiring),
+        },
+    }
 
 # @app.get("/api/v1/games/{game_id}/momentum")
 # def get_momentum(game_id: str):

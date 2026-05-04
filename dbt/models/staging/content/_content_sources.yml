@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: raw_content
+    description: "Råtabeller för content/scraper-flöden."
+    database: "{{ env_var('DBT_BIGQUERY_PROJECT', target.project) }}"
+    schema: raw_content
+    tables:
+      - name: silly_articles
+        description: "Normaliserade silly-artiklar från scraper-ingest."

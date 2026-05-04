@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: mart_lovenlaget_snapshot
+    description: "Produktmart för startsidan Lövenläget (snapshot per refresh)."
+    columns:
+      - name: snapshot_id
+        description: "Logisk nyckel {season_id}_{snapshot_at}."
+        tests:
+          - not_null
+          - unique
+
+      - name: snapshot_at
+        description: "Tidpunkt då snapshoten skapades."
+        tests:
+          - not_null
+
+      - name: freshness_status
+        description: "Datans färskhetsstatus."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['fresh', 'stale', 'critical', 'unknown']
+
+      - name: readiness_score
+        description: "Readiness 0-100."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: schema_version
+        description: "Payloadversion för API-kontrakt."
+        tests:
+          - not_null

@@ -395,3 +395,157 @@ BigQuery hanterar miljarder rader. Lagringskostnad: i princip $0.
 | **Game Score** | Composit av G, A, SOG, blocked shots, penalties, faceoffs | fact_player_game_stats |
 | **WAR** | AI-beräknad Wins Above Replacement | ai_player_impact |
 | **GSAx** | `SUM(xGA) - actual_goals_against` per målvakt | fact_match_events + dim_players |
+
+---
+
+## 8. Produktmart för startsidan: `mart_lovenlaget_snapshot`
+
+Detta är första produktstyrda marten för nya frontendens startsida ("Lövenläget").
+Syftet är att ge en snabb, stabil och källspårbar signalbild utan att frontenden behöver
+tolka rådata i runtime.
+
+### 8.1 Grain
+
+En rad per refresh-tillfälle och säsong:
+- `snapshot_at` (TIMESTAMP)
+- `season_id` (STRING)
+
+Primary key (logisk): `snapshot_id = {season_id}_{snapshot_at}`
+
+### 8.2 Kolumner (v1)
+
+Identifiering:
+- `snapshot_id` STRING
+- `snapshot_at` TIMESTAMP
+- `season_id` STRING
+- `league` STRING
+
+Readiness:
+- `readiness_score` INT64
+- `readiness_summary` STRING
+
+Paniknivå:
+- `critical_1` STRING
+- `critical_2` STRING
+- `critical_3` STRING
+
+Senaste impact:
+- `latest_impact_title` STRING
+- `latest_impact_level` STRING (`low|medium|high`)
+- `latest_impact_meaning` STRING
+
+Truppstatus:
+- `goalies_status` STRING
+- `defense_status` STRING
+- `centers_status` STRING
+- `forwards_status` STRING
+
+Ekonomi:
+- `economy_risk_level` STRING
+- `economy_budget_pressure` STRING
+- `economy_next_question` STRING
+
+Freshness/meta:
+- `source_updated_at` TIMESTAMP
+- `freshness_status` STRING (`fresh|stale|critical|unknown`)
+- `new_signals` INT64
+- `scraped_articles` INT64
+- `schema_version` STRING
+
+### 8.3 Källdependencies (v1)
+
+Primärt:
+- `raw_content` / silly-scraper-output (nyheter + metadata)
+- `dim_contracts` / roster-status (när tillgängligt)
+
+Temporär fallback:
+- baseline-data om upstream-källa saknas
+
+### 8.4 Materialisering
+
+Rekommenderat:
+- dbt `incremental` i `loven_marts`
+- partitionering på `DATE(snapshot_at)`
+- klustring på `season_id`, `freshness_status`
+
+### 8.5 SQL-skiss (dbt)
+
+```sql
+{{ config(
+    materialized='incremental',
+    unique_key='snapshot_id',
+    partition_by={"field": "snapshot_at", "data_type": "timestamp"},
+    cluster_by=["season_id", "freshness_status"]
+) }}
+
+with signals as (
+  select
+    current_timestamp() as snapshot_at,
+    'sr:season:2026_2027_shl' as season_id,
+    'SHL' as league,
+    68 as readiness_score,
+    'Nära, men två luckor kan sänka bygget.' as readiness_summary,
+    'Toppback saknas' as critical_1,
+    'Centerdjup osäkert' as critical_2,
+    'Ekonomiskt tryck måste bevakas' as critical_3
+),
+meta as (
+  select
+    max(source_updated_at) as source_updated_at,
+    sum(new_articles) as new_signals,
+    sum(scraped_articles) as scraped_articles
+  from {{ ref('stg_articles') }}
+)
+select
+  concat(signals.season_id, '_', format_timestamp('%Y%m%d%H%M%S', signals.snapshot_at)) as snapshot_id,
+  signals.*,
+  'Hög påverkan på lagbalansen.' as latest_impact_meaning,
+  'medium' as latest_impact_level,
+  null as latest_impact_title,
+  'stabilt' as goalies_status,
+  'kritisk lucka' as defense_status,
+  'bevaka' as centers_status,
+  'stabilt' as forwards_status,
+  'medel' as economy_risk_level,
+  'högt' as economy_budget_pressure,
+  'Har klubben råd med två spetsnamn?' as economy_next_question,
+  meta.source_updated_at,
+  case
+    when timestamp_diff(current_timestamp(), meta.source_updated_at, hour) <= 6 then 'fresh'
+    when timestamp_diff(current_timestamp(), meta.source_updated_at, hour) <= 24 then 'stale'
+    when meta.source_updated_at is null then 'unknown'
+    else 'critical'
+  end as freshness_status,
+  meta.new_signals,
+  meta.scraped_articles,
+  'v1' as schema_version
+from signals
+cross join meta
+```
+
+### 8.6 API-koppling
+
+Endpoint:
+- `GET /api/v1/lovenlaget`
+
+Princip:
+- endpoint ska läsa senaste raden från `mart_lovenlaget_snapshot`
+- fallback till heuristik endast om mart saknas
+- fallback ska loggas och exponera `freshness_status=unknown`
+
+### 8.7 Datakvalitetstester (dbt)
+
+Minimikrav:
+- `snapshot_id` unique + not null
+- `snapshot_at` not null
+- `freshness_status` in (`fresh`, `stale`, `critical`, `unknown`)
+- `readiness_score` between 0 and 100
+- `schema_version` not null
+
+### 8.8 Definition of Done för v1
+
+En första version är klar när:
+1. mart byggs schemalagt
+2. endpoint läser från mart i produktion
+3. frontenden visar martens freshness/status
+4. fallback-väg är dokumenterad och mätbar

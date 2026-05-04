@@ -15,6 +15,44 @@
   - B2B-licensiering av datadrivna widgets till lokalmedia (ex. VK).
   - Relevanta affiliate-länkar (t.ex. boka bord på O'Learys inför match).
 
+## 1.1 Roadmap-synk mellan repos
+
+Roadmapen i `loven-stats-backend/docs/ROADMAP.md` och
+`slutspel/docs/ROADMAP_PRODUCT_2026.md` ska vara innehallsmassigt synkade.
+Om roadmaparna avviker galler senaste synkade version daterad 2026-05-04 tills ny synk ar publicerad i bada repor.
+
+## 1.2 UX-styrning for frontendupplevelsen
+
+Styrande UX-spec finns i `slutspel/docs/UX_REBUILD_2026.md`.
+Backend-roadmap och API-kontrakt ska prioritera dataleveranser som stodjer den upplevelsen
+(Lovenlaget, panikniva forst, "vad betyder det?", djupanalys pa klick, tydlig freshness).
+
+## 1.3 Dokumenterade arkitekturavvikelser (obligatoriskt)
+
+Nedan listas aktiva avvikelser fran tidigare planerad malarkitektur.
+
+### ADV-2026-05-04-01: `GET /api/v1/lovenlaget` inford fore full warehouse-kedja
+
+- Beslut: endpointet levererar produktsignal nu, med mart-first och fallback till heuristik.
+- Avvikelse: tidigare ideal var "warehouse forst, endpoint efter". Nu kor vi "endpoint tidigt" for att driva produktbygget.
+- Motiv: frontend v2 behovde en stabil signalyta direkt for att bygga Laget-floden.
+- Teknik:
+  - Primarkalla: BigQuery `loven_marts.mart_lovenlaget_snapshot`
+  - Fallback: existerande silly-baseline + enkel regeltolkning
+- Risk: tillfallig skillnad mellan fallbacklogik och martlogik.
+- Plan for normalisering: fallback ska tas bort nar marten ar schemalagd och verifierad i produktion.
+
+### ADV-2026-05-04-02: dbt bootstrap skapad i backend innan full model tree
+
+- Beslut: minimal dbt-struktur skapad i `loven-stats-backend/dbt/` med produktmart + tester.
+- Avvikelse: tidigare dokumentation beskrev full model tree som malbild men repositoryn saknade korbar bas.
+- Motiv: ga fran "design-only" till korbar warehouseleverans omedelbart.
+- Teknik:
+  - `dbt_project.yml`, `packages.yml`, produktmart, staging for silly
+  - toggle `use_real_silly_source` for stegvis overgang
+- Risk: bootstrapvarder finns kvar tills stagingkallor ar komplett etablerade.
+- Plan for normalisering: ersatt bootstrap med full staging->marts-kedja och schema-tester pa kallsidan.
+
 ---
 
 ## 2. Repositories
