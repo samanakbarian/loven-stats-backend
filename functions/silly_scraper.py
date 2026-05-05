@@ -22,6 +22,7 @@ AI_DISABLED = os.environ.get("AI_DISABLED", "false").lower() == "true"
 MAX_GEMINI_CALLS_PER_RUN = int(os.environ.get("MAX_GEMINI_CALLS_PER_RUN", "5"))
 
 BJORKLOVEN_KEYWORDS = ['björklöven', 'bjorkloven', 'löven', 'björklövens', 'visionite arena', 'lövenbloggen']
+STRICT_BJORKLOVEN_TOKENS = ['bjorkloven', 'björklöven', '/bjorkloven', '/björklöven']
 TRANSFER_KEYWORDS = {
     'BEKRÄFTAT_NYFÖRVÄRV': ['nyförvärv', 'klar för', 'skrivit på', 'signerar', 'värvning', 'ansluter'],
     'BEKRÄFTAD_FÖRLUST': ['lämnar', 'tackar av', 'inte förlänger', 'klar för annan', 'säljer'],
@@ -32,6 +33,10 @@ TRANSFER_KEYWORDS = {
 def is_relevant(text):
     text_lower = text.lower()
     return any(kw in text_lower for kw in BJORKLOVEN_KEYWORDS)
+
+def is_relevant_strict(title="", body="", link=""):
+    haystack = f"{title} {body} {link}".lower()
+    return any(token in haystack for token in STRICT_BJORKLOVEN_TOKENS)
 
 def classify_tag(text):
     text_lower = text.lower()
@@ -252,14 +257,16 @@ def scrape_hockeysverige():
     items_to_process = []
     if not html: return []
     soup = BeautifulSoup(html, 'html.parser')
+    raw_candidates = 0
     for item in soup.select('article, .post, .entry'):
         title_el = item.select_one('h2, h3, a.entry-title')
         if not title_el: continue
         title = title_el.get_text(strip=True)
         link = title_el.get('href', '') if title_el.name == 'a' else (title_el.find('a').get('href', '') if title_el.find('a') else "")
-        if len(title) > 10 and is_relevant(title):
+        raw_candidates += 1
+        if len(title) > 10 and is_relevant_strict(title=title, link=link):
             items_to_process.append({"title": title, "link": link})
-            
+    logging.info("HockeySverige parsed=%s accepted=%s", raw_candidates, len(items_to_process))
     return items_to_process
 
 def scrape_hockeynews():
@@ -270,6 +277,7 @@ def scrape_hockeynews():
         return []
 
     soup = BeautifulSoup(html, 'html.parser')
+    raw_candidates = 0
     for item in soup.select('article, .post, .entry'):
         title_el = item.select_one('h2, h3, a, .entry-title, [class*=\"title\"]')
         if not title_el:
@@ -278,8 +286,10 @@ def scrape_hockeynews():
         if len(title) < 10:
             continue
         link = title_el.get('href', '') if title_el.name == 'a' else (title_el.find('a').get('href', '') if title_el.find('a') else "")
-        if is_relevant(title):
+        raw_candidates += 1
+        if is_relevant_strict(title=title, link=link):
             items_to_process.append({"title": title, "link": link})
+    logging.info("HockeyNews parsed=%s accepted=%s", raw_candidates, len(items_to_process))
     return items_to_process
 
 def scrape_eliteprospects():
