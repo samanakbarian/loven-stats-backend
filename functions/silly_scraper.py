@@ -20,6 +20,14 @@ MAX_CACHE_ITEMS = 20000
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 AI_DISABLED = os.environ.get("AI_DISABLED", "false").lower() == "true"
 MAX_GEMINI_CALLS_PER_RUN = int(os.environ.get("MAX_GEMINI_CALLS_PER_RUN", "5"))
+MAX_ITEMS_PER_SOURCE_DEFAULT = int(os.environ.get("MAX_ITEMS_PER_SOURCE_DEFAULT", "8"))
+MAX_ITEMS_PER_SOURCE = {
+    "bjorkloven.com": int(os.environ.get("MAX_ITEMS_BJORKLOVEN", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
+    "MrMadhawk (Expressen)": int(os.environ.get("MAX_ITEMS_EXPRESSEN", "8")),
+    "HockeySverige": int(os.environ.get("MAX_ITEMS_HOCKEYSVERIGE", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
+    "HockeyNews": int(os.environ.get("MAX_ITEMS_HOCKEYNEWS", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
+    "EliteProspects": int(os.environ.get("MAX_ITEMS_ELITEPROSPECTS", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
+}
 
 BJORKLOVEN_KEYWORDS = ['björklöven', 'bjorkloven', 'löven', 'björklövens', 'visionite arena', 'lövenbloggen']
 STRICT_BJORKLOVEN_TOKENS = ['bjorkloven', 'björklöven', '/bjorkloven', '/björklöven']
@@ -345,12 +353,20 @@ def run_scraper(request):
         len(eliteprospects_items),
     )
 
+    def process_source(items, source_name, executor):
+        processed = [a for a in executor.map(lambda i: process_article(i, source_name, ai_cache, run_seen, stats), items) if a]
+        limit = MAX_ITEMS_PER_SOURCE.get(source_name, MAX_ITEMS_PER_SOURCE_DEFAULT)
+        capped = processed[:limit]
+        logging.info("Source %s accepted=%s capped=%s limit=%s", source_name, len(processed), len(capped), limit)
+        return capped
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "bjorkloven.com", ai_cache, run_seen, stats), bjorkloven_items) if a])
-        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "MrMadhawk (Expressen)", ai_cache, run_seen, stats), mrmadhawk_items) if a])
-        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "HockeySverige", ai_cache, run_seen, stats), hockeysverige_items) if a])
-        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "HockeyNews", ai_cache, run_seen, stats), hockeynews_items) if a])
-        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "EliteProspects", ai_cache, run_seen, stats), eliteprospects_items) if a])
+        # Keep source order deterministic but cap each source so new hits from other sources surface.
+        all_articles.extend(process_source(bjorkloven_items, "bjorkloven.com", executor))
+        all_articles.extend(process_source(mrmadhawk_items, "MrMadhawk (Expressen)", executor))
+        all_articles.extend(process_source(hockeysverige_items, "HockeySverige", executor))
+        all_articles.extend(process_source(hockeynews_items, "HockeyNews", executor))
+        all_articles.extend(process_source(eliteprospects_items, "EliteProspects", executor))
 
     unique_articles = {a['url']: a for a in all_articles if a.get('url')}.values()
     save_to_gcs({"news_feed": list(unique_articles)})
