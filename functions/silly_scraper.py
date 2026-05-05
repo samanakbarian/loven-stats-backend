@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime
 import os
+import hashlib
 from google.cloud import storage
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
@@ -14,6 +15,8 @@ logging.basicConfig(level=logging.INFO)
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 PROJECT_ID = "granskaren-d51a1"
 LOCATION = "europe-west1" # Eller us-central1 om det strular
+CACHE_BLOB_NAME = "raw/silly_season/article_ai_cache.json"
+MAX_CACHE_ITEMS = 20000
 
 BJORKLOVEN_KEYWORDS = ['björklöven', 'bjorkloven', 'löven', 'björklövens', 'visionite arena', 'lövenbloggen']
 TRANSFER_KEYWORDS = {
@@ -45,6 +48,49 @@ def fetch_url(url):
     except Exception as e:
         logging.error(f"Kunde inte hämta {url}: {e}")
         return None
+
+def normalize_text(value):
+    return (value or "").strip().lower()
+
+def make_fingerprint(source, title, body, url):
+    payload = "||".join([
+        normalize_text(source),
+        normalize_text(url),
+        normalize_text(title),
+        normalize_text(body),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+def load_ai_cache():
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(CACHE_BLOB_NAME)
+        if not blob.exists():
+            return {}
+        data = json.loads(blob.download_as_string())
+        if isinstance(data, dict):
+            return data
+        return {}
+    except Exception as e:
+        logging.warning(f"Kunde inte läsa AI-cache: {e}")
+        return {}
+
+def save_ai_cache(cache):
+    try:
+        if len(cache) > MAX_CACHE_ITEMS:
+            sorted_items = sorted(
+                cache.items(),
+                key=lambda kv: kv[1].get("updated_at", ""),
+                reverse=True
+            )[:MAX_CACHE_ITEMS]
+            cache = dict(sorted_items)
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(CACHE_BLOB_NAME)
+        blob.upload_from_string(json.dumps(cache, ensure_ascii=False), content_type='application/json')
+    except Exception as e:
+        logging.warning(f"Kunde inte spara AI-cache: {e}")
 
 def analyze_with_gemini(text):
     """Använder Vertex AI (GenerativeModel) för att klassificera och analysera nyheter."""
@@ -85,7 +131,20 @@ Returnera ENBART ett giltigt JSON-objekt med följande nycklar:
 
 import concurrent.futures
 
-def process_article(item, source):
+def get_ai_analysis_cached(fingerprint, text, ai_cache, stats):
+    cached = ai_cache.get(fingerprint)
+    if cached and isinstance(cached, dict):
+        stats["cache_hits"] += 1
+        return cached.get("analysis", {"tag": "ÖVRIGT", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None})
+    stats["gemini_calls"] += 1
+    analysis = analyze_with_gemini(text)
+    ai_cache[fingerprint] = {
+        "analysis": analysis,
+        "updated_at": datetime.utcnow().isoformat() + "Z"
+    }
+    return analysis
+
+def process_article(item, source, ai_cache, run_seen, stats):
     # Helper to process a single article to allow parallel processing
     if source == "bjorkloven.com":
         text = item['text']
@@ -107,8 +166,14 @@ def process_article(item, source):
         body = item['body']
         link = item['link']
         text = body
-        
-    ai_data = analyze_with_gemini(text)
+
+    dedupe_key = f"{normalize_text(source)}::{normalize_text(link)}::{normalize_text(title)}"
+    if dedupe_key in run_seen:
+        return None
+    run_seen.add(dedupe_key)
+
+    fingerprint = make_fingerprint(source, title, body, link)
+    ai_data = get_ai_analysis_cached(fingerprint, text, ai_cache, stats)
     tag = ai_data.get("tag", "ÖVRIGT")
     
     impact = None
@@ -144,9 +209,7 @@ def scrape_bjorkloven_official():
             full_link = f"https://www.bjorkloven.com{link}" if link and not link.startswith('http') else link
             items_to_process.append({"text": text, "link": full_link})
             
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        articles = list(executor.map(lambda i: process_article(i, "bjorkloven.com"), items_to_process))
-    return articles
+    return items_to_process
 
 def scrape_mrmadhawk():
     url = 'https://www.expressen.se/sok/?q=Björklöven'
@@ -164,9 +227,7 @@ def scrape_mrmadhawk():
             full_link = f"https://www.expressen.se{link}" if not link.startswith('http') else link
             items_to_process.append({"title": title, "body": body, "link": full_link})
             
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        articles = list(executor.map(lambda i: process_article(i, "MrMadhawk (Expressen)"), items_to_process))
-    return articles
+    return items_to_process
 
 def scrape_hockeysverige():
     url = 'https://hockeysverige.se/senaste-nytt/'
@@ -182,9 +243,27 @@ def scrape_hockeysverige():
         if len(title) > 10 and is_relevant(title):
             items_to_process.append({"title": title, "link": link})
             
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        articles = list(executor.map(lambda i: process_article(i, "HockeySverige"), items_to_process))
-    return articles
+    return items_to_process
+
+def scrape_hockeynews():
+    url = 'https://www.hockeynews.se/'
+    html = fetch_url(url)
+    items_to_process = []
+    if not html:
+        return []
+
+    soup = BeautifulSoup(html, 'html.parser')
+    for item in soup.select('article, .post, .entry'):
+        title_el = item.select_one('h2, h3, a, .entry-title, [class*=\"title\"]')
+        if not title_el:
+            continue
+        title = title_el.get_text(strip=True)
+        if len(title) < 10:
+            continue
+        link = title_el.get('href', '') if title_el.name == 'a' else (title_el.find('a').get('href', '') if title_el.find('a') else "")
+        if is_relevant(title):
+            items_to_process.append({"title": title, "link": link})
+    return items_to_process
 
 def scrape_eliteprospects():
     url = 'https://www.eliteprospects.com/transfers'
@@ -201,9 +280,7 @@ def scrape_eliteprospects():
                 "link": "https://www.eliteprospects.com/transfers"
             })
             
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        articles = list(executor.map(lambda i: process_article(i, "EliteProspects"), items_to_process))
-    return articles
+    return items_to_process
 
 def save_to_gcs(data):
     file_name = f"raw/silly_season/scraped_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -218,11 +295,30 @@ def save_to_gcs(data):
 @functions_framework.http
 def run_scraper(request):
     logging.info("Startar Silly Season Scraper (VertexAI SDK, Parallellt)...")
+    ai_cache = load_ai_cache()
+    run_seen = set()
+    stats = {"gemini_calls": 0, "cache_hits": 0}
     all_articles = []
-    all_articles.extend(scrape_bjorkloven_official())
-    all_articles.extend(scrape_mrmadhawk())
-    all_articles.extend(scrape_hockeysverige())
-    all_articles.extend(scrape_eliteprospects())
+    bjorkloven_items = scrape_bjorkloven_official()
+    mrmadhawk_items = scrape_mrmadhawk()
+    hockeysverige_items = scrape_hockeysverige()
+    hockeynews_items = scrape_hockeynews()
+    eliteprospects_items = scrape_eliteprospects()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "bjorkloven.com", ai_cache, run_seen, stats), bjorkloven_items) if a])
+        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "MrMadhawk (Expressen)", ai_cache, run_seen, stats), mrmadhawk_items) if a])
+        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "HockeySverige", ai_cache, run_seen, stats), hockeysverige_items) if a])
+        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "HockeyNews", ai_cache, run_seen, stats), hockeynews_items) if a])
+        all_articles.extend([a for a in executor.map(lambda i: process_article(i, "EliteProspects", ai_cache, run_seen, stats), eliteprospects_items) if a])
+
     unique_articles = {a['url']: a for a in all_articles if a.get('url')}.values()
     save_to_gcs({"news_feed": list(unique_articles)})
-    return json.dumps({"status": "success", "articles_found": len(unique_articles)}), 200, {'Content-Type': 'application/json'}
+    save_ai_cache(ai_cache)
+    logging.info(f"Silly scraper klar. Articles={len(unique_articles)} Gemini calls={stats['gemini_calls']} cache hits={stats['cache_hits']}")
+    return json.dumps({
+        "status": "success",
+        "articles_found": len(unique_articles),
+        "gemini_calls": stats["gemini_calls"],
+        "cache_hits": stats["cache_hits"]
+    }), 200, {'Content-Type': 'application/json'}
