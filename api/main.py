@@ -122,6 +122,38 @@ def compute_new_since_previous(current_scraped, previous_scraped):
     previous_ids = {article_identity(i) for i in (previous_scraped or [])}
     return [i for i in (current_scraped or []) if article_identity(i) not in previous_ids]
 
+def load_recent_silly_snapshots(limit=5):
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    blobs = list(bucket.list_blobs(prefix="raw/silly_season/scraped_"))
+    if not blobs:
+        return []
+    sorted_blobs = sorted(blobs, key=lambda b: b.updated or b.time_created, reverse=True)[:limit]
+    snapshots = []
+    for blob in sorted_blobs:
+        try:
+            payload = json.loads(blob.download_as_string())
+            feed = payload.get("news_feed", [])
+            source_counts = {}
+            for item in feed:
+                source = item.get("source") or "unknown"
+                source_counts[source] = source_counts.get(source, 0) + 1
+            snapshots.append({
+                "blob": blob.name,
+                "updated_at": (blob.updated.isoformat() if blob.updated else None),
+                "articles": len(feed),
+                "source_counts": source_counts,
+            })
+        except Exception as e:
+            snapshots.append({
+                "blob": blob.name,
+                "updated_at": (blob.updated.isoformat() if blob.updated else None),
+                "articles": None,
+                "error": str(e),
+                "source_counts": {},
+            })
+    return snapshots
+
 @app.get("/api/silly-season")
 def get_silly_season():
     """
@@ -184,6 +216,31 @@ def get_silly_season():
     baseline["_meta"]["scrapedArticles"] = len(scraped_articles)
     
     return baseline
+
+@app.get("/api/silly-season/ops")
+def get_silly_ops():
+    """
+    Intern driftvy för silly-pipeline.
+    Returnerar senaste snapshot-körningar från GCS utan att påverka publik UI.
+    """
+    try:
+        snapshots = load_recent_silly_snapshots(limit=5)
+        latest_updated = snapshots[0]["updated_at"] if snapshots else None
+        return {
+            "status": "ok",
+            "latest_updated_at": latest_updated,
+            "freshness_status": compute_freshness_status(latest_updated),
+            "runs": snapshots,
+        }
+    except Exception as e:
+        logging.error(f"Kunde inte läsa silly ops-data: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "latest_updated_at": None,
+            "freshness_status": "unknown",
+            "runs": [],
+        }
 
 
 def compute_freshness_status(last_refresh_iso: str | None) -> str:
