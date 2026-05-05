@@ -17,6 +17,9 @@ PROJECT_ID = "granskaren-d51a1"
 LOCATION = "europe-west1" # Eller us-central1 om det strular
 CACHE_BLOB_NAME = "raw/silly_season/article_ai_cache.json"
 MAX_CACHE_ITEMS = 20000
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+AI_DISABLED = os.environ.get("AI_DISABLED", "false").lower() == "true"
+MAX_GEMINI_CALLS_PER_RUN = int(os.environ.get("MAX_GEMINI_CALLS_PER_RUN", "5"))
 
 BJORKLOVEN_KEYWORDS = ['björklöven', 'bjorkloven', 'löven', 'björklövens', 'visionite arena', 'lövenbloggen']
 TRANSFER_KEYWORDS = {
@@ -96,7 +99,7 @@ def analyze_with_gemini(text):
     """Använder Vertex AI (GenerativeModel) för att klassificera och analysera nyheter."""
     try:
         vertexai.init(project=PROJECT_ID, location=LOCATION)
-        model = GenerativeModel("gemini-1.5-flash")
+        model = GenerativeModel(GEMINI_MODEL)
         
         prompt = f"""Analysera följande hockeynyhet/rykte med fokus på IF Björklöven:
 "{text}"
@@ -144,6 +147,15 @@ def get_ai_analysis_cached(fingerprint, text, ai_cache, stats):
     }
     return analysis
 
+def get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats):
+    if AI_DISABLED:
+        stats["gemini_skipped_disabled"] += 1
+        return {"tag": "ÖVRIGT", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+    if stats["gemini_calls"] >= MAX_GEMINI_CALLS_PER_RUN:
+        stats["gemini_skipped_budget"] += 1
+        return {"tag": "ÖVRIGT", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+    return get_ai_analysis_cached(fingerprint, text, ai_cache, stats)
+
 def process_article(item, source, ai_cache, run_seen, stats):
     # Helper to process a single article to allow parallel processing
     if source == "bjorkloven.com":
@@ -178,7 +190,7 @@ def process_article(item, source, ai_cache, run_seen, stats):
     run_seen.add(dedupe_key)
 
     fingerprint = make_fingerprint(source, title, body, link)
-    ai_data = get_ai_analysis_cached(fingerprint, text, ai_cache, stats)
+    ai_data = get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats)
     tag = ai_data.get("tag", "ÖVRIGT")
     
     impact = None
@@ -302,7 +314,12 @@ def run_scraper(request):
     logging.info("Startar Silly Season Scraper (VertexAI SDK, Parallellt)...")
     ai_cache = load_ai_cache()
     run_seen = set()
-    stats = {"gemini_calls": 0, "cache_hits": 0}
+    stats = {
+        "gemini_calls": 0,
+        "cache_hits": 0,
+        "gemini_skipped_disabled": 0,
+        "gemini_skipped_budget": 0
+    }
     all_articles = []
     bjorkloven_items = scrape_bjorkloven_official()
     mrmadhawk_items = scrape_mrmadhawk()
@@ -328,10 +345,18 @@ def run_scraper(request):
     unique_articles = {a['url']: a for a in all_articles if a.get('url')}.values()
     save_to_gcs({"news_feed": list(unique_articles)})
     save_ai_cache(ai_cache)
-    logging.info(f"Silly scraper klar. Articles={len(unique_articles)} Gemini calls={stats['gemini_calls']} cache hits={stats['cache_hits']}")
+    logging.info(
+        f"Silly scraper klar. Articles={len(unique_articles)} "
+        f"Gemini calls={stats['gemini_calls']} cache hits={stats['cache_hits']} "
+        f"skipped_disabled={stats['gemini_skipped_disabled']} "
+        f"skipped_budget={stats['gemini_skipped_budget']} model={GEMINI_MODEL}"
+    )
     return json.dumps({
         "status": "success",
         "articles_found": len(unique_articles),
         "gemini_calls": stats["gemini_calls"],
-        "cache_hits": stats["cache_hits"]
+        "cache_hits": stats["cache_hits"],
+        "gemini_skipped_disabled": stats["gemini_skipped_disabled"],
+        "gemini_skipped_budget": stats["gemini_skipped_budget"],
+        "gemini_model": GEMINI_MODEL
     }), 200, {'Content-Type': 'application/json'}
