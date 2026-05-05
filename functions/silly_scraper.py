@@ -161,6 +161,11 @@ def process_article(item, source, ai_cache, run_seen, stats):
         body = ""
         link = item['link']
         text = title
+    elif source == "HockeyNews":
+        title = item['title']
+        body = ""
+        link = item['link']
+        text = title
     elif source == "EliteProspects":
         title = item['title']
         body = item['body']
@@ -304,6 +309,14 @@ def run_scraper(request):
     hockeysverige_items = scrape_hockeysverige()
     hockeynews_items = scrape_hockeynews()
     eliteprospects_items = scrape_eliteprospects()
+    logging.info(
+        "Scrape candidates per source: bjorkloven=%s expressen=%s hockeysverige=%s hockeynews=%s eliteprospects=%s",
+        len(bjorkloven_items),
+        len(mrmadhawk_items),
+        len(hockeysverige_items),
+        len(hockeynews_items),
+        len(eliteprospects_items),
+    )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         all_articles.extend([a for a in executor.map(lambda i: process_article(i, "bjorkloven.com", ai_cache, run_seen, stats), bjorkloven_items) if a])
