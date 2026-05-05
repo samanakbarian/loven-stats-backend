@@ -112,12 +112,23 @@ def deduplicate_articles(scraped, baseline):
             unique_scraped.append(item)
     return unique_scraped
 
+def article_identity(item):
+    source = (item.get("source") or "").strip().lower()
+    url = (item.get("url") or item.get("link") or "").strip().lower()
+    title = normalize_title(item.get("title", ""))
+    return f"{source}::{url}::{title}"
+
+def compute_new_since_previous(current_scraped, previous_scraped):
+    previous_ids = {article_identity(i) for i in (previous_scraped or [])}
+    return [i for i in (current_scraped or []) if article_identity(i) not in previous_ids]
+
 @app.get("/api/silly-season")
 def get_silly_season():
     """
     Hämtar senaste scraper-datan från GCS och mergar med baseline.
     """
     scraped_articles = []
+    previous_scraped_articles = []
     last_refresh = datetime.now().isoformat()
     
     try:
@@ -127,21 +138,28 @@ def get_silly_season():
         blobs = list(bucket.list_blobs(prefix="raw/silly_season/scraped_"))
         
         if blobs:
-            latest_blob = sorted(blobs, key=lambda b: b.updated or b.time_created, reverse=True)[0]
+            sorted_blobs = sorted(blobs, key=lambda b: b.updated or b.time_created, reverse=True)
+            latest_blob = sorted_blobs[0]
             content = latest_blob.download_as_string()
             data = json.loads(content)
             scraped_articles = data.get("news_feed", [])
             last_refresh = latest_blob.updated.isoformat() if latest_blob.updated else last_refresh
+            if len(sorted_blobs) > 1:
+                prev_content = sorted_blobs[1].download_as_string()
+                prev_data = json.loads(prev_content)
+                previous_scraped_articles = prev_data.get("news_feed", [])
     except Exception as e:
         logging.error(f"Kunde inte hämta scraper-data från GCS: {e}")
         # Fortsätt med bara baseline
     
     baseline = SILLY_SEASON_BASELINE.copy()
     
-    # Deduplicera och lägg till id
-    new_articles = deduplicate_articles(scraped_articles, baseline.get("news_feed", []))
-    
-    for i, article in enumerate(new_articles):
+    # Deduplicera mot baseline för presentation i feed
+    deduped_for_feed = deduplicate_articles(scraped_articles, baseline.get("news_feed", []))
+    # Beräkna verkligt nytt sedan förra scraper-snapshoten
+    new_articles = compute_new_since_previous(scraped_articles, previous_scraped_articles)
+
+    for i, article in enumerate(deduped_for_feed):
         article["id"] = f"scraped-{i}"
         article["scraped"] = True
         
@@ -153,7 +171,7 @@ def get_silly_season():
             article["time"] = datetime.now().strftime("%H:%M")
 
     # Slå ihop och sortera fallande på datum, sedan tid
-    merged_feed = new_articles + baseline.get("news_feed", [])
+    merged_feed = deduped_for_feed + baseline.get("news_feed", [])
     merged_feed.sort(key=lambda x: (x.get("date", ""), x.get("time", "")), reverse=True)
     
     baseline["news_feed"] = merged_feed
