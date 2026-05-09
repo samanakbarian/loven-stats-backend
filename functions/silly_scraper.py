@@ -53,6 +53,26 @@ def classify_tag(text):
             return tag
     return 'ÖVRIGT'
 
+RUMOR_HINTS = ['rykte', 'ryktas', 'uppges', 'kopplas', 'intresse', 'jagas', 'kan värva', 'kan varva']
+CONFIRMED_SIGNING_HINTS = ['klar för', 'klar for', 'signerar', 'skrivit på', 'skrivit pa', 'nyförvärv', 'nyforvarv', 'ansluter']
+CONFIRMED_LOSS_HINTS = ['lämnar', 'lamnar', 'tackar av', 'inte förlänger', 'inte forlanger', 'klar för annan', 'klar for annan']
+EXTENSION_HINTS = ['förlänger', 'forlanger', 'nytt kontrakt', 'skriver nytt']
+
+def preclassify_without_ai(source, title="", body="", link=""):
+    text = f"{title} {body}".lower()
+    if not is_relevant_strict(title=title, body=body, link=link):
+        return None
+    if source == "bjorkloven.com":
+        if any(k in text for k in CONFIRMED_SIGNING_HINTS):
+            return "BEKRÄFTAT_NYFÖRVÄRV"
+        if any(k in text for k in CONFIRMED_LOSS_HINTS):
+            return "BEKRÄFTAD_FÖRLUST"
+        if any(k in text for k in EXTENSION_HINTS):
+            return "KONTRAKTSFÖRLÄNGNING"
+    if any(k in text for k in RUMOR_HINTS):
+        return "HETT_RYKTE"
+    return None
+
 def fetch_url(url):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -169,6 +189,13 @@ def get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats):
         return {"tag": "ÖVRIGT", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
     return get_ai_analysis_cached(fingerprint, text, ai_cache, stats)
 
+def get_ai_analysis_preferring_rumors(fingerprint, text, ai_cache, stats):
+    text_lower = (text or "").lower()
+    if any(k in text_lower for k in RUMOR_HINTS):
+        stats["preclassified"] = stats.get("preclassified", 0) + 1
+        return {"tag": "HETT_RYKTE", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+    return get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats)
+
 def process_article(item, source, ai_cache, run_seen, stats):
     # Helper to process a single article to allow parallel processing
     if source == "bjorkloven.com":
@@ -203,7 +230,7 @@ def process_article(item, source, ai_cache, run_seen, stats):
     run_seen.add(dedupe_key)
 
     fingerprint = make_fingerprint(source, title, body, link)
-    ai_data = get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats)
+    ai_data = get_ai_analysis_preferring_rumors(fingerprint, text, ai_cache, stats)
     tag = ai_data.get("tag", "ÖVRIGT")
     
     impact = None
@@ -336,7 +363,8 @@ def run_scraper(request):
         "gemini_calls": 0,
         "cache_hits": 0,
         "gemini_skipped_disabled": 0,
-        "gemini_skipped_budget": 0
+        "gemini_skipped_budget": 0,
+        "preclassified": 0
     }
     all_articles = []
     bjorkloven_items = scrape_bjorkloven_official()
@@ -375,7 +403,8 @@ def run_scraper(request):
         f"Silly scraper klar. Articles={len(unique_articles)} "
         f"Gemini calls={stats['gemini_calls']} cache hits={stats['cache_hits']} "
         f"skipped_disabled={stats['gemini_skipped_disabled']} "
-        f"skipped_budget={stats['gemini_skipped_budget']} model={GEMINI_MODEL}"
+        f"skipped_budget={stats['gemini_skipped_budget']} "
+        f"preclassified={stats['preclassified']} model={GEMINI_MODEL}"
     )
     return json.dumps({
         "status": "success",
@@ -384,5 +413,6 @@ def run_scraper(request):
         "cache_hits": stats["cache_hits"],
         "gemini_skipped_disabled": stats["gemini_skipped_disabled"],
         "gemini_skipped_budget": stats["gemini_skipped_budget"],
+        "preclassified": stats["preclassified"],
         "gemini_model": GEMINI_MODEL
     }), 200, {'Content-Type': 'application/json'}
