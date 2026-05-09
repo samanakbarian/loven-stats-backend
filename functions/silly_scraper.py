@@ -20,10 +20,10 @@ MAX_CACHE_ITEMS = 20000
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 AI_DISABLED = os.environ.get("AI_DISABLED", "false").lower() == "true"
 MAX_GEMINI_CALLS_PER_RUN = int(os.environ.get("MAX_GEMINI_CALLS_PER_RUN", "5"))
-MAX_ITEMS_PER_SOURCE_DEFAULT = int(os.environ.get("MAX_ITEMS_PER_SOURCE_DEFAULT", "8"))
+MAX_ITEMS_PER_SOURCE_DEFAULT = int(os.environ.get("MAX_ITEMS_PER_SOURCE_DEFAULT", "12"))
 MAX_ITEMS_PER_SOURCE = {
     "bjorkloven.com": int(os.environ.get("MAX_ITEMS_BJORKLOVEN", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
-    "MrMadhawk (Expressen)": int(os.environ.get("MAX_ITEMS_EXPRESSEN", "8")),
+    "MrMadhawk (Expressen)": int(os.environ.get("MAX_ITEMS_EXPRESSEN", "12")),
     "HockeySverige": int(os.environ.get("MAX_ITEMS_HOCKEYSVERIGE", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
     "HockeyNews": int(os.environ.get("MAX_ITEMS_HOCKEYNEWS", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
     "EliteProspects": int(os.environ.get("MAX_ITEMS_ELITEPROSPECTS", str(MAX_ITEMS_PER_SOURCE_DEFAULT))),
