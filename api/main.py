@@ -122,6 +122,39 @@ def compute_new_since_previous(current_scraped, previous_scraped):
     previous_ids = {article_identity(i) for i in (previous_scraped or [])}
     return [i for i in (current_scraped or []) if article_identity(i) not in previous_ids]
 
+def _safe_date(value):
+    try:
+        if not value:
+            return None
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+def build_dynamic_silly_summary(feed, roster):
+    now = datetime.utcnow()
+    recent_cutoff = now.timestamp() - (120 * 24 * 3600)  # ~4 months
+
+    def is_recent(item):
+        dt = _safe_date(item.get("date"))
+        if not dt:
+            return True
+        return dt.timestamp() >= recent_cutoff
+
+    recent = [i for i in (feed or []) if is_recent(i)]
+
+    signings = sum(1 for i in recent if i.get("tag") == "BEKRÄFTAT_NYFÖRVÄRV")
+    departures = sum(1 for i in recent if i.get("tag") == "BEKRÄFTAD_FÖRLUST")
+    extensions = sum(1 for i in recent if i.get("tag") == "KONTRAKTSFÖRLÄNGNING")
+    expiring = sum(1 for p in (roster or []) if p.get("status") == "UTGÅENDE")
+
+    return {
+        "contracted": signings + extensions,
+        "signings": signings,
+        "expiring": expiring,
+        "departures": departures,
+        "extensions": extensions,
+    }
+
 def load_recent_silly_snapshots(limit=5):
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
@@ -207,6 +240,13 @@ def get_silly_season():
     merged_feed.sort(key=lambda x: (x.get("date", ""), x.get("time", "")), reverse=True)
     
     baseline["news_feed"] = merged_feed
+    if merged_feed:
+        latest = merged_feed[0]
+        title = latest.get("title") or ""
+        if title:
+            baseline["headline"] = title
+        # Ensure at least one fresh breaking candidate from latest feed item.
+        latest.setdefault("priority", "breaking")
     
     if "_meta" not in baseline:
         baseline["_meta"] = {}
@@ -214,6 +254,7 @@ def get_silly_season():
     baseline["_meta"]["lastRefresh"] = last_refresh
     baseline["_meta"]["newArticles"] = len(new_articles)
     baseline["_meta"]["scrapedArticles"] = len(scraped_articles)
+    baseline["_meta"]["summary"] = build_dynamic_silly_summary(merged_feed, baseline.get("roster", []))
     
     return baseline
 
