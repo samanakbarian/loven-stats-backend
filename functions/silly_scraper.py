@@ -265,9 +265,14 @@ def process_article(item, source, ai_cache, run_seen, stats):
         body = item['body']
         link = item['link']
         text = body
+    elif source == "GoogleNews (Bjorkloven)":
+        title = item['title']
+        body = item.get('body', "")
+        link = item['link']
+        text = title
 
     # For non-official sources, require strict Björklöven match.
-    if source != "bjorkloven.com" and not is_relevant_strict(title=title, body=body, link=link):
+    if source not in ("bjorkloven.com", "GoogleNews (Bjorkloven)") and not is_relevant_strict(title=title, body=body, link=link):
         return None
 
     dedupe_key = f"{normalize_text(source)}::{normalize_text(link)}::{normalize_text(title)}"
@@ -404,6 +409,29 @@ def scrape_eliteprospects():
             
     return items_to_process
 
+def scrape_google_news_bjorkloven():
+    # Robust fallback for official Björklöven stories when site HTML is JS-rendered.
+    url = "https://news.google.com/rss/search?q=site:bjorkloven.com+(förlänger+OR+klar+för+OR+lämnar+OR+nyförvärv+OR+kontrakt)&hl=sv&gl=SE&ceid=SE:sv"
+    xml = fetch_url(url)
+    items_to_process = []
+    if not xml:
+        return []
+    try:
+        soup = BeautifulSoup(xml, "xml")
+        for item in soup.find_all("item"):
+            title = (item.title.text or "").strip() if item.title else ""
+            link = (item.link.text or "").strip() if item.link else ""
+            if not title or not link:
+                continue
+            if "bjorkloven.com" not in link.lower():
+                continue
+            if not is_squad_relevant_text(title) and not is_squad_relevant_link(link):
+                continue
+            items_to_process.append({"title": title, "body": "", "link": link})
+    except Exception as e:
+        logging.warning(f"Google News fallback parse failed: {e}")
+    return items_to_process
+
 def save_to_gcs(data):
     file_name = f"raw/silly_season/scraped_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     try:
@@ -432,13 +460,15 @@ def run_scraper(request):
     hockeysverige_items = scrape_hockeysverige()
     hockeynews_items = scrape_hockeynews()
     eliteprospects_items = scrape_eliteprospects()
+    google_official_items = scrape_google_news_bjorkloven()
     logging.info(
-        "Scrape candidates per source: bjorkloven=%s expressen=%s hockeysverige=%s hockeynews=%s eliteprospects=%s",
+        "Scrape candidates per source: bjorkloven=%s expressen=%s hockeysverige=%s hockeynews=%s eliteprospects=%s google_official=%s",
         len(bjorkloven_items),
         len(mrmadhawk_items),
         len(hockeysverige_items),
         len(hockeynews_items),
         len(eliteprospects_items),
+        len(google_official_items),
     )
 
     def process_source(items, source_name, executor):
@@ -455,6 +485,7 @@ def run_scraper(request):
         all_articles.extend(process_source(hockeysverige_items, "HockeySverige", executor))
         all_articles.extend(process_source(hockeynews_items, "HockeyNews", executor))
         all_articles.extend(process_source(eliteprospects_items, "EliteProspects", executor))
+        all_articles.extend(process_source(google_official_items, "GoogleNews (Bjorkloven)", executor))
 
     unique_articles = {a['url']: a for a in all_articles if a.get('url')}.values()
     save_to_gcs({"news_feed": list(unique_articles)})
