@@ -37,6 +37,14 @@ TRANSFER_KEYWORDS = {
     'KONTRAKTSFÖRLÄNGNING': ['förlänger', 'nytt kontrakt', 'skriver nytt'],
     'HETT_RYKTE': ['rykte', 'ryktas', 'intresse', 'uppges', 'spekuleras'],
 }
+SQUAD_RELEVANCE_HINTS = [
+    'nyförvärv', 'nyforvarv', 'värvar', 'varvar', 'klar för', 'klar for',
+    'signerar', 'skrivit på', 'skrivit pa', 'ansluter',
+    'förlänger', 'forlanger', 'nytt kontrakt', 'skriver nytt',
+    'lämnar', 'lamnar', 'tackar av', 'inte förlänger', 'inte forlanger',
+    'utlåning', 'utlaning', 'lånas ut', 'lanas ut',
+    'kontrakt', 'transfer', 'övergång', 'overgang'
+]
 
 def is_relevant(text):
     text_lower = text.lower()
@@ -52,6 +60,10 @@ def classify_tag(text):
         if any(kw in text_lower for kw in keywords):
             return tag
     return 'ÖVRIGT'
+
+def is_squad_relevant_text(text):
+    text_lower = (text or "").lower()
+    return any(kw in text_lower for kw in SQUAD_RELEVANCE_HINTS)
 
 RUMOR_HINTS = ['rykte', 'ryktas', 'uppges', 'kopplas', 'intresse', 'jagas', 'kan värva', 'kan varva']
 CONFIRMED_SIGNING_HINTS = ['klar för', 'klar for', 'signerar', 'skrivit på', 'skrivit pa', 'nyförvärv', 'nyforvarv', 'ansluter']
@@ -238,9 +250,15 @@ def process_article(item, source, ai_cache, run_seen, stats):
         return None
     run_seen.add(dedupe_key)
 
+    # Silly feed should contain squad-building news only.
+    if not is_squad_relevant_text(text):
+        return None
+
     fingerprint = make_fingerprint(source, title, body, link)
     ai_data = get_ai_analysis_preferring_rumors(fingerprint, text, ai_cache, stats)
     tag = ai_data.get("tag", "ÖVRIGT")
+    if tag == "ÖVRIGT":
+        return None
     
     impact = None
     if tag != "HETT_RYKTE" and tag != "ÖVRIGT" and ai_data.get("impact_type"):
@@ -271,9 +289,7 @@ def scrape_bjorkloven_official():
         title_el = item.select_one('h2, h3, .title')
         text = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
         link = item.get('href', '') if not title_el else (item.find('a').get('href', '') if item.find('a') else '')
-        # Official source: do not require keyword hit in title, otherwise we miss
-        # contract extension headlines that omit "Björklöven" in the title text.
-        if len(text) > 10 and link:
+        if len(text) > 10 and link and is_squad_relevant_text(text):
             full_link = f"https://www.bjorkloven.com{link}" if link and not link.startswith('http') else link
             items_to_process.append({"text": text, "link": full_link})
             
