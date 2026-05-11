@@ -97,6 +97,18 @@ def fetch_url(url):
         logging.error(f"Kunde inte hämta {url}: {e}")
         return None
 
+def fetch_article_text(url, max_len=1500):
+    html = fetch_url(url)
+    if not html:
+        return ""
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        parts = [p.get_text(" ", strip=True) for p in soup.select('article p, main p, .article p')]
+        text = " ".join([p for p in parts if p])
+        return text[:max_len]
+    except Exception:
+        return ""
+
 def normalize_text(value):
     return (value or "").strip().lower()
 
@@ -251,6 +263,11 @@ def process_article(item, source, ai_cache, run_seen, stats):
     run_seen.add(dedupe_key)
 
     # Silly feed should contain squad-building news only.
+    if source == "bjorkloven.com" and not is_squad_relevant_text(text) and link:
+        article_text = fetch_article_text(link)
+        if article_text:
+            text = f"{text} {article_text}"
+            body = f"{body} {article_text}".strip()
     if not is_squad_relevant_text(text):
         return None
 
@@ -289,7 +306,7 @@ def scrape_bjorkloven_official():
         title_el = item.select_one('h2, h3, .title')
         text = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
         link = item.get('href', '') if not title_el else (item.find('a').get('href', '') if item.find('a') else '')
-        if len(text) > 10 and link and is_squad_relevant_text(text):
+        if len(text) > 10 and link:
             full_link = f"https://www.bjorkloven.com{link}" if link and not link.startswith('http') else link
             items_to_process.append({"text": text, "link": full_link})
             
