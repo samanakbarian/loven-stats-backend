@@ -16,6 +16,7 @@ GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 PROJECT_ID = "granskaren-d51a1"
 LOCATION = "europe-west1" # Eller us-central1 om det strular
 CACHE_BLOB_NAME = "raw/silly_season/article_ai_cache.json"
+OFFICIAL_RENDERED_BLOB_NAME = os.environ.get("OFFICIAL_RENDERED_BLOB_NAME", "raw/silly_season/official_rendered_latest.json")
 MAX_CACHE_ITEMS = 20000
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 AI_DISABLED = os.environ.get("AI_DISABLED", "false").lower() == "true"
@@ -73,6 +74,36 @@ def is_squad_relevant_text(text):
 def is_squad_relevant_link(link):
     link_lower = (link or "").lower()
     return any(kw in link_lower for kw in SQUAD_LINK_HINTS)
+
+def has_bjorkloven_context(text):
+    t = (text or "").lower()
+    return any(k in t for k in ['björklöven', 'bjorkloven', ' löven', '/bjorkloven', '/björklöven'])
+
+def classify_transfer_tag(text, source=""):
+    text_lower = (text or "").lower()
+    src = (source or "").lower()
+    is_official_like = src in ("bjorkloven.com", "googlenews (bjorkloven)")
+
+    has_ext = any(k in text_lower for k in EXTENSION_HINTS)
+    has_loss = any(k in text_lower for k in CONFIRMED_LOSS_HINTS)
+    has_sign = any(k in text_lower for k in CONFIRMED_SIGNING_HINTS)
+    has_rumor = any(k in text_lower for k in RUMOR_HINTS)
+    bj_ctx = has_bjorkloven_context(text_lower)
+
+    if has_ext:
+        return "KONTRAKTSFÖRLÄNGNING"
+    if has_loss and (is_official_like or bj_ctx):
+        return "BEKRÄFTAD_FÖRLUST"
+
+    joins_bj = any(k in text_lower for k in [
+        'klar för björklöven', 'klar förbjörklöven', 'klar för bjorkloven', 'klar for bjorkloven',
+        'ansluter till björklöven', 'ansluter till bjorkloven', 'nyförvärv i björklöven', 'nyforvarv i bjorkloven'
+    ])
+    if has_sign and (is_official_like or joins_bj):
+        return "BEKRÄFTAT_NYFÖRVÄRV"
+    if has_rumor:
+        return "HETT_RYKTE"
+    return "ÖVRIGT"
 
 RUMOR_HINTS = ['rykte', 'ryktas', 'uppges', 'kopplas', 'intresse', 'jagas', 'kan värva', 'kan varva']
 CONFIRMED_SIGNING_HINTS = ['klar för', 'klar for', 'signerar', 'skrivit på', 'skrivit pa', 'nyförvärv', 'nyforvarv', 'ansluter']
@@ -144,6 +175,22 @@ def load_ai_cache():
     except Exception as e:
         logging.warning(f"Kunde inte läsa AI-cache: {e}")
         return {}
+
+def load_rendered_official_items():
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(OFFICIAL_RENDERED_BLOB_NAME)
+        if not blob.exists():
+            return []
+        payload = json.loads(blob.download_as_string())
+        items = payload.get("news_feed", [])
+        if not isinstance(items, list):
+            return []
+        return items
+    except Exception as e:
+        logging.warning(f"Kunde inte läsa rendered official snapshot: {e}")
+        return []
 
 def save_ai_cache(cache):
     try:
@@ -223,19 +270,14 @@ def get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats):
     return get_ai_analysis_cached(fingerprint, text, ai_cache, stats)
 
 def get_ai_analysis_preferring_rumors(fingerprint, text, ai_cache, stats):
-    text_lower = (text or "").lower()
-    if any(k in text_lower for k in EXTENSION_HINTS):
+    tag = classify_transfer_tag(text)
+    if tag != "ÖVRIGT":
         stats["preclassified"] = stats.get("preclassified", 0) + 1
-        return {"tag": "KONTRAKTSFÖRLÄNGNING", "sentiment_pct": 60, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
-    if any(k in text_lower for k in CONFIRMED_SIGNING_HINTS):
-        stats["preclassified"] = stats.get("preclassified", 0) + 1
-        return {"tag": "BEKRÄFTAT_NYFÖRVÄRV", "sentiment_pct": 60, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
-    if any(k in text_lower for k in CONFIRMED_LOSS_HINTS):
-        stats["preclassified"] = stats.get("preclassified", 0) + 1
-        return {"tag": "BEKRÄFTAD_FÖRLUST", "sentiment_pct": 40, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
-    if any(k in text_lower for k in RUMOR_HINTS):
-        stats["preclassified"] = stats.get("preclassified", 0) + 1
-        return {"tag": "HETT_RYKTE", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+        if tag == "BEKRÄFTAD_FÖRLUST":
+            return {"tag": tag, "sentiment_pct": 40, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+        if tag == "KONTRAKTSFÖRLÄNGNING":
+            return {"tag": tag, "sentiment_pct": 60, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+        return {"tag": tag, "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
     return get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats)
 
 def process_article(item, source, ai_cache, run_seen, stats):
@@ -270,9 +312,14 @@ def process_article(item, source, ai_cache, run_seen, stats):
         body = item.get('body', "")
         link = item['link']
         text = title
+    elif source == "OfficialRendered (Bjorkloven)":
+        title = item.get('title', '')
+        body = item.get('body', "")
+        link = item.get('link') or item.get('url') or ""
+        text = f"{title} {body}"
 
     # For non-official sources, require strict Björklöven match.
-    if source not in ("bjorkloven.com", "GoogleNews (Bjorkloven)") and not is_relevant_strict(title=title, body=body, link=link):
+    if source not in ("bjorkloven.com", "GoogleNews (Bjorkloven)", "OfficialRendered (Bjorkloven)") and not is_relevant_strict(title=title, body="", link=link):
         return None
 
     dedupe_key = f"{normalize_text(source)}::{normalize_text(link)}::{normalize_text(title)}"
@@ -293,6 +340,7 @@ def process_article(item, source, ai_cache, run_seen, stats):
 
     fingerprint = make_fingerprint(source, title, body, link)
     ai_data = get_ai_analysis_preferring_rumors(fingerprint, text_for_relevance, ai_cache, stats)
+    ai_data["tag"] = classify_transfer_tag(text_for_relevance, source=source)
     tag = ai_data.get("tag", "ÖVRIGT")
     if tag == "ÖVRIGT":
         return None
@@ -462,14 +510,16 @@ def run_scraper(request):
     hockeynews_items = scrape_hockeynews()
     eliteprospects_items = scrape_eliteprospects()
     google_official_items = scrape_google_news_bjorkloven()
+    rendered_official_items = load_rendered_official_items()
     logging.info(
-        "Scrape candidates per source: bjorkloven=%s expressen=%s hockeysverige=%s hockeynews=%s eliteprospects=%s google_official=%s",
+        "Scrape candidates per source: bjorkloven=%s expressen=%s hockeysverige=%s hockeynews=%s eliteprospects=%s google_official=%s rendered_official=%s",
         len(bjorkloven_items),
         len(mrmadhawk_items),
         len(hockeysverige_items),
         len(hockeynews_items),
         len(eliteprospects_items),
         len(google_official_items),
+        len(rendered_official_items),
     )
 
     def process_source(items, source_name, executor):
@@ -487,6 +537,7 @@ def run_scraper(request):
         all_articles.extend(process_source(hockeynews_items, "HockeyNews", executor))
         all_articles.extend(process_source(eliteprospects_items, "EliteProspects", executor))
         all_articles.extend(process_source(google_official_items, "GoogleNews (Bjorkloven)", executor))
+        all_articles.extend(process_source(rendered_official_items, "OfficialRendered (Bjorkloven)", executor))
 
     unique_articles = {a['url']: a for a in all_articles if a.get('url')}.values()
     save_to_gcs({"news_feed": list(unique_articles)})
