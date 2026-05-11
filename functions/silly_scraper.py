@@ -191,6 +191,15 @@ def get_ai_analysis_with_budget(fingerprint, text, ai_cache, stats):
 
 def get_ai_analysis_preferring_rumors(fingerprint, text, ai_cache, stats):
     text_lower = (text or "").lower()
+    if any(k in text_lower for k in EXTENSION_HINTS):
+        stats["preclassified"] = stats.get("preclassified", 0) + 1
+        return {"tag": "KONTRAKTSFÖRLÄNGNING", "sentiment_pct": 60, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+    if any(k in text_lower for k in CONFIRMED_SIGNING_HINTS):
+        stats["preclassified"] = stats.get("preclassified", 0) + 1
+        return {"tag": "BEKRÄFTAT_NYFÖRVÄRV", "sentiment_pct": 60, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
+    if any(k in text_lower for k in CONFIRMED_LOSS_HINTS):
+        stats["preclassified"] = stats.get("preclassified", 0) + 1
+        return {"tag": "BEKRÄFTAD_FÖRLUST", "sentiment_pct": 40, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
     if any(k in text_lower for k in RUMOR_HINTS):
         stats["preclassified"] = stats.get("preclassified", 0) + 1
         return {"tag": "HETT_RYKTE", "sentiment_pct": 50, "pros": [], "cons": [], "impact_type": None, "impact_text": None}
@@ -262,7 +271,9 @@ def scrape_bjorkloven_official():
         title_el = item.select_one('h2, h3, .title')
         text = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
         link = item.get('href', '') if not title_el else (item.find('a').get('href', '') if item.find('a') else '')
-        if len(text) > 20 and is_relevant(text):
+        # Official source: do not require keyword hit in title, otherwise we miss
+        # contract extension headlines that omit "Björklöven" in the title text.
+        if len(text) > 10 and link:
             full_link = f"https://www.bjorkloven.com{link}" if link and not link.startswith('http') else link
             items_to_process.append({"text": text, "link": full_link})
             
