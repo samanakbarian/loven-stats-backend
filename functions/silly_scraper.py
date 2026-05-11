@@ -45,6 +45,11 @@ SQUAD_RELEVANCE_HINTS = [
     'utlåning', 'utlaning', 'lånas ut', 'lanas ut',
     'kontrakt', 'transfer', 'övergång', 'overgang'
 ]
+SQUAD_LINK_HINTS = [
+    'forlanger', 'förlänger', 'forlangde', 'förlängde',
+    'klar-for', 'klar_för', 'nyforvarv', 'nyförvärv',
+    'lamnar', 'lämnar', 'kontrakt', 'utlaning', 'utlåning', 'transfer'
+]
 
 def is_relevant(text):
     text_lower = text.lower()
@@ -64,6 +69,10 @@ def classify_tag(text):
 def is_squad_relevant_text(text):
     text_lower = (text or "").lower()
     return any(kw in text_lower for kw in SQUAD_RELEVANCE_HINTS)
+
+def is_squad_relevant_link(link):
+    link_lower = (link or "").lower()
+    return any(kw in link_lower for kw in SQUAD_LINK_HINTS)
 
 RUMOR_HINTS = ['rykte', 'ryktas', 'uppges', 'kopplas', 'intresse', 'jagas', 'kan värva', 'kan varva']
 CONFIRMED_SIGNING_HINTS = ['klar för', 'klar for', 'signerar', 'skrivit på', 'skrivit pa', 'nyförvärv', 'nyforvarv', 'ansluter']
@@ -262,17 +271,19 @@ def process_article(item, source, ai_cache, run_seen, stats):
         return None
     run_seen.add(dedupe_key)
 
+    text_for_relevance = f"{text} {link}"
     # Silly feed should contain squad-building news only.
-    if source == "bjorkloven.com" and not is_squad_relevant_text(text) and link:
+    if source == "bjorkloven.com" and not is_squad_relevant_text(text_for_relevance) and link:
         article_text = fetch_article_text(link)
         if article_text:
             text = f"{text} {article_text}"
             body = f"{body} {article_text}".strip()
-    if not is_squad_relevant_text(text):
+            text_for_relevance = f"{text} {link}"
+    if not is_squad_relevant_text(text_for_relevance) and not is_squad_relevant_link(link):
         return None
 
     fingerprint = make_fingerprint(source, title, body, link)
-    ai_data = get_ai_analysis_preferring_rumors(fingerprint, text, ai_cache, stats)
+    ai_data = get_ai_analysis_preferring_rumors(fingerprint, text_for_relevance, ai_cache, stats)
     tag = ai_data.get("tag", "ÖVRIGT")
     if tag == "ÖVRIGT":
         return None
@@ -308,7 +319,8 @@ def scrape_bjorkloven_official():
         link = item.get('href', '') if not title_el else (item.find('a').get('href', '') if item.find('a') else '')
         if len(text) > 10 and link:
             full_link = f"https://www.bjorkloven.com{link}" if link and not link.startswith('http') else link
-            items_to_process.append({"text": text, "link": full_link})
+            if is_squad_relevant_text(text) or is_squad_relevant_link(full_link):
+                items_to_process.append({"text": text, "link": full_link})
             
     return items_to_process
 
