@@ -26,7 +26,10 @@ def is_relevant(title: str, link: str) -> bool:
 
 def scrape() -> list[dict]:
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
         page = browser.new_page()
         page.goto(TARGET_URL, wait_until="networkidle", timeout=60000)
         anchors = page.locator("a")
@@ -72,6 +75,11 @@ def upload(items: list[dict]) -> None:
 
 
 if __name__ == "__main__":
-    data = scrape()
-    upload(data)
-    print(json.dumps({"status": "ok", "items": len(data)}))
+    try:
+        data = scrape()
+        upload(data)
+        print(json.dumps({"status": "ok", "items": len(data)}))
+    except Exception as e:
+        # Never hard-fail the pipeline: upload an empty but valid snapshot.
+        upload([])
+        print(json.dumps({"status": "error_fallback", "error": str(e), "items": 0}))
