@@ -421,9 +421,10 @@ def scrape_google_news_bjorkloven():
         for item in soup.find_all("item"):
             title = (item.title.text or "").strip() if item.title else ""
             link = (item.link.text or "").strip() if item.link else ""
+            src = (item.source.text or "").strip().lower() if item.source else ""
             if not title or not link:
                 continue
-            if "bjorkloven.com" not in link.lower():
+            if "bjorkloven" not in src and "bjorkloven.com" not in link.lower() and "björklöven" not in title.lower() and "bjorkloven" not in title.lower():
                 continue
             if not is_squad_relevant_text(title) and not is_squad_relevant_link(link):
                 continue
