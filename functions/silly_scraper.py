@@ -77,7 +77,7 @@ def is_squad_relevant_link(link):
 RUMOR_HINTS = ['rykte', 'ryktas', 'uppges', 'kopplas', 'intresse', 'jagas', 'kan värva', 'kan varva']
 CONFIRMED_SIGNING_HINTS = ['klar för', 'klar for', 'signerar', 'skrivit på', 'skrivit pa', 'nyförvärv', 'nyforvarv', 'ansluter']
 CONFIRMED_LOSS_HINTS = ['lämnar', 'lamnar', 'tackar av', 'inte förlänger', 'inte forlanger', 'klar för annan', 'klar for annan']
-EXTENSION_HINTS = ['förlänger', 'forlanger', 'nytt kontrakt', 'skriver nytt']
+EXTENSION_HINTS = ['förlänger', 'forlanger', 'förlängde', 'forlangde', 'kontraktsförläng', 'kontraktsforlang', 'nytt kontrakt', 'skriver nytt']
 
 def preclassify_without_ai(source, title="", body="", link=""):
     text = f"{title} {body}".lower()
@@ -266,6 +266,10 @@ def process_article(item, source, ai_cache, run_seen, stats):
         link = item['link']
         text = body
 
+    # For non-official sources, require strict Björklöven match.
+    if source != "bjorkloven.com" and not is_relevant_strict(title=title, body=body, link=link):
+        return None
+
     dedupe_key = f"{normalize_text(source)}::{normalize_text(link)}::{normalize_text(title)}"
     if dedupe_key in run_seen:
         return None
@@ -336,7 +340,7 @@ def scrape_mrmadhawk():
         title = title_el.get_text(strip=True)
         body = item.select_one('p').get_text(strip=True) if item.select_one('p') else ""
         link = item.get('href', '')
-        if is_relevant(title + " " + body):
+        if is_relevant_strict(title=title, body=body, link=link):
             full_link = f"https://www.expressen.se{link}" if not link.startswith('http') else link
             items_to_process.append({"title": title, "body": body, "link": full_link})
             
