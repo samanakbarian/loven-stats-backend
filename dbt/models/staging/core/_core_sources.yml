@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: raw_sports
+    description: "Källnära råtabeller för sportdata."
+    database: "{{ env_var('DBT_BIGQUERY_PROJECT', target.project) }}"
+    schema: raw_sports
+    tables:
+      - name: match_events
+      - name: event_players
+      - name: match_lineups
+      - name: team_standings_snapshots
+      - name: goalie_game_stats
+      - name: shot_features
+      - name: attendance
+
+  - name: raw_roster
+    description: "Källnära råtabeller för roster/truppstatus."
+    database: "{{ env_var('DBT_BIGQUERY_PROJECT', target.project) }}"
+    schema: raw_roster
+    tables:
+      - name: roster_status_events
+
+  - name: raw_financials
+    description: "Källnära finansiella tabeller."
+    database: "{{ env_var('DBT_BIGQUERY_PROJECT', target.project) }}"
+    schema: raw_financials
+    tables:
+      - name: team_financials

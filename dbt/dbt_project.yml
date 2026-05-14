@@ -17,7 +17,13 @@ clean-targets:
 
 models:
   loven_stats:
+    staging:
+      +materialized: view
     marts:
       +materialized: table
+      core:
+        +materialized: incremental
       product:
         +materialized: incremental
+    serving:
+      +materialized: view

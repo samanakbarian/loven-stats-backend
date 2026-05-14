@@ -1,0 +1,71 @@
+version: 2
+
+models:
+  - name: fact_event_players
+    columns:
+      - name: event_player_key
+        tests: [not_null, unique]
+      - name: event_id
+        tests: [not_null]
+      - name: player_id
+        tests: [not_null]
+
+  - name: fact_roster_status
+    columns:
+      - name: roster_status_id
+        tests: [not_null, unique]
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SIGNED', 'EXTENDED', 'LEFT', 'RUMORED_IN', 'RUMORED_OUT', 'INJURED', 'LOANED_OUT', 'LOANED_IN', 'SUSPENDED', 'TRYOUT', 'JUNIOR_CALLUP']
+
+  - name: fact_match_lineup
+    columns:
+      - name: lineup_key
+        tests: [not_null, unique]
+      - name: match_id
+        tests: [not_null]
+      - name: player_id
+        tests: [not_null]
+
+  - name: fact_content_items
+    columns:
+      - name: content_id
+        tests: [not_null, unique]
+      - name: source
+        tests: [not_null]
+      - name: source_url
+        tests: [not_null]
+
+  - name: fact_goalie_game_stats
+    columns:
+      - name: goalie_game_id
+        tests: [not_null, unique]
+
+  - name: fact_team_standings_snapshot
+    columns:
+      - name: standings_key
+        tests: [not_null, unique]
+
+  - name: fact_shot_features
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+
+  - name: fact_team_financials
+    columns:
+      - name: financial_key
+        tests: [not_null, unique]
+      - name: confidence_level
+        tests:
+          - accepted_values:
+              values: ['low', 'medium', 'high']
+              quote: true
+              config:
+                severity: warn
+
+  - name: fact_attendance
+    columns:
+      - name: attendance_key
+        tests: [not_null, unique]
