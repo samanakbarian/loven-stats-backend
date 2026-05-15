@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
 from google.cloud import bigquery
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import re
 from silly_season_data import SILLY_SEASON_BASELINE
@@ -129,6 +129,38 @@ def _safe_date(value):
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+def build_last_24h_summary(current_scraped, previous_scraped, critical_now):
+    now_utc = datetime.now(timezone.utc)
+    window_start = now_utc - timedelta(hours=24)
+    current_scraped = current_scraped or []
+    previous_scraped = previous_scraped or []
+
+    new_items = compute_new_since_previous(current_scraped, previous_scraped)
+
+    def in_window(item):
+        dt = _safe_date(item.get("date"))
+        if dt is None:
+            return False
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt >= window_start
+
+    recent = [item for item in current_scraped if in_window(item)]
+
+    def count_tag(tag_name):
+        return sum(1 for item in recent if item.get("tag") == tag_name)
+
+    return {
+        "new_signals": len(new_items),
+        "articles_24h": len(recent),
+        "signings": count_tag("BEKRÄFTAT_NYFÖRVÄRV"),
+        "departures": count_tag("BEKRÄFTAD_FÖRLUST"),
+        "extensions": count_tag("KONTRAKTSFÖRLÄNGNING"),
+        "rumors": count_tag("HETT_RYKTE"),
+        "critical_open": len(critical_now or []),
+    }
 
 def build_dynamic_silly_summary(feed, roster):
     now = datetime.utcnow()
@@ -255,6 +287,7 @@ def get_silly_season():
     baseline["_meta"]["newArticles"] = len(new_articles)
     baseline["_meta"]["scrapedArticles"] = len(scraped_articles)
     baseline["_meta"]["summary"] = build_dynamic_silly_summary(merged_feed, baseline.get("roster", []))
+    baseline["_meta"]["last24h"] = build_last_24h_summary(scraped_articles, previous_scraped_articles, [])
     
     return baseline
 
@@ -419,6 +452,15 @@ def get_lovenlaget_snapshot():
             "new_signals": meta.get("newArticles", 0),
             "scraped_articles": meta.get("scrapedArticles", 0),
             "expiring_contracts": len(expiring),
+            "last_24h": meta.get("last24h") or {
+                "new_signals": 0,
+                "articles_24h": 0,
+                "signings": 0,
+                "departures": 0,
+                "extensions": 0,
+                "rumors": 0,
+                "critical_open": len(critical_now),
+            },
         },
     }
 
