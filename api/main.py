@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
 from google.cloud import bigquery
@@ -36,6 +36,11 @@ X_QUERY_DEFAULT = os.environ.get(
     '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
 )
 X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "30"))
+X_CACHE_BLOB = os.environ.get("X_CACHE_BLOB", "derived/x_feed/latest.json")
+X_CACHE_MINUTES = int(os.environ.get("X_CACHE_MINUTES", "60"))
+X_AI_ENABLED = os.environ.get("X_AI_ENABLED", "false").lower() == "true"
+X_AI_MODEL = os.environ.get("X_AI_MODEL", "gemini-2.5-flash")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 @app.get("/")
 def read_root():
@@ -396,16 +401,93 @@ def _fetch_x_recent(query: str, max_results: int):
         return {"items": [], "error": "x_fetch_failed"}
 
 
-@app.get("/api/v1/x-feed")
-def get_x_feed():
-    fetched = _fetch_x_recent(X_QUERY_DEFAULT, X_MAX_RESULTS_DEFAULT)
+def _load_x_cache():
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(X_CACHE_BLOB)
+        if not blob.exists():
+            return None
+        payload = json.loads(blob.download_as_text())
+        return payload
+    except Exception as e:
+        logging.warning(f"Could not load X cache: {e}")
+        return None
+
+
+def _save_x_cache(payload):
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(X_CACHE_BLOB)
+        blob.upload_from_string(json.dumps(payload, ensure_ascii=False), content_type="application/json")
+    except Exception as e:
+        logging.warning(f"Could not save X cache: {e}")
+
+
+def _cache_is_fresh(cache_payload):
+    if not cache_payload:
+        return False
+    generated_at = cache_payload.get("meta", {}).get("generated_at")
+    if not generated_at:
+        return False
+    dt = _safe_date(generated_at)
+    if not dt:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - dt <= timedelta(minutes=X_CACHE_MINUTES)
+
+
+def _build_x_ai_summary(items):
+    if not X_AI_ENABLED:
+        return {"enabled": False, "summary": "", "model": None, "error": "disabled"}
+    if not GEMINI_API_KEY:
+        return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": "missing_api_key"}
+    if not items:
+        return {"enabled": True, "summary": "Inga relevanta inlägg just nu.", "model": X_AI_MODEL, "error": None}
+    top = items[:20]
+    compact_lines = []
+    for i, item in enumerate(top, 1):
+        compact_lines.append(f"{i}. @{item.get('author_username','okand')}: {item.get('text','')[:220]}")
+    prompt = (
+        "Du analyserar ett svenskt socialt flöde om Björklöven.\n"
+        "Skriv en kort sammanfattning på svenska (max 90 ord):\n"
+        "1) Övergripande ton\n"
+        "2) Viktigaste ämnen\n"
+        "3) En tydlig risk eller möjlighet.\n"
+        "Hitta inte på fakta utanför inläggen.\n\n"
+        "Inlägg:\n" + "\n".join(compact_lines)
+    )
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{X_AI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 220}}
+        res = requests.post(url, json=body, timeout=25)
+        if res.status_code != 200:
+            return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": f"gemini_http_{res.status_code}"}
+        payload = res.json()
+        text = (
+            payload.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        return {"enabled": True, "summary": text.strip(), "model": X_AI_MODEL, "error": None}
+    except Exception as e:
+        logging.warning(f"Gemini X summary failed: {e}")
+        return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": "gemini_failed"}
+
+
+def _build_x_payload(query: str, max_results: int):
+    fetched = _fetch_x_recent(query, max_results)
     items = fetched.get("items", [])
     counts = {"positive": 0, "neutral": 0, "negative": 0}
     for item in items:
         counts[item.get("sentiment_label", "neutral")] = counts.get(item.get("sentiment_label", "neutral"), 0) + 1
     total = len(items) or 1
-    return {
-        "query": X_QUERY_DEFAULT,
+    ai_summary = _build_x_ai_summary(items)
+    payload = {
+        "query": query,
         "count": len(items),
         "items": items,
         "sentiment_summary": {
@@ -415,13 +497,30 @@ def get_x_feed():
             "positive_pct": round((counts["positive"] / total) * 100, 1),
             "negative_pct": round((counts["negative"] / total) * 100, 1),
         },
+        "ai_summary": ai_summary,
         "meta": {
             "provider": "x_api_v2_recent_search",
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "error": fetched.get("error"),
-            "ai_summary_ready": False
+            "cache_minutes": X_CACHE_MINUTES,
+            "ai_summary_ready": bool(ai_summary.get("summary")),
         }
     }
+    return payload
+
+
+@app.get("/api/v1/x-feed")
+def get_x_feed(force_refresh: bool = Query(False)):
+    cached = _load_x_cache()
+    if not force_refresh and _cache_is_fresh(cached):
+        cached.setdefault("meta", {})
+        cached["meta"]["from_cache"] = True
+        return cached
+    payload = _build_x_payload(X_QUERY_DEFAULT, X_MAX_RESULTS_DEFAULT)
+    payload.setdefault("meta", {})
+    payload["meta"]["from_cache"] = False
+    _save_x_cache(payload)
+    return payload
 
 
 @app.get("/api/v1/lovenlaget")

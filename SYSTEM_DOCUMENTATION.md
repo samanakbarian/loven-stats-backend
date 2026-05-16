@@ -178,9 +178,31 @@ Nedan listas aktiva avvikelser fran tidigare planerad malarkitektur.
 | Endpoint | Beskrivning |
 |----------|-------------|
 | `GET /api/silly-season` | Silly Season-feed (mergad scraper + baseline) |
+| `GET /api/v1/x-feed` | X/Twitter-feed för Björklöven + sentiment + valfri AI-sammanfattning |
 | `GET /api/v1/roster` | Trupp (planerad) |
 | `GET /api/v1/matches` | Matcher (planerad) |
 | `GET /api/v1/standings` | Tabell (planerad) |
+
+### X/Twitter integration (kostnadskontrollerad)
+
+- Källa: X API v2 `recent search` (app-only bearer token).
+- Query default: Björklöven i text/hashtag, utan retweets/replies.
+- Cache: endpointen lagrar senaste payload i GCS (`derived/x_feed/latest.json`).
+- Refreshfrekvens: styrs av `X_CACHE_MINUTES` (default `60`).
+- API-kostnad: en ny X-hämtning sker först när cache löpt ut eller `force_refresh=true`.
+- Sentiment:
+  - Bas: lokal heuristik per tweet (ingen modellkostnad).
+  - Sammanfattning: valfri Gemini-körning en gång per refresh (inte per tweet, inte per sidvisning).
+
+Miljövariabler:
+- `X_BEARER_TOKEN`
+- `X_QUERY_DEFAULT`
+- `X_MAX_RESULTS_DEFAULT` (10–100)
+- `X_CACHE_BLOB` (default `derived/x_feed/latest.json`)
+- `X_CACHE_MINUTES` (default `60`)
+- `X_AI_ENABLED` (`true/false`)
+- `X_AI_MODEL` (default `gemini-2.5-flash`)
+- `GEMINI_API_KEY` (krävs endast om `X_AI_ENABLED=true`)
 
 ---
 
