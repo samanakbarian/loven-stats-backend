@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
@@ -29,6 +30,12 @@ GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", "")
 BQ_DATASET = os.environ.get("BQ_DATASET", "loven_marts")
 BQ_LOVENLAGET_TABLE = os.environ.get("BQ_LOVENLAGET_TABLE", "mart_lovenlaget_snapshot")
+X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN", "")
+X_QUERY_DEFAULT = os.environ.get(
+    "X_QUERY_DEFAULT",
+    '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
+)
+X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "30"))
 
 @app.get("/")
 def read_root():
@@ -331,6 +338,90 @@ def compute_freshness_status(last_refresh_iso: str | None) -> str:
     if age_seconds <= 24 * 3600:
         return "stale"
     return "critical"
+
+
+def _x_sentiment_score(text: str):
+    t = (text or "").lower()
+    positive = ["klar", "nyförvärv", "vinner", "förlänger", "stärker", "succé", "poängkung"]
+    negative = ["lämnar", "skadad", "missar", "kris", "förlust", "sparken", "avslutar"]
+    pos_hits = sum(1 for w in positive if w in t)
+    neg_hits = sum(1 for w in negative if w in t)
+    if pos_hits > neg_hits:
+        return "positive", min(95, 55 + (pos_hits - neg_hits) * 10)
+    if neg_hits > pos_hits:
+        return "negative", min(95, 55 + (neg_hits - pos_hits) * 10)
+    return "neutral", 50
+
+
+def _fetch_x_recent(query: str, max_results: int):
+    if not X_BEARER_TOKEN:
+        return {"items": [], "error": "missing_token"}
+    url = "https://api.x.com/2/tweets/search/recent"
+    params = {
+        "query": query,
+        "max_results": max(10, min(100, max_results)),
+        "tweet.fields": "created_at,public_metrics,lang,author_id",
+        "expansions": "author_id",
+        "user.fields": "username,name",
+    }
+    headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=20)
+        if response.status_code != 200:
+            return {"items": [], "error": f"x_http_{response.status_code}", "detail": response.text[:300]}
+        payload = response.json()
+        users = {u.get("id"): u for u in (payload.get("includes", {}).get("users", []) if isinstance(payload.get("includes", {}), dict) else [])}
+        items = []
+        for tweet in payload.get("data", []) or []:
+            author = users.get(tweet.get("author_id"), {})
+            username = author.get("username", "")
+            text = tweet.get("text", "")
+            sentiment_label, sentiment_score = _x_sentiment_score(text)
+            items.append({
+                "id": tweet.get("id"),
+                "text": text,
+                "created_at": tweet.get("created_at"),
+                "author_name": author.get("name") or username or "okänd",
+                "author_username": username,
+                "url": f"https://x.com/{username}/status/{tweet.get('id')}" if username and tweet.get("id") else None,
+                "lang": tweet.get("lang"),
+                "public_metrics": tweet.get("public_metrics", {}),
+                "source": "x",
+                "sentiment_label": sentiment_label,
+                "sentiment_score": sentiment_score,
+            })
+        return {"items": items, "error": None}
+    except Exception as e:
+        logging.error(f"X fetch failed: {e}")
+        return {"items": [], "error": "x_fetch_failed"}
+
+
+@app.get("/api/v1/x-feed")
+def get_x_feed():
+    fetched = _fetch_x_recent(X_QUERY_DEFAULT, X_MAX_RESULTS_DEFAULT)
+    items = fetched.get("items", [])
+    counts = {"positive": 0, "neutral": 0, "negative": 0}
+    for item in items:
+        counts[item.get("sentiment_label", "neutral")] = counts.get(item.get("sentiment_label", "neutral"), 0) + 1
+    total = len(items) or 1
+    return {
+        "query": X_QUERY_DEFAULT,
+        "count": len(items),
+        "items": items,
+        "sentiment_summary": {
+            "positive": counts["positive"],
+            "neutral": counts["neutral"],
+            "negative": counts["negative"],
+            "positive_pct": round((counts["positive"] / total) * 100, 1),
+            "negative_pct": round((counts["negative"] / total) * 100, 1),
+        },
+        "meta": {
+            "provider": "x_api_v2_recent_search",
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "error": fetched.get("error"),
+            "ai_summary_ready": False
+        }
+    }
 
 
 @app.get("/api/v1/lovenlaget")
