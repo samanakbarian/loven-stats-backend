@@ -56,95 +56,138 @@ def health_check():
 
 
 @app.get("/api/v1/statistics")
-def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöven,bjorkloven")):
+def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöven,bjorkloven,if björklöven")):
     """
-    Returns latest Swehockey snapshot from raw_sports tables.
-    This is a first module API for frontend Statistics tab.
+    Returns Swehockey snapshot from raw_sports tables.
+    Serves both league-wide stats and Björklöven-specific data.
     """
     try:
         bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
         tokens = [t.strip().lower() for t in str(team_query or "").split(",") if t.strip()]
         if not tokens:
-            tokens = ["ifb", "bjo", "björklöven", "bjorkloven"]
+            tokens = ["ifb", "bjo", "björklöven", "bjorkloven", "if björklöven"]
 
         def _matches(value: str) -> bool:
             v = (value or "").strip().lower()
             for token in tokens:
                 if len(token) <= 3:
-                    # Exact match for short codes (IFB, BIK, etc.)
                     if v == token:
                         return True
                 else:
-                    # Substring match for longer names
                     if token in v:
                         return True
             return False
 
-        def _query_rows(table_name: str):
+        def _query_all(table_name: str):
+            """Return ALL rows from the table (no MAX(scraped_at) filter)."""
             q = f"""
-            WITH latest AS (
-              SELECT MAX(scraped_at) AS max_scraped
-              FROM `{bq_client.project}.raw_sports.{table_name}`
-            )
-            SELECT *
-            FROM `{bq_client.project}.raw_sports.{table_name}`
-            WHERE scraped_at = (SELECT max_scraped FROM latest)
+            SELECT * FROM `{bq_client.project}.raw_sports.{table_name}`
             """
             return [dict(row.items()) for row in bq_client.query(q).result()]
 
-        players = _query_rows("swehockey_player_stats")
-        goalies = _query_rows("swehockey_goalie_stats")
-        standings = _query_rows("swehockey_standings")
-        schedule = _query_rows("swehockey_schedule")
+        # HA regular season = 18266, HA playoff = 19979
+        HA_REGULAR = 18266
+        HA_PLAYOFF = 19979
 
-        team_players = [p for p in players if _matches(str(p.get("team_code", "")))]
-        team_goalies = [g for g in goalies if _matches(str(g.get("team_code", "")))]
-        team_standing = next((s for s in standings if _matches(str(s.get("team_name", "")))), None)
-        team_games = [m for m in schedule if _matches(str(m.get("home_team", ""))) or _matches(str(m.get("away_team", "")))]
+        all_players = _query_all("swehockey_player_stats")
+        all_goalies = _query_all("swehockey_goalie_stats")
+        standings = _query_all("swehockey_standings")
+        schedule = _query_all("swehockey_schedule")
 
-        has_team_match = bool(team_players or team_goalies or team_standing or team_games)
-        if not has_team_match:
-            # Fallback: return league snapshot so UI is never empty.
-            team_players = players
-            team_goalies = goalies
-            team_standing = standings[0] if standings else None
-            team_games = schedule
+        # Split players by season type
+        regular_players = [p for p in all_players if p.get("season_group_id") == HA_REGULAR]
+        playoff_players = [p for p in all_players if p.get("season_group_id") == HA_PLAYOFF]
+        regular_goalies = [g for g in all_goalies if g.get("season_group_id") == HA_REGULAR]
+        playoff_goalies = [g for g in all_goalies if g.get("season_group_id") == HA_PLAYOFF]
 
-        top_scorers = sorted(
-            team_players,
+        # BJK-specific data
+        bjk_skaters_regular = sorted(
+            [p for p in regular_players if _matches(str(p.get("team_code", "")))],
             key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
             reverse=True
-        )[:10]
-        top_goalies = sorted(
-            team_goalies,
-            key=lambda g: float(g.get("save_pct") or 0.0),
+        )
+        bjk_skaters_playoff = sorted(
+            [p for p in playoff_players if _matches(str(p.get("team_code", "")))],
+            key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
             reverse=True
-        )[:5]
+        )
+        bjk_goalies_regular = sorted(
+            [g for g in regular_goalies if _matches(str(g.get("team_code", "")))],
+            key=lambda g: int(g.get("games_played") or 0),
+            reverse=True
+        )
+
+        # League-wide top scorers (regular season)
+        top_scorers = sorted(
+            regular_players,
+            key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
+            reverse=True
+        )[:25]
+        top_goalies = sorted(
+            regular_goalies,
+            key=lambda g: int(g.get("games_played") or 0),
+            reverse=True
+        )[:15]
+
+        # Team standing
+        team_standing = next((s for s in standings if _matches(str(s.get("team_name", "")))), None)
+
+        # Team games — sorted by date descending
+        team_games = sorted(
+            [m for m in schedule if _matches(str(m.get("home_team", ""))) or _matches(str(m.get("away_team", "")))],
+            key=lambda g: str(g.get("date", "") or g.get("match_date", "")),
+            reverse=True,
+        )
+
+        # Compute record from team_standing or from games
+        record = {}
+        if team_standing:
+            record = {
+                "gp": team_standing.get("games_played", 0),
+                "wins": team_standing.get("wins", 0),
+                "losses": team_standing.get("losses", 0),
+                "otl": team_standing.get("ot_losses", 0),
+                "otw": team_standing.get("ot_wins", 0),
+                "points": team_standing.get("points", 0),
+                "gf": 0, "ga": 0,
+            }
 
         latest_times = []
-        for rows in (players, goalies, standings, schedule):
-            if rows and rows[0].get("scraped_at"):
-                latest_times.append(str(rows[0]["scraped_at"]))
+        for rows in (all_players, all_goalies, standings, schedule):
+            for row in rows:
+                sa = row.get("scraped_at")
+                if sa:
+                    latest_times.append(str(sa))
 
         return {
             "status": "ok",
             "source": "swehockey",
-            "scope": "team" if has_team_match else "league_fallback",
+            "season": "HockeyAllsvenskan 2025/26",
+            "scope": "team",
             "team_query_tokens": tokens,
             "snapshot_scraped_at": max(latest_times) if latest_times else None,
             "counts": {
-                "players_total": len(players),
-                "goalies_total": len(goalies),
+                "players_total": len(all_players),
+                "goalies_total": len(all_goalies),
                 "standings_total": len(standings),
                 "schedule_total": len(schedule),
-                "team_players": len(team_players),
-                "team_goalies": len(team_goalies),
+                "team_players_regular": len(bjk_skaters_regular),
+                "team_players_playoff": len(bjk_skaters_playoff),
+                "team_goalies": len(bjk_goalies_regular),
                 "team_games": len(team_games),
             },
+            "record": record,
             "team_standing": team_standing,
             "top_scorers": top_scorers,
             "top_goalies": top_goalies,
-            "upcoming_or_recent_games": team_games[:12],
+            "bjorkloven_skaters": {
+                "regular": bjk_skaters_regular,
+                "playoff": bjk_skaters_playoff,
+            },
+            "bjorkloven_goalies": {
+                "regular": bjk_goalies_regular,
+            },
+            "games": team_games,
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/statistics")
@@ -152,6 +195,334 @@ def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöve
             "status": "error",
             "error": str(e),
         }
+
+
+@app.get("/api/v1/analytics")
+def get_analytics():
+    """
+    Compute derived analytics from existing BQ data.
+    Returns 8 analysis modules for the frontend.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        proj = bq.project
+
+        # ── Load all source data ──
+        def q(sql):
+            return [dict(r.items()) for r in bq.query(sql).result()]
+
+        schedule = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_schedule` ORDER BY match_date")
+        players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = 18266")
+        goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = 18266")
+        standings = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_standings`")
+        events = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_game_events`")
+
+        BJK_NAMES = ["IF Björklöven", "Björklöven"]
+        BJK_CODES = ["IFB"]
+
+        def is_bjk(name):
+            return any(b.lower() in (name or "").lower() for b in BJK_NAMES + BJK_CODES)
+
+        def bjk_game(g):
+            return is_bjk(g.get("home_team", "")) or is_bjk(g.get("away_team", ""))
+
+        def parse_period_results(pr):
+            """Parse '(2-1, 0-1, 1-2)' into [{period, home_gf, away_gf}]"""
+            if not pr:
+                return []
+            pr = pr.strip("() ")
+            periods = []
+            for i, part in enumerate(pr.split(","), 1):
+                m = re.match(r'\s*(\d+)\s*-\s*(\d+)', part.strip())
+                if m:
+                    periods.append({"period": i, "home_gf": int(m.group(1)), "away_gf": int(m.group(2))})
+            return periods
+
+        bjk_games = [g for g in schedule if bjk_game(g)]
+
+        # ── Module 1: Season Timeline ──
+        timeline = []
+        cum_pts = 0
+        for g in bjk_games:
+            result_str = (g.get("result") or "").strip()
+            m = re.match(r'(\d+)\s*-\s*(\d+)', result_str)
+            if not m:
+                continue
+            hg, ag = int(m.group(1)), int(m.group(2))
+            bjk_home = is_bjk(g.get("home_team", ""))
+            bjk_gf = hg if bjk_home else ag
+            bjk_ga = ag if bjk_home else hg
+            pr = g.get("period_results", "")
+            is_ot = len(parse_period_results(pr)) > 3
+
+            if bjk_gf > bjk_ga:
+                pts = 2 if is_ot else 3
+                res = "W"
+            elif bjk_gf < bjk_ga:
+                pts = 1 if is_ot else 0
+                res = "OTL" if is_ot else "L"
+            else:
+                pts = 0
+                res = "D"
+
+            cum_pts += pts
+            opp = g.get("away_team") if bjk_home else g.get("home_team")
+            timeline.append({
+                "date": g.get("match_date", ""),
+                "opponent": opp,
+                "result": res,
+                "score": f"{bjk_gf}-{bjk_ga}",
+                "pts": pts,
+                "cumPts": cum_pts,
+                "isHome": bjk_home,
+                "gf": bjk_gf,
+                "ga": bjk_ga,
+            })
+
+        # ── Module 2: Home vs Away ──
+        def empty_split():
+            return {"gp": 0, "w": 0, "l": 0, "otw": 0, "otl": 0, "gf": 0, "ga": 0, "pts": 0}
+
+        splits = {"home": empty_split(), "away": empty_split()}
+        for t in timeline:
+            side = "home" if t["isHome"] else "away"
+            s = splits[side]
+            s["gp"] += 1
+            s["gf"] += t["gf"]
+            s["ga"] += t["ga"]
+            s["pts"] += t["pts"]
+            if t["result"] == "W":
+                s["w"] += 1
+            elif t["result"] == "L":
+                s["l"] += 1
+            elif t["result"] == "OTL":
+                s["otl"] += 1
+
+        # ── Module 3: Period Analysis ──
+        period_stats = {1: {"gf": 0, "ga": 0, "games": 0}, 2: {"gf": 0, "ga": 0, "games": 0}, 3: {"gf": 0, "ga": 0, "games": 0}}
+        for g in bjk_games:
+            pr = parse_period_results(g.get("period_results", ""))
+            bjk_home = is_bjk(g.get("home_team", ""))
+            for pd in pr:
+                p = pd["period"]
+                if p > 3:
+                    continue  # skip OT/SO
+                if p not in period_stats:
+                    continue
+                period_stats[p]["games"] += 1
+                if bjk_home:
+                    period_stats[p]["gf"] += pd["home_gf"]
+                    period_stats[p]["ga"] += pd["away_gf"]
+                else:
+                    period_stats[p]["gf"] += pd["away_gf"]
+                    period_stats[p]["ga"] += pd["home_gf"]
+
+        periods = []
+        for p in [1, 2, 3]:
+            ps = period_stats[p]
+            periods.append({
+                "period": p,
+                "label": f"P{p}",
+                "gf": ps["gf"],
+                "ga": ps["ga"],
+                "diff": ps["gf"] - ps["ga"],
+                "games": ps["games"],
+            })
+
+        # ── Module 4: Head-to-Head ──
+        h2h = {}
+        for t in timeline:
+            opp = t["opponent"]
+            if opp not in h2h:
+                h2h[opp] = {"opponent": opp, "gp": 0, "w": 0, "l": 0, "otl": 0, "gf": 0, "ga": 0, "pts": 0}
+            h = h2h[opp]
+            h["gp"] += 1
+            h["gf"] += t["gf"]
+            h["ga"] += t["ga"]
+            h["pts"] += t["pts"]
+            if t["result"] == "W":
+                h["w"] += 1
+            elif t["result"] == "L":
+                h["l"] += 1
+            elif t["result"] == "OTL":
+                h["otl"] += 1
+
+        h2h_list = sorted(h2h.values(), key=lambda x: (-x["pts"], -(x["gf"] - x["ga"])))
+
+        # ── Module 5: Form Curve (Rolling 10) ──
+        form = []
+        window = 10
+        for i in range(len(timeline)):
+            start = max(0, i - window + 1)
+            w = timeline[start:i + 1]
+            wins = sum(1 for x in w if x["result"] == "W")
+            losses = sum(1 for x in w if x["result"] == "L")
+            otl = sum(1 for x in w if x["result"] == "OTL")
+            gf = sum(x["gf"] for x in w)
+            ga = sum(x["ga"] for x in w)
+            pts = sum(x["pts"] for x in w)
+            form.append({
+                "date": timeline[i]["date"],
+                "matchNum": i + 1,
+                "w": wins,
+                "l": losses,
+                "otl": otl,
+                "pts": pts,
+                "gf_avg": round(gf / len(w), 2),
+                "ga_avg": round(ga / len(w), 2),
+                "window": len(w),
+            })
+
+        # ── Module 6: Streak Analysis ──
+        streaks = []
+        current = {"type": "", "length": 0, "start": "", "end": ""}
+        for t in timeline:
+            r = t["result"]
+            streak_type = "W" if r == "W" else "L"
+            if streak_type == current["type"]:
+                current["length"] += 1
+                current["end"] = t["date"]
+            else:
+                if current["length"] > 0:
+                    streaks.append(dict(current))
+                current = {"type": streak_type, "length": 1, "start": t["date"], "end": t["date"]}
+        if current["length"] > 0:
+            streaks.append(dict(current))
+
+        win_streaks = [s for s in streaks if s["type"] == "W"]
+        loss_streaks = [s for s in streaks if s["type"] == "L"]
+        longest_win = max(win_streaks, key=lambda s: s["length"]) if win_streaks else None
+        longest_loss = max(loss_streaks, key=lambda s: s["length"]) if loss_streaks else None
+
+        # ── Module 7: Player Impact ──
+        bjk_players = [p for p in players if (p.get("team_code") or "").upper() in BJK_CODES]
+        all_gp = [p for p in players if (p.get("games_played") or 0) >= 10]
+
+        # League averages
+        if all_gp:
+            avg_ppg = sum(p.get("points", 0) for p in all_gp) / sum(p.get("games_played", 1) for p in all_gp)
+            avg_gpg = sum(p.get("goals", 0) for p in all_gp) / sum(p.get("games_played", 1) for p in all_gp)
+            avg_apg = sum(p.get("assists", 0) for p in all_gp) / sum(p.get("games_played", 1) for p in all_gp)
+            avg_pim = sum(p.get("pim", 0) for p in all_gp) / sum(p.get("games_played", 1) for p in all_gp)
+        else:
+            avg_ppg = avg_gpg = avg_apg = avg_pim = 0
+
+        player_impact = []
+        for p in bjk_players:
+            gp = p.get("games_played") or 1
+            g_pg = round((p.get("goals", 0) / gp), 3)
+            a_pg = round((p.get("assists", 0) / gp), 3)
+            p_pg = round((p.get("points", 0) / gp), 3)
+            pim_pg = round((p.get("pim", 0) / gp), 3)
+            player_impact.append({
+                "name": p.get("player_name", ""),
+                "position": p.get("position", ""),
+                "number": p.get("jersey_number", 0),
+                "gp": gp,
+                "goals": p.get("goals", 0),
+                "assists": p.get("assists", 0),
+                "points": p.get("points", 0),
+                "g_per_gp": g_pg,
+                "a_per_gp": a_pg,
+                "p_per_gp": p_pg,
+                "pim_per_gp": pim_pg,
+                "plus_minus": str(p.get("plus_minus", "")),
+                "vs_league": {
+                    "ppg_diff": round(p_pg - avg_ppg, 3),
+                    "gpg_diff": round(g_pg - avg_gpg, 3),
+                },
+            })
+        player_impact.sort(key=lambda x: -x["p_per_gp"])
+
+        # ── Module 8: Goalie Radar ──
+        bjk_goalies = [g for g in goalies if (g.get("team_code") or "").upper() in BJK_CODES]
+        all_goalies_min10 = sorted([g for g in goalies if (g.get("games_played") or 0) >= 10],
+                                    key=lambda g: -(g.get("save_pct") or 0))
+
+        def percentile(value, all_vals):
+            if not all_vals:
+                return 50
+            below = sum(1 for v in all_vals if v <= value)
+            return round((below / len(all_vals)) * 100)
+
+        sv_vals = [g.get("save_pct", 0) for g in all_goalies_min10]
+        gaa_vals = [g.get("gaa", 0) for g in all_goalies_min10]
+        wp_vals = [g.get("win_pct", 0) for g in all_goalies_min10]
+
+        goalie_radar = []
+        for g in bjk_goalies:
+            gp = g.get("games_played") or 1
+            goalie_radar.append({
+                "name": g.get("goalie_name", ""),
+                "gp": gp,
+                "sv_pct": g.get("save_pct", 0),
+                "gaa": g.get("gaa", 0),
+                "shutouts": g.get("shutouts", 0),
+                "wins": g.get("wins", 0),
+                "losses": g.get("losses", 0),
+                "win_pct": g.get("win_pct", 0),
+                "saves_per_gp": round((g.get("saves", 0) / gp), 1),
+                "percentiles": {
+                    "sv_pct": percentile(g.get("save_pct", 0), sv_vals),
+                    "gaa": 100 - percentile(g.get("gaa", 0), gaa_vals),  # lower is better
+                    "win_pct": percentile(g.get("win_pct", 0), wp_vals),
+                },
+            })
+
+        # ── PP/PK from game events ──
+        bjk_pp_goals = sum(1 for e in events if e.get("event_type") == "goal" and e.get("is_power_play") and (e.get("team_code") or "").upper() in BJK_CODES)
+        bjk_penalties_taken = sum(1 for e in events if e.get("event_type") == "penalty" and (e.get("team_code") or "").upper() in BJK_CODES)
+        opp_penalties = sum(1 for e in events if e.get("event_type") == "penalty" and (e.get("team_code") or "").upper() not in BJK_CODES)
+        opp_pp_goals = sum(1 for e in events if e.get("event_type") == "goal" and e.get("is_power_play") and (e.get("team_code") or "").upper() not in BJK_CODES)
+        bjk_total_goals = sum(1 for e in events if e.get("event_type") == "goal" and (e.get("team_code") or "").upper() in BJK_CODES)
+        opp_total_goals = sum(1 for e in events if e.get("event_type") == "goal" and (e.get("team_code") or "").upper() not in BJK_CODES)
+
+        special_teams = {
+            "pp_goals": bjk_pp_goals,
+            "pp_opportunities": opp_penalties,
+            "pp_pct": round((bjk_pp_goals / max(opp_penalties, 1)) * 100, 1),
+            "pk_goals_against": opp_pp_goals,
+            "pk_times": bjk_penalties_taken,
+            "pk_pct": round(((bjk_penalties_taken - opp_pp_goals) / max(bjk_penalties_taken, 1)) * 100, 1),
+            "total_pim": sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES),
+            "avg_pim_per_game": round(sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES) / max(len(bjk_games), 1), 1),
+        }
+
+        # ── Attendance ──
+        home_games = [g for g in bjk_games if is_bjk(g.get("home_team", ""))]
+        specs = [g.get("spectators") for g in home_games if g.get("spectators")]
+        attendance = {
+            "avg": round(sum(specs) / max(len(specs), 1)) if specs else 0,
+            "max": max(specs) if specs else 0,
+            "min": min(specs) if specs else 0,
+            "total": sum(specs) if specs else 0,
+            "home_games": len(home_games),
+        }
+
+        return {
+            "status": "ok",
+            "modules": {
+                "timeline": timeline,
+                "splits": splits,
+                "periods": periods,
+                "h2h": h2h_list,
+                "form": form,
+                "streaks": {
+                    "longest_win": longest_win,
+                    "longest_loss": longest_loss,
+                    "current": streaks[-1] if streaks else None,
+                    "all": streaks,
+                },
+                "player_impact": player_impact,
+                "goalie_radar": goalie_radar,
+                "special_teams": special_teams,
+                "attendance": attendance,
+            },
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/analytics")
+        return {"status": "error", "error": str(e)}
+
 
 def normalize_title(title):
     return re.sub(r'[^\wåäö\s]', '', title.lower()).strip()
