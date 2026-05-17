@@ -4,6 +4,11 @@
     on_schema_change='sync_all_columns'
 ) }}
 
+with base as (
+  select * from {{ ref('stg_team_standings_snapshots') }}
+  union all
+  select * from {{ ref('stg_swehockey_standings') }}
+)
 select
   to_hex(md5(concat(coalesce(cast(snapshot_date as string), ''), '|', coalesce(season_id, ''), '|', coalesce(team_id, '')))) as standings_key,
   snapshot_date,
@@ -23,7 +28,7 @@ select
   source_record_id,
   ingested_at,
   current_timestamp() as dbt_loaded_at
-from {{ ref('stg_team_standings_snapshots') }}
+from base
 
 {% if is_incremental() %}
 where ingested_at > (select coalesce(max(ingested_at), timestamp('1970-01-01')) from {{ this }})

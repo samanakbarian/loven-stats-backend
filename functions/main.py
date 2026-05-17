@@ -5,6 +5,7 @@ import requests
 import os
 from google.cloud import storage
 from silly_scraper import run_scraper
+from swehockey_stats_scraper import run_swehockey_stats_scraper
 
 # Inställning av logging
 logging.basicConfig(level=logging.INFO)

@@ -13,15 +13,38 @@ Denna leverans etablerar en första körbar implementation av målarkitekturen i
 
 ## Driftuppdatering 2026-05-17 (API + content-lager)
 
-Foljande har hardats i produktions-API (Cloud Run):
+Följande har härdats i produktions-API (Cloud Run):
 
-- `GET /api/v1/x-feed` har fallback-query nar primarsokning inte ger faska traffar for dagen.
-- X-feed anvander GCS-cache med styrning via `X_CACHE_MINUTES` for kostnadskontroll.
+- `GET /api/v1/x-feed` har fallback-query när primärsökning inte ger färska träffar för dagen.
+- X-feed använder GCS-cache med styrning via `X_CACHE_MINUTES` för kostnadskontroll.
 - Roster-sakring i `GET /api/silly-season`: `confirmed_signings` synkas automatiskt in i `roster` om spelare saknas.
-- Baseline uppdaterad med Topi Niemela som nyforvarv (RD), sa han alltid syns i truppdata.
+- Baseline uppdaterad med Topi Niemelä som nyförvärv (RD), så han alltid syns i truppdata.
 
 Not:
-- Dessa andringar ligger i API-lagret och paverkar frontend via befintliga endpoints.
+- Dessa ändringar ligger i API-lagret och påverkar frontend via befintliga endpoints.
+
+## Driftuppdatering 2026-05-17 (Swehockey-modul)
+
+Ny Cloud Function `swehockey-stats-scraper` är implementerad och driftsatt i `europe-west1`.
+
+- Hämtar fyra datatyper: spelare, målvakter, tabell, schema.
+- Skriver raw-filer till:
+  - `raw/web_scrapers/shl_stats/<YYYYMMDD_HHMMSS>_<typ>.json`
+- Laddar till BigQuery dataset `raw_sports`:
+  - `swehockey_player_stats`
+  - `swehockey_goalie_stats`
+  - `swehockey_standings`
+  - `swehockey_schedule`
+- Radmetadata:
+  - `scraped_at`
+  - `source = "swehockey"`
+- Scheduler aktiv:
+  - `swehockey-stats-scraper-job`
+  - `0 */2 * * *`
+  - `Europe/Stockholm`
+
+Not:
+- Swehockeys team-specifika sidor varierar mellan säsongsgrupper. För att säkra dataleverans använder scrapern robust fallback till liganivå och filtrerar mot team-tokens när möjligt.
 
 ## Nya staging-modeller
 

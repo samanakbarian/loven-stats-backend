@@ -1,6 +1,7 @@
 functions-framework
 requests
 google-cloud-storage
+google-cloud-bigquery
 google-cloud-secret-manager
 beautifulsoup4
 lxml

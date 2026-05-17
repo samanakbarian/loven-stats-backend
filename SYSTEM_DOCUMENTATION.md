@@ -147,6 +147,7 @@ Nedan listas aktiva avvikelser fran tidigare planerad malarkitektur.
 | **Sportradar** | REST API | ✅ Trial-nyckel | Live-matcher, resultat, tabeller, trupper |
 | **EliteProspects** | REST API | ⏳ Behöver nyckel | Spelarprofiler, kontrakt, löner, karriärhistorik |
 | **Web Scrapers** | Cloud Functions | ✅ Live (var 30 min) | Nyheter från Björklöven.com, Expressen, HockeySverige, EP |
+| **Swehockey Stats Scraper** | Cloud Functions Gen2 | ✅ Implementerad (2h-intervall) | Player/goalie stats, standings, schedule från stats.swehockey.se |
 | **Manuell Baseline** | JSON i GCS | ✅ | Silly Season-data, kända kontrakt |
 
 ### Sportradar-detaljer
@@ -171,7 +172,8 @@ Nedan listas aktiva avvikelser fran tidigare planerad malarkitektur.
 | **loven-stats-api** | Cloud Run | FastAPI, Python 3.11, allow-unauthenticated |
 | **silly-season-scraper** | Cloud Functions Gen2 | 1024Mi, 300s timeout, Python 3.11 |
 | **sportradar-ingest** | Cloud Functions Gen2 | Python 3.11 (schemalagd) |
-| **Cloud Scheduler** | Cron | `*/30 * * * *` (scraper) |
+| **swehockey-stats-scraper** | Cloud Functions Gen2 | 1024Mi, 300s timeout, Python 3.11 (var 2:e timme) |
+| **Cloud Scheduler** | Cron | `*/30 * * * *` (silly scraper), `0 */2 * * *` (swehockey stats) |
 
 ### API-endpoints (Live)
 
@@ -182,6 +184,9 @@ Nedan listas aktiva avvikelser fran tidigare planerad malarkitektur.
 | `GET /api/v1/roster` | Trupp (planerad) |
 | `GET /api/v1/matches` | Matcher (planerad) |
 | `GET /api/v1/standings` | Tabell (planerad) |
+
+Se även:
+- `docs/SWEHOCKEY_STATS_SCRAPER.md` för deploy, scheduler och dbt-koppling.
 
 ### Driftnoter 2026-05-17
 
