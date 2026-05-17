@@ -56,7 +56,7 @@ def health_check():
 
 
 @app.get("/api/v1/statistics")
-def get_statistics_snapshot(team_query: str = Query(default="bjo,björklöven,bjorkloven")):
+def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöven,bjorkloven")):
     """
     Returns latest Swehockey snapshot from raw_sports tables.
     This is a first module API for frontend Statistics tab.
@@ -65,11 +65,20 @@ def get_statistics_snapshot(team_query: str = Query(default="bjo,björklöven,bj
         bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
         tokens = [t.strip().lower() for t in str(team_query or "").split(",") if t.strip()]
         if not tokens:
-            tokens = ["bjo", "björklöven", "bjorkloven"]
+            tokens = ["ifb", "bjo", "björklöven", "bjorkloven"]
 
         def _matches(value: str) -> bool:
-            v = (value or "").lower()
-            return any(token in v for token in tokens)
+            v = (value or "").strip().lower()
+            for token in tokens:
+                if len(token) <= 3:
+                    # Exact match for short codes (IFB, BIK, etc.)
+                    if v == token:
+                        return True
+                else:
+                    # Substring match for longer names
+                    if token in v:
+                        return True
+            return False
 
         def _query_rows(table_name: str):
             q = f"""
