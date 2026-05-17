@@ -14,6 +14,7 @@ SILLY_SEASON_BASELINE = {
 
     "confirmed_signings": [
         { "name": "Lucas Wallmark", "number": None, "pos": "CE", "from": "HC Fribourg-Gottéron", "contractUntil": "2032", "years": 6, "date": "2026-04-26", "source": "hockeysverige.se", "note": "Moderklubbens stora värvning, 6-årskontrakt", "rumor_pct": 100, "age": 31 },
+        { "name": "Topi Niemelä", "number": None, "pos": "RD", "from": "Malmö Redhawks", "contractUntil": "2028", "years": 2, "date": "2026-05-17", "source": "pt.se", "note": "Nyförvärv från Malmö", "rumor_pct": 100, "age": 23 },
     ],
 
     "confirmed_departures": [
@@ -63,6 +64,7 @@ SILLY_SEASON_BASELINE = {
         { "name": "Joel Mustonen", "number": 39, "pos": "CE", "status": "UTGÅENDE", "contractUntil": "2026", "note": "" },
         { "name": "Jacob Olofsson", "number": 32, "pos": "CE", "status": "UTGÅENDE", "contractUntil": "2026", "note": "" },
         { "name": "Lucas Wallmark", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2032", "note": "6-årskontrakt, moderklubb" },
+        { "name": "Topi Niemelä", "number": None, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2028", "note": "Nyförvärv från Malmö" },
     ],
 
     "news_feed": [

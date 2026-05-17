@@ -128,6 +128,32 @@ def deduplicate_articles(scraped, baseline):
             unique_scraped.append(item)
     return unique_scraped
 
+
+def sync_roster_with_confirmed_signings(baseline):
+    roster = baseline.get("roster", []) or []
+    signings = baseline.get("confirmed_signings", []) or []
+    existing = {str((p.get("name") or "")).strip().lower() for p in roster}
+
+    for s in signings:
+        name = str((s.get("name") or "")).strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in existing:
+            continue
+        roster.append({
+            "name": name,
+            "number": s.get("number"),
+            "pos": s.get("pos") or "FW",
+            "status": "NYFÖRVÄRV",
+            "contractUntil": s.get("contractUntil"),
+            "note": s.get("note") or "",
+        })
+        existing.add(key)
+
+    baseline["roster"] = roster
+    return baseline
+
 def article_identity(item):
     source = (item.get("source") or "").strip().lower()
     url = (item.get("url") or item.get("link") or "").strip().lower()
@@ -266,6 +292,7 @@ def get_silly_season():
         # Fortsätt med bara baseline
     
     baseline = SILLY_SEASON_BASELINE.copy()
+    baseline = sync_roster_with_confirmed_signings(baseline)
     
     # Deduplicera mot baseline för presentation i feed
     deduped_for_feed = deduplicate_articles(scraped_articles, baseline.get("news_feed", []))
