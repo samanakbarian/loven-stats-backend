@@ -36,6 +36,10 @@ X_QUERY_DEFAULT = os.environ.get(
     '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
 )
 X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "30"))
+X_QUERY_BROAD_DEFAULT = os.environ.get(
+    "X_QUERY_BROAD_DEFAULT",
+    '((Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven OR Löven OR #Löven) (hockey OR SHL OR allsvenskan OR nyförvärv OR förlänger OR lämnar OR silly)) -is:retweet -is:reply lang:sv'
+)
 X_CACHE_BLOB = os.environ.get("X_CACHE_BLOB", "derived/x_feed/latest.json")
 X_CACHE_MINUTES = int(os.environ.get("X_CACHE_MINUTES", "60"))
 X_AI_ENABLED = os.environ.get("X_AI_ENABLED", "false").lower() == "true"
@@ -439,6 +443,36 @@ def _cache_is_fresh(cache_payload):
     return datetime.now(timezone.utc) - dt <= timedelta(minutes=X_CACHE_MINUTES)
 
 
+def _latest_item_age_hours(items):
+    if not items:
+        return None
+    latest = None
+    for item in items:
+        dt = _safe_date(item.get("created_at"))
+        if not dt:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if latest is None or dt > latest:
+            latest = dt
+    if latest is None:
+        return None
+    return (datetime.now(timezone.utc) - latest).total_seconds() / 3600.0
+
+
+def _has_item_from_today_utc(items):
+    today = datetime.now(timezone.utc).date()
+    for item in items:
+        dt = _safe_date(item.get("created_at"))
+        if not dt:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if dt.astimezone(timezone.utc).date() == today:
+            return True
+    return False
+
+
 def _build_x_ai_summary(items):
     if not X_AI_ENABLED:
         return {"enabled": False, "summary": "", "model": None, "error": "disabled"}
@@ -459,23 +493,37 @@ def _build_x_ai_summary(items):
         "Hitta inte på fakta utanför inläggen.\n\n"
         "Inlägg:\n" + "\n".join(compact_lines)
     )
+    def fallback_summary():
+        positives = sum(1 for i in items if i.get("sentiment_label") == "positive")
+        negatives = sum(1 for i in items if i.get("sentiment_label") == "negative")
+        neutrals = sum(1 for i in items if i.get("sentiment_label") == "neutral")
+        top = sorted(items, key=lambda i: (i.get("public_metrics", {}).get("like_count", 0) + i.get("public_metrics", {}).get("retweet_count", 0) * 2), reverse=True)[:2]
+        topics = ", ".join([f"@{t.get('author_username','okänd')}" for t in top]) if top else "inga tydliga toppsignaler"
+        tone = "övervägande neutral" if neutrals >= max(positives, negatives) else ("övervägande positiv" if positives > negatives else "övervägande negativ")
+        return (
+            f"Flödet är {tone}. Positiva signaler: {positives}, negativa: {negatives}, neutrala: {neutrals}. "
+            f"Mest synliga konton just nu: {topics}. Fokus ligger främst på truppsnack, rykten och SHL-uppladdning."
+        )
+
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{X_AI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 220}}
         res = requests.post(url, json=body, timeout=25)
         if res.status_code != 200:
-            return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": f"gemini_http_{res.status_code}"}
+            return {"enabled": True, "summary": fallback_summary(), "model": X_AI_MODEL, "error": f"gemini_http_{res.status_code}"}
         payload = res.json()
-        text = (
+        parts = (
             payload.get("candidates", [{}])[0]
             .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
+            .get("parts", [])
         )
+        text = " ".join([p.get("text", "").strip() for p in parts if isinstance(p, dict) and p.get("text")]).strip()
+        if len(text) < 60:
+            text = fallback_summary()
         return {"enabled": True, "summary": text.strip(), "model": X_AI_MODEL, "error": None}
     except Exception as e:
         logging.warning(f"Gemini X summary failed: {e}")
-        return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": "gemini_failed"}
+        return {"enabled": True, "summary": fallback_summary(), "model": X_AI_MODEL, "error": "gemini_failed"}
 
 
 def _build_x_payload(query: str, max_results: int):
@@ -509,6 +557,69 @@ def _build_x_payload(query: str, max_results: int):
     return payload
 
 
+def _build_x_payload_with_fallback(max_results: int):
+    primary = _build_x_payload(X_QUERY_DEFAULT, max_results)
+    primary_items = primary.get("items", []) or []
+    primary_age_hours = _latest_item_age_hours(primary_items)
+    needs_fallback = (
+        len(primary_items) == 0
+        or not _has_item_from_today_utc(primary_items)
+        or (primary_age_hours is not None and primary_age_hours > 24)
+    )
+
+    if not needs_fallback:
+        primary.setdefault("meta", {})
+        primary["meta"]["query_mode"] = "primary"
+        return primary
+
+    fallback = _build_x_payload(X_QUERY_BROAD_DEFAULT, max_results)
+    fallback_items = fallback.get("items", []) or []
+
+    merged = []
+    seen = set()
+    for item in primary_items + fallback_items:
+        item_id = item.get("id")
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        merged.append(item)
+
+    merged.sort(
+        key=lambda x: _safe_date(x.get("created_at")) or datetime(1970, 1, 1, tzinfo=timezone.utc),
+        reverse=True,
+    )
+    merged = merged[:max_results]
+
+    counts = {"positive": 0, "neutral": 0, "negative": 0}
+    for item in merged:
+        counts[item.get("sentiment_label", "neutral")] = counts.get(item.get("sentiment_label", "neutral"), 0) + 1
+    total = len(merged) or 1
+
+    ai_summary = _build_x_ai_summary(merged)
+    payload = {
+        "query": X_QUERY_DEFAULT,
+        "count": len(merged),
+        "items": merged,
+        "sentiment_summary": {
+            "positive": counts["positive"],
+            "neutral": counts["neutral"],
+            "negative": counts["negative"],
+            "positive_pct": round((counts["positive"] / total) * 100, 1),
+            "negative_pct": round((counts["negative"] / total) * 100, 1),
+        },
+        "ai_summary": ai_summary,
+        "meta": {
+            "provider": "x_api_v2_recent_search",
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "error": primary.get("meta", {}).get("error") or fallback.get("meta", {}).get("error"),
+            "cache_minutes": X_CACHE_MINUTES,
+            "ai_summary_ready": bool(ai_summary.get("summary")),
+            "query_mode": "fallback_merged",
+        },
+    }
+    return payload
+
+
 @app.get("/api/v1/x-feed")
 def get_x_feed(force_refresh: bool = Query(False)):
     cached = _load_x_cache()
@@ -516,7 +627,7 @@ def get_x_feed(force_refresh: bool = Query(False)):
         cached.setdefault("meta", {})
         cached["meta"]["from_cache"] = True
         return cached
-    payload = _build_x_payload(X_QUERY_DEFAULT, X_MAX_RESULTS_DEFAULT)
+    payload = _build_x_payload_with_fallback(X_MAX_RESULTS_DEFAULT)
     payload.setdefault("meta", {})
     payload["meta"]["from_cache"] = False
     _save_x_cache(payload)
