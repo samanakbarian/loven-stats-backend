@@ -1,6 +1,6 @@
 # Arkitekturimplementation — V1 (Maj 2026)
 
-Senast uppdaterad: 2026-05-17
+Senast uppdaterad: 2026-05-18
 
 ## Genomfört i denna leverans
 
@@ -11,6 +11,53 @@ Denna leverans etablerar en första körbar implementation av målarkitekturen i
 - `serving` för API-optimerade vyer
 - schema/tests för datakvalitet
 
+## Driftuppdatering 2026-05-18 (Komplett Swehockey-pipeline)
+
+### BigQuery — Fullständigt datamart
+
+Alla `raw_sports`-tabeller har uppdaterats med komplett schema:
+
+| Tabell | Kolumner | Rader | Nyckeluppdatering |
+|--------|----------|-------|-------------------|
+| `swehockey_player_stats` | 15 | 50 | +`avg_ppg`, `position`, `jersey_number`; `plus_minus` nu STRING |
+| `swehockey_goalie_stats` | 19 | 29 | +`shutouts`, `wins`, `losses`, `win_pct`, `gpi`, `jersey_number` |
+| `swehockey_schedule` | 14 | 366 | +`game_id`, `period_results`, `venue`, `spectators`, `match_time` |
+| `swehockey_standings` | 12 | 14 | Oförändrad |
+| `swehockey_game_events` | 17 | 972 | **NY** — per-match mål + utvisningar |
+
+### Data Integrity Fix
+
+- SHL-kontaminering (season_group_id=18263) rensad
+- Standings omberäknade från lokal schedule-data
+- Script: `scrapers/swehockey/fix_wrong_league.py`, `fix_standings.py`
+
+### Analytics API
+
+Ny endpoint `GET /api/v1/analytics` med 10 beräknade moduler:
+
+| Modul | Data | Beskrivning |
+|-------|------|-------------|
+| `timeline` | 52 datapunkter | Kumulativa poäng per match |
+| `splits` | 2 objekt | Hemma vs borta: GP, V-F, GF, GA, PTS |
+| `periods` | 3 objekt | Mål för/mot per period (P1/P2/P3) |
+| `h2h` | 13 motståndare | Head-to-head: V, F, GF, GA, Diff |
+| `form` | 52 datapunkter | Rolling 10-matchsfönster |
+| `streaks` | Alla sviter | Längsta vinst/förlust + nuvarande |
+| `player_impact` | BJK-spelare | G/GP, A/GP, P/GP + vs ligasnitt |
+| `goalie_radar` | BJK-målvakter | SV%, GAA, V% percentiler |
+| `special_teams` | PP/PK | PP% och PK% beräknade från game events |
+| `attendance` | Publikdata | Snitt, max, min, trend |
+
+### Frontend Analytics
+
+Ny "Analys"-tab under `/statistik` med tre sub-tabbar:
+
+- **Säsong:** Poängkurva (AreaChart), formkurva (AreaChart), stat-cards
+- **Splits:** Hemma/borta-kort, periodstaplar (BarChart), H2H-tabell
+- **Impact:** Scatter-chart (G/GP × A/GP), efficiency-tabell, målvakts-radar (RadarChart)
+
+Bibliotek: Recharts (react-native charting, MIT).
+
 ## Driftuppdatering 2026-05-17 (API + content-lager)
 
 Följande har härdats i produktions-API (Cloud Run):
@@ -19,9 +66,6 @@ Följande har härdats i produktions-API (Cloud Run):
 - X-feed använder GCS-cache med styrning via `X_CACHE_MINUTES` för kostnadskontroll.
 - Roster-sakring i `GET /api/silly-season`: `confirmed_signings` synkas automatiskt in i `roster` om spelare saknas.
 - Baseline uppdaterad med Topi Niemelä som nyförvärv (RD), så han alltid syns i truppdata.
-
-Not:
-- Dessa ändringar ligger i API-lagret och påverkar frontend via befintliga endpoints.
 
 ## Driftuppdatering 2026-05-17 (Swehockey-modul)
 
@@ -42,9 +86,6 @@ Ny Cloud Function `swehockey-stats-scraper` är implementerad och driftsatt i `e
   - `swehockey-stats-scraper-job`
   - `0 */2 * * *`
   - `Europe/Stockholm`
-
-Not:
-- Swehockeys team-specifika sidor varierar mellan säsongsgrupper. För att säkra dataleverans använder scrapern robust fallback till liganivå och filtrerar mot team-tokens när möjligt.
 
 ## Nya staging-modeller
 
@@ -86,13 +127,12 @@ Not:
 6. Orchestration-lager — delvis (Cloud Functions/Run Jobs finns, scheduler-kedja kvar att härda)
 7. Data quality/tests — delvis (grundtester i dbt tillagda)
 8. Cache/Firestore — ej implementerat
+9. **Multi-season-stöd — planerat (se MULTI_SEASON_PLAN.md)**
 
-## Nästa steg (direkt efter denna leverans)
+## Nästa steg
 
-1. Skapa/validera råtabeller i BigQuery:
-   - `raw_sports.*`
-   - `raw_roster.roster_status_events`
-   - `raw_financials.team_financials`
-2. Wirea ingestion så att dessa tabeller fylls kontinuerligt.
-3. Publicera API-endpoints som läser från `serving_*` i stället för ad hoc-joins.
-4. Lägg in freshness-/relationships-tester per råkälla.
+1. **Implementera multi-season-stöd** (se `slutspel/docs/MULTI_SEASON_PLAN.md`)
+2. Aktivera och verifiera råtabeller i BigQuery (`raw_roster`, `raw_financials`)
+3. Publicera API-endpoints som läser från `serving_*` i stället för ad hoc raw_sports-queries
+4. Lägg in freshness-/relationships-tester per råkälla
+5. Inför cache- och observability-lager
