@@ -54,6 +54,96 @@ def read_root():
 def health_check():
     return {"status": "healthy"}
 
+
+@app.get("/api/v1/statistics")
+def get_statistics_snapshot(team_query: str = Query(default="bjo,björklöven,bjorkloven")):
+    """
+    Returns latest Swehockey snapshot from raw_sports tables.
+    This is a first module API for frontend Statistics tab.
+    """
+    try:
+        bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
+        tokens = [t.strip().lower() for t in str(team_query or "").split(",") if t.strip()]
+        if not tokens:
+            tokens = ["bjo", "björklöven", "bjorkloven"]
+
+        def _matches(value: str) -> bool:
+            v = (value or "").lower()
+            return any(token in v for token in tokens)
+
+        def _query_rows(table_name: str):
+            q = f"""
+            WITH latest AS (
+              SELECT MAX(scraped_at) AS max_scraped
+              FROM `{bq_client.project}.raw_sports.{table_name}`
+            )
+            SELECT *
+            FROM `{bq_client.project}.raw_sports.{table_name}`
+            WHERE scraped_at = (SELECT max_scraped FROM latest)
+            """
+            return [dict(row.items()) for row in bq_client.query(q).result()]
+
+        players = _query_rows("swehockey_player_stats")
+        goalies = _query_rows("swehockey_goalie_stats")
+        standings = _query_rows("swehockey_standings")
+        schedule = _query_rows("swehockey_schedule")
+
+        team_players = [p for p in players if _matches(str(p.get("team_code", "")))]
+        team_goalies = [g for g in goalies if _matches(str(g.get("team_code", "")))]
+        team_standing = next((s for s in standings if _matches(str(s.get("team_name", "")))), None)
+        team_games = [m for m in schedule if _matches(str(m.get("home_team", ""))) or _matches(str(m.get("away_team", "")))]
+
+        has_team_match = bool(team_players or team_goalies or team_standing or team_games)
+        if not has_team_match:
+            # Fallback: return league snapshot so UI is never empty.
+            team_players = players
+            team_goalies = goalies
+            team_standing = standings[0] if standings else None
+            team_games = schedule
+
+        top_scorers = sorted(
+            team_players,
+            key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
+            reverse=True
+        )[:10]
+        top_goalies = sorted(
+            team_goalies,
+            key=lambda g: float(g.get("save_pct") or 0.0),
+            reverse=True
+        )[:5]
+
+        latest_times = []
+        for rows in (players, goalies, standings, schedule):
+            if rows and rows[0].get("scraped_at"):
+                latest_times.append(str(rows[0]["scraped_at"]))
+
+        return {
+            "status": "ok",
+            "source": "swehockey",
+            "scope": "team" if has_team_match else "league_fallback",
+            "team_query_tokens": tokens,
+            "snapshot_scraped_at": max(latest_times) if latest_times else None,
+            "counts": {
+                "players_total": len(players),
+                "goalies_total": len(goalies),
+                "standings_total": len(standings),
+                "schedule_total": len(schedule),
+                "team_players": len(team_players),
+                "team_goalies": len(team_goalies),
+                "team_games": len(team_games),
+            },
+            "team_standing": team_standing,
+            "top_scorers": top_scorers,
+            "top_goalies": top_goalies,
+            "upcoming_or_recent_games": team_games[:12],
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/statistics")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
 def normalize_title(title):
     return re.sub(r'[^\wåäö\s]', '', title.lower()).strip()
 
