@@ -1,6 +1,6 @@
 # 📚 Löven Stats Hub — Systemdokumentation & Master Plan
 
-*Senast uppdaterad: 2026-05-03*  
+*Senast uppdaterad: 2026-05-17*  
 *Detta dokument utgör den officiella tekniska dokumentationen för systemet samt "Master Planen" för hela Löven Stats Hub.*
 
 ---
@@ -182,6 +182,15 @@ Nedan listas aktiva avvikelser fran tidigare planerad malarkitektur.
 | `GET /api/v1/roster` | Trupp (planerad) |
 | `GET /api/v1/matches` | Matcher (planerad) |
 | `GET /api/v1/standings` | Tabell (planerad) |
+
+### Driftnoter 2026-05-17
+
+- X-feed (`GET /api/v1/x-feed`) har nu fallback-query om dagens traffar saknas i primar-queryn.
+- Rosterdata i `GET /api/silly-season` hardas med automatisk sync:
+  - alla `confirmed_signings` speglas till `roster` om de saknas.
+- Topi Niemela ar inlagd i baseline-signings och roster.
+- Aktiv Cloud Run URL for prod:
+  - `https://loven-stats-api-324947473206.europe-west1.run.app`
 
 ### X/Twitter integration (kostnadskontrollerad)
 

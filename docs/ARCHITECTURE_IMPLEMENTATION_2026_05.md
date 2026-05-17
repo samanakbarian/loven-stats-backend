@@ -1,6 +1,6 @@
 # Arkitekturimplementation — V1 (Maj 2026)
 
-Senast uppdaterad: 2026-05-11
+Senast uppdaterad: 2026-05-17
 
 ## Genomfört i denna leverans
 
@@ -10,6 +10,18 @@ Denna leverans etablerar en första körbar implementation av målarkitekturen i
 - `marts/core` för nya fact-tabeller
 - `serving` för API-optimerade vyer
 - schema/tests för datakvalitet
+
+## Driftuppdatering 2026-05-17 (API + content-lager)
+
+Foljande har hardats i produktions-API (Cloud Run):
+
+- `GET /api/v1/x-feed` har fallback-query nar primarsokning inte ger faska traffar for dagen.
+- X-feed anvander GCS-cache med styrning via `X_CACHE_MINUTES` for kostnadskontroll.
+- Roster-sakring i `GET /api/silly-season`: `confirmed_signings` synkas automatiskt in i `roster` om spelare saknas.
+- Baseline uppdaterad med Topi Niemela som nyforvarv (RD), sa han alltid syns i truppdata.
+
+Not:
+- Dessa andringar ligger i API-lagret och paverkar frontend via befintliga endpoints.
 
 ## Nya staging-modeller
 
