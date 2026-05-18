@@ -1183,6 +1183,10 @@ def get_analytics(season: str = None):
                     SELECT team_name, games_played, points, rank, goals_for, goals_against
                     FROM `{proj}.raw_sports.swehockey_standings`
                     WHERE season_group_id = {int(shl_regular_id)}
+                    QUALIFY ROW_NUMBER() OVER (
+                        PARTITION BY team_name, season_group_id
+                        ORDER BY scraped_at DESC
+                    ) = 1
                 """)
 
             if not shl_standings:
