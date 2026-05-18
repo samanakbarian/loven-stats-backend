@@ -1946,7 +1946,7 @@ def _fetch_x_recent(query: str, max_results: int):
                 "id": tweet.get("id"),
                 "text": text,
                 "created_at": tweet.get("created_at"),
-                "author_name": author.get("name") or username or "okÃ¤nd",
+                "author_name": author.get("name") or username or "okänd",
                 "author_username": username,
                 "url": f"https://x.com/{username}/status/{tweet.get('id')}" if username and tweet.get("id") else None,
                 "lang": tweet.get("lang"),
@@ -2135,30 +2135,30 @@ def _build_x_ai_summary(items):
     if not GEMINI_API_KEY:
         return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": "missing_api_key"}
     if not items:
-        return {"enabled": True, "summary": "Inga relevanta inlÃ¤gg just nu.", "model": X_AI_MODEL, "error": None}
+        return {"enabled": True, "summary": "Inga relevanta inlägg just nu.", "model": X_AI_MODEL, "error": None}
     top = items[:20]
     compact_lines = []
     for i, item in enumerate(top, 1):
         compact_lines.append(f"{i}. @{item.get('author_username','okand')}: {item.get('text','')[:220]}")
     prompt = (
-        "Du analyserar ett svenskt socialt flÃ¶de om BjÃ¶rklÃ¶ven.\n"
-        "Skriv en kort sammanfattning pÃ¥ svenska (max 90 ord):\n"
-        "1) Ã–vergripande ton\n"
-        "2) Viktigaste Ã¤mnen\n"
-        "3) En tydlig risk eller mÃ¶jlighet.\n"
-        "Hitta inte pÃ¥ fakta utanfÃ¶r inlÃ¤ggen.\n\n"
-        "InlÃ¤gg:\n" + "\n".join(compact_lines)
+        "Du analyserar ett svenskt socialt flöde om Björklöven.\n"
+        "Skriv en kort sammanfattning på svenska (max 90 ord):\n"
+        "1) Övergripande ton\n"
+        "2) Viktigaste ämnen\n"
+        "3) En tydlig risk eller möjlighet.\n"
+        "Hitta inte på fakta utanför inläggen.\n\n"
+        "Inlägg:\n" + "\n".join(compact_lines)
     )
     def fallback_summary():
         positives = sum(1 for i in items if i.get("sentiment_label") == "positive")
         negatives = sum(1 for i in items if i.get("sentiment_label") == "negative")
         neutrals = sum(1 for i in items if i.get("sentiment_label") == "neutral")
         top = sorted(items, key=lambda i: (i.get("public_metrics", {}).get("like_count", 0) + i.get("public_metrics", {}).get("retweet_count", 0) * 2), reverse=True)[:2]
-        topics = ", ".join([f"@{t.get('author_username','okÃ¤nd')}" for t in top]) if top else "inga tydliga toppsignaler"
-        tone = "Ã¶vervÃ¤gande neutral" if neutrals >= max(positives, negatives) else ("Ã¶vervÃ¤gande positiv" if positives > negatives else "Ã¶vervÃ¤gande negativ")
+        topics = ", ".join([f"@{t.get('author_username','okänd')}" for t in top]) if top else "inga tydliga toppsignaler"
+        tone = "övervägande neutral" if neutrals >= max(positives, negatives) else ("övervägande positiv" if positives > negatives else "övervägande negativ")
         return (
-            f"FlÃ¶det Ã¤r {tone}. Positiva signaler: {positives}, negativa: {negatives}, neutrala: {neutrals}. "
-            f"Mest synliga konton just nu: {topics}. Fokus ligger frÃ¤mst pÃ¥ truppsnack, rykten och SHL-uppladdning."
+            f"Flödet är {tone}. Positiva signaler: {positives}, negativa: {negatives}, neutrala: {neutrals}. "
+            f"Mest synliga konton just nu: {topics}. Fokus ligger främst på truppsnack, rykten och SHL-uppladdning."
         )
 
     try:
@@ -2228,14 +2228,48 @@ def _x_apply_batch_llm_sentiment(items):
 
         # Remove code fences if present.
         raw = raw.replace("```json", "").replace("```", "").strip()
-        start = raw.find("[")
-        end = raw.rfind("]")
-        if start == -1 or end == -1 or end <= start:
-            return items, {"enabled": True, "model": X_AI_MODEL, "error": "invalid_json_shape"}
+        arr = None
+        # 1) Direct JSON parse (array or object)
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                arr = parsed
+            elif isinstance(parsed, dict):
+                for key in ("items", "results", "tweets", "classifications"):
+                    if isinstance(parsed.get(key), list):
+                        arr = parsed.get(key)
+                        break
+        except Exception:
+            pass
 
-        arr = json.loads(raw[start:end + 1])
+        # 2) Fallback: extract first JSON array substring
+        if arr is None:
+            start = raw.find("[")
+            end = raw.rfind("]")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    arr = json.loads(raw[start:end + 1])
+                except Exception:
+                    arr = None
+
+        # 3) Fallback: JSON lines
+        if arr is None:
+            rows = []
+            for line in raw.splitlines():
+                line = line.strip().rstrip(",")
+                if not line.startswith("{"):
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        rows.append(obj)
+                except Exception:
+                    continue
+            if rows:
+                arr = rows
+
         if not isinstance(arr, list):
-            return items, {"enabled": True, "model": X_AI_MODEL, "error": "invalid_json_type"}
+            return items, {"enabled": True, "model": X_AI_MODEL, "error": "invalid_json_shape"}
 
         by_id = {}
         for row in arr:
