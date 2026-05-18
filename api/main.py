@@ -124,15 +124,28 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
     """
     try:
         bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
-        tokens = [t.strip().lower() for t in str(team_query or "").split(",") if t.strip()]
+        def _normalize_for_match(s: str) -> str:
+            raw = str(s or "").strip().lower()
+            # Handle common mojibake variants seen in upstream HTML/DB payloads.
+            raw = (
+                raw.replace("bjã¶rklã¶ven", "björklöven")
+                .replace("if bjã¶rklã¶ven", "if björklöven")
+                .replace("lã¶ven", "löven")
+            )
+            normalized = unicodedata.normalize("NFKD", raw)
+            ascii_only = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+            return re.sub(r"\s+", " ", ascii_only)
+
+        tokens = [_normalize_for_match(t) for t in str(team_query or "").split(",") if t.strip()]
         if not tokens:
-            tokens = ["ifb", "bjo", "bjÃ¶rklÃ¶ven", "bjorkloven", "if bjÃ¶rklÃ¶ven"]
+            tokens = [_normalize_for_match(t) for t in ["ifb", "bjo", "björklöven", "bjorkloven", "if björklöven"]]
 
         def _matches(value: str) -> bool:
-            v = (value or "").strip().lower()
+            v = _normalize_for_match(value)
             for token in tokens:
                 if len(token) <= 3:
-                    if v == token:
+                    # Short tokens like IFB/BJO should still match full team strings.
+                    if v == token or re.search(rf"\b{re.escape(token)}\b", v):
                         return True
                 else:
                     if token in v:

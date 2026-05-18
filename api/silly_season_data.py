@@ -54,6 +54,7 @@ SILLY_SEASON_BASELINE = {
         { "name": "Anton Malmström", "number": 64, "pos": "LD", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde dec 2025" },
         { "name": "Axel Ottosson", "number": 18, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Kapten, tvåårskontrakt" },
         { "name": "Marcus Nilsson", "number": 10, "pos": "LW", "status": "SIGNERAD", "contractUntil": "2027", "note": "" },
+        { "name": "Philip Hemyr", "number": None, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "" },
         { "name": "Gustav Possler", "number": 71, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "" },
         { "name": "Albin Lundin", "number": 33, "pos": "CE", "status": "SIGNERAD", "contractUntil": "2027", "note": "" },
         { "name": "Fredrik Forsberg", "number": 56, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "" },
