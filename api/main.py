@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
 from google.cloud import bigquery
 from datetime import datetime, timezone, timedelta
+from cachetools import cached, TTLCache
 
 import re
 from silly_season_data import SILLY_SEASON_BASELINE
@@ -55,8 +56,56 @@ def health_check():
     return {"status": "healthy"}
 
 
+# ── Season lookup ──
+_season_cache = {}
+
+def lookup_season(season_key=None):
+    """Lookup season config from BQ. Caches results."""
+    cache_key = season_key or "__active__"
+    if cache_key in _season_cache:
+        return _season_cache[cache_key]
+    
+    bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+    proj = bq.project
+    if season_key:
+        sql = f"SELECT * FROM `{proj}.raw_sports.swehockey_seasons` WHERE season_key = @key"
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("key", "STRING", season_key)
+        ])
+    else:
+        sql = f"SELECT * FROM `{proj}.raw_sports.swehockey_seasons` WHERE is_active = TRUE LIMIT 1"
+        job_config = None
+    
+    rows = list(bq.query(sql, job_config=job_config).result())
+    if not rows:
+        # Fallback to hardcoded
+        return {"key": "ha_2526", "name": "HockeyAllsvenskan 2025/26", "regular": 18266, "playoff": 19979}
+    
+    r = dict(rows[0].items())
+    result = {
+        "key": r["season_key"],
+        "name": r["season_name"],
+        "regular": r["regular_season_id"],
+        "playoff": r.get("playoff_id"),
+    }
+    _season_cache[cache_key] = result
+    return result
+
+@app.get("/api/v1/seasons")
+def get_seasons():
+    bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+    rows = [dict(r.items()) for r in bq.query(
+        f"SELECT * FROM `{bq.project}.raw_sports.swehockey_seasons` ORDER BY start_date DESC"
+    ).result()]
+    active = next((r["season_key"] for r in rows if r.get("is_active")), None)
+    return {
+        "seasons": [{"key": r["season_key"], "name": r["season_name"], "is_active": r.get("is_active", False)} for r in rows],
+        "active": active,
+    }
+
+
 @app.get("/api/v1/statistics")
-def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöven,bjorkloven,if björklöven")):
+def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,björklöven,bjorkloven,if björklöven")):
     """
     Returns Swehockey snapshot from raw_sports tables.
     Serves both league-wide stats and Björklöven-specific data.
@@ -85,9 +134,10 @@ def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöve
             """
             return [dict(row.items()) for row in bq_client.query(q).result()]
 
-        # HA regular season = 18266, HA playoff = 19979
-        HA_REGULAR = 18266
-        HA_PLAYOFF = 19979
+        # Lookup season
+        active = lookup_season(season)
+        HA_REGULAR = active["regular"]
+        HA_PLAYOFF = active["playoff"] or active["regular"]
 
         all_players = _query_all("swehockey_player_stats")
         all_goalies = _query_all("swehockey_goalie_stats")
@@ -162,7 +212,7 @@ def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöve
         return {
             "status": "ok",
             "source": "swehockey",
-            "season": "HockeyAllsvenskan 2025/26",
+            "season": active["name"],
             "scope": "team",
             "team_query_tokens": tokens,
             "snapshot_scraped_at": max(latest_times) if latest_times else None,
@@ -197,8 +247,11 @@ def get_statistics_snapshot(team_query: str = Query(default="ifb,bjo,björklöve
         }
 
 
+analytics_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
+
 @app.get("/api/v1/analytics")
-def get_analytics():
+@cached(cache=analytics_cache)
+def get_analytics(season: str = None):
     """
     Compute derived analytics from existing BQ data.
     Returns 8 analysis modules for the frontend.
@@ -211,11 +264,23 @@ def get_analytics():
         def q(sql):
             return [dict(r.items()) for r in bq.query(sql).result()]
 
-        schedule = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_schedule` ORDER BY match_date")
-        players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = 18266")
-        goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = 18266")
-        standings = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_standings`")
-        events = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_game_events`")
+        active = lookup_season(season)
+        REGULAR_ID = active["regular"]
+
+        schedule = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_schedule` WHERE season_group_id = {REGULAR_ID} ORDER BY match_date")
+        players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {REGULAR_ID}")
+        goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {REGULAR_ID}")
+        standings = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {REGULAR_ID}")
+        
+        # Only query events for games in the current regular season schedule to avoid loading other leagues' events
+        sched_game_ids = [str(g['game_id']) for g in schedule if g.get("game_id")]
+        if sched_game_ids:
+            game_ids_str = ", ".join(sched_game_ids)
+            events = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_game_events` WHERE game_id IN ({game_ids_str})")
+        else:
+            events = []
+
+
 
         BJK_NAMES = ["IF Björklöven", "Björklöven"]
         BJK_CODES = ["IFB"]
@@ -395,7 +460,69 @@ def get_analytics():
         longest_loss = max(loss_streaks, key=lambda s: s["length"]) if loss_streaks else None
 
         # ── Module 7: Player Impact ──
-        bjk_players = [p for p in players if (p.get("team_code") or "").upper() in BJK_CODES]
+        # Build the dynamic list of roster names (skaters and goalies)
+        roster_names = []
+        roster_skaters = []
+        roster_goalies = []
+        for r_p in SILLY_SEASON_BASELINE.get("roster", []) + SILLY_SEASON_BASELINE.get("confirmed_departures", []):
+            name = r_p.get("name")
+            if not name:
+                continue
+            if name not in roster_names:
+                roster_names.append(name)
+            
+            pos = r_p.get("pos", "")
+            if pos == "GK":
+                if name not in roster_goalies: roster_goalies.append(name)
+            else:
+                if name not in roster_skaters: roster_skaters.append(name)
+
+        def clean_name(name):
+            if not name: return ""
+            name = re.split(r'(Pos|Abuse|Diving|Charging|Illegal|Unsportsmanlike|Kneeing)', name)[0]
+            name = name.strip()
+            return name
+
+        def name_tokens(name):
+            if not name: return set()
+            s = name.lower()
+            s = s.replace("ö", "o").replace("ä", "a").replace("å", "a")
+            s = s.replace("\ufffd", "")
+            s = s.replace(",", " ").replace("-", " ").replace("'", " ")
+            return {t for t in s.split() if len(t) > 1}
+
+        def match_player(raw_name):
+            cname = clean_name(raw_name)
+            tokens = name_tokens(cname)
+            if not tokens: return None
+            for r in roster_names:
+                rtokens = name_tokens(r)
+                common = tokens.intersection(rtokens)
+                if len(common) >= min(len(tokens), len(rtokens)) or len(common) >= 2:
+                    return r
+            return None
+
+        # Count goals and assists from events
+        event_stats = {}
+        for e in events:
+            tc = (e.get("team_code") or "").upper()
+            if tc != "IFB":
+                continue
+            etype = e.get("event_type")
+            if etype == "goal":
+                scorer = match_player(e.get("player_name"))
+                if scorer:
+                    if scorer not in event_stats: event_stats[scorer] = {"goals": 0, "assists": 0}
+                    event_stats[scorer]["goals"] += 1
+                a1 = match_player(e.get("assist1_name"))
+                if a1:
+                    if a1 not in event_stats: event_stats[a1] = {"goals": 0, "assists": 0}
+                    event_stats[a1]["assists"] += 1
+                a2 = match_player(e.get("assist2_name"))
+                if a2:
+                    if a2 not in event_stats: event_stats[a2] = {"goals": 0, "assists": 0}
+                    event_stats[a2]["assists"] += 1
+
         all_gp = [p for p in players if (p.get("games_played") or 0) >= 10]
 
         # League averages
@@ -408,25 +535,45 @@ def get_analytics():
             avg_ppg = avg_gpg = avg_apg = avg_pim = 0
 
         player_impact = []
-        for p in bjk_players:
-            gp = p.get("games_played") or 1
-            g_pg = round((p.get("goals", 0) / gp), 3)
-            a_pg = round((p.get("assists", 0) / gp), 3)
-            p_pg = round((p.get("points", 0) / gp), 3)
-            pim_pg = round((p.get("pim", 0) / gp), 3)
+        for name in roster_skaters:
+            bq_p = None
+            for p in players:
+                if is_bjk(p.get("team_code", "")) or is_bjk(p.get("team_name", "")):
+                    if match_player(p.get("player_name")) == name:
+                        bq_p = p
+                        break
+            
+            gp = bq_p.get("games_played") if bq_p else len(bjk_games) or 52
+            goals = bq_p.get("goals") if bq_p else event_stats.get(name, {}).get("goals", 0)
+            assists = bq_p.get("assists") if bq_p else event_stats.get(name, {}).get("assists", 0)
+            points = goals + assists
+            
+            g_pg = round(goals / gp, 3) if gp > 0 else 0
+            a_pg = round(assists / gp, 3) if gp > 0 else 0
+            p_pg = round(points / gp, 3) if gp > 0 else 0
+            
+            position = "F"
+            for r_p in SILLY_SEASON_BASELINE.get("roster", []) + SILLY_SEASON_BASELINE.get("confirmed_departures", []):
+                if r_p.get("name") == name:
+                    position = r_p.get("pos", "F")
+                    break
+            
+            pim = bq_p.get("pim", 0) if bq_p else 0
+            pim_pg = round(pim / gp, 3) if gp > 0 else 0
+            
             player_impact.append({
-                "name": p.get("player_name", ""),
-                "position": p.get("position", ""),
-                "number": p.get("jersey_number", 0),
+                "name": name,
+                "position": position,
+                "number": 0,
                 "gp": gp,
-                "goals": p.get("goals", 0),
-                "assists": p.get("assists", 0),
-                "points": p.get("points", 0),
+                "goals": goals,
+                "assists": assists,
+                "points": points,
                 "g_per_gp": g_pg,
                 "a_per_gp": a_pg,
                 "p_per_gp": p_pg,
                 "pim_per_gp": pim_pg,
-                "plus_minus": str(p.get("plus_minus", "")),
+                "plus_minus": str(bq_p.get("plus_minus", "0") if bq_p else "0"),
                 "vs_league": {
                     "ppg_diff": round(p_pg - avg_ppg, 3),
                     "gpg_diff": round(g_pg - avg_gpg, 3),
@@ -435,7 +582,7 @@ def get_analytics():
         player_impact.sort(key=lambda x: -x["p_per_gp"])
 
         # ── Module 8: Goalie Radar ──
-        bjk_goalies = [g for g in goalies if (g.get("team_code") or "").upper() in BJK_CODES]
+        bjk_goalies = [g for g in goalies if is_bjk(g.get("team_code", "")) or is_bjk(g.get("team_name", ""))]
         all_goalies_min10 = sorted([g for g in goalies if (g.get("games_played") or 0) >= 10],
                                     key=lambda g: -(g.get("save_pct") or 0))
 
@@ -452,8 +599,10 @@ def get_analytics():
         goalie_radar = []
         for g in bjk_goalies:
             gp = g.get("games_played") or 1
+            # Match and clean goalie name
+            matched_name = match_player(g.get("goalie_name", "")) or clean_name(g.get("goalie_name", ""))
             goalie_radar.append({
-                "name": g.get("goalie_name", ""),
+                "name": matched_name,
                 "gp": gp,
                 "sv_pct": g.get("save_pct", 0),
                 "gaa": g.get("gaa", 0),
@@ -462,6 +611,7 @@ def get_analytics():
                 "losses": g.get("losses", 0),
                 "win_pct": g.get("win_pct", 0),
                 "saves_per_gp": round((g.get("saves", 0) / gp), 1),
+                "gsaa": round(g.get("saves", 0) - (g.get("saves", 0) / (g.get("save_pct", 0)/100 if g.get("save_pct") else 1)) * 0.90, 1), # Roughly estimating GSAA assuming 90% is avg
                 "percentiles": {
                     "sv_pct": percentile(g.get("save_pct", 0), sv_vals),
                     "gaa": 100 - percentile(g.get("gaa", 0), gaa_vals),  # lower is better
@@ -484,6 +634,7 @@ def get_analytics():
             "pk_goals_against": opp_pp_goals,
             "pk_times": bjk_penalties_taken,
             "pk_pct": round(((bjk_penalties_taken - opp_pp_goals) / max(bjk_penalties_taken, 1)) * 100, 1),
+            "special_teams_index": round(((bjk_pp_goals / max(opp_penalties, 1)) * 100) + (((bjk_penalties_taken - opp_pp_goals) / max(bjk_penalties_taken, 1)) * 100), 1),
             "total_pim": sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES),
             "avg_pim_per_game": round(sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES) / max(len(bjk_games), 1), 1),
         }
@@ -497,7 +648,449 @@ def get_analytics():
             "min": min(specs) if specs else 0,
             "total": sum(specs) if specs else 0,
             "home_games": len(home_games),
+            "trend": [
+                {"date": g.get("match_date")[:10], "opponent": g.get("away_team"), "spectators": g.get("spectators")} 
+                for g in home_games if g.get("spectators")
+            ]
         }
+
+        # ── Modul 9: Penalty Breakdown ──
+        bjk_penalties = [e for e in events if e.get("event_type") == "penalty" and (e.get("team_code") or "").upper() in BJK_CODES]
+        
+        pen_by_type = {}
+        pen_by_period = {1:0, 2:0, 3:0, 4:0} # 4 = OT
+        pen_by_player = {}
+        
+        for p in bjk_penalties:
+            ptype = p.get("penalty_type") or "Okänd"
+            pen_by_type[ptype] = pen_by_type.get(ptype, 0) + 1
+            
+            per = p.get("period") or 1
+            if per > 3: per = 4
+            pen_by_period[per] += 1
+            
+            name = p.get("player_name") or "Okänd"
+            mins = p.get("penalty_minutes") or 2
+            if name not in pen_by_player:
+                pen_by_player[name] = {"count": 0, "minutes": 0}
+            pen_by_player[name]["count"] += 1
+            pen_by_player[name]["minutes"] += mins
+            
+        penalty_breakdown = {
+            "by_type": [{"type": k, "count": v} for k, v in sorted(pen_by_type.items(), key=lambda x: -x[1])[:5]],
+            "by_period": [{"period": k, "count": v} for k, v in pen_by_period.items()],
+            "most_penalized": [{"name": k, "count": v["count"], "minutes": v["minutes"]} for k, v in sorted(pen_by_player.items(), key=lambda x: -x[1]["minutes"])[:5]],
+        }
+
+        # ── Modul 10: The Prediction Engine (Elo) ──
+        elo = {}
+        for s in standings:
+            elo[s.get("team_name")] = 1500
+            
+        elo_history = []
+        K = 20
+        HFA = 40
+        
+        for g in schedule:
+            ht = g.get("home_team")
+            at = g.get("away_team")
+            if not ht or not at: continue
+            
+            if ht not in elo: elo[ht] = 1500
+            if at not in elo: elo[at] = 1500
+            
+            # Save history for BJK if it's a BJK game
+            if is_bjk(ht) or is_bjk(at):
+                bjk_name = ht if is_bjk(ht) else at
+                if g.get("result"):
+                    elo_history.append({"date": g.get("match_date", "")[:10], "elo": round(elo[bjk_name])})
+                
+            res_str = (g.get("result") or "").strip()
+            m = re.match(r'(\d+)\s*-\s*(\d+)', res_str)
+            if not m: continue # game not played yet
+            
+            hg, ag = int(m.group(1)), int(m.group(2))
+            
+            # Actual score
+            pr = parse_period_results(g.get("period_results", ""))
+            is_ot = len(pr) > 3
+            
+            if hg > ag:
+                s_home, s_away = (1, 0) if not is_ot else (0.65, 0.35)
+            elif hg < ag:
+                s_home, s_away = (0, 1) if not is_ot else (0.35, 0.65)
+            else:
+                s_home, s_away = (0.5, 0.5)
+
+            e_home = 1 / (1 + 10 ** ((elo[at] - (elo[ht] + HFA)) / 400))
+            e_away = 1 - e_home
+            
+            elo[ht] += K * (s_home - e_home)
+            elo[at] += K * (s_away - e_away)
+
+        # Append current elo to history
+        bjk_current_name = next((k for k in elo if is_bjk(k)), "IF Björklöven")
+        if not elo_history or elo_history[-1]["date"] != "Idag":
+            elo_history.append({"date": "Idag", "elo": round(elo.get(bjk_current_name, 1500))})
+
+        # Next game prediction
+        future_bjk_games = [g for g in schedule if bjk_game(g) and not g.get("result")]
+        next_game = future_bjk_games[0] if future_bjk_games else None
+        next_game_prediction = None
+        if next_game:
+            ht = next_game.get("home_team")
+            at = next_game.get("away_team")
+            bjk_is_home = is_bjk(ht)
+            opp_name = at if bjk_is_home else ht
+            
+            bjk_elo = elo.get(bjk_current_name, 1500)
+            opp_elo = elo.get(opp_name, 1500)
+            
+            diff = opp_elo - (bjk_elo + (HFA if bjk_is_home else -HFA))
+            win_prob = 1 / (1 + 10 ** (diff / 400))
+            
+            next_game_prediction = {
+                "opponent": opp_name,
+                "is_home": bjk_is_home,
+                "date": next_game.get("match_date", "")[:10],
+                "win_prob": round(win_prob * 100, 1),
+                "bjk_elo": round(bjk_elo),
+                "opp_elo": round(opp_elo)
+            }
+
+        # ── Modul 11: Projected Standings ──
+        TOTAL_GAMES = 52
+        projected_standings = []
+        for s in standings:
+            name = s.get("team_name", "")
+            gp = s.get("games_played", 0)
+            pts = s.get("points", 0)
+            rem = max(0, TOTAL_GAMES - gp)
+            
+            ppg = pts / gp if gp > 0 else 0
+            
+            # Blend current PPG and Elo for projection
+            team_elo = elo.get(name, 1500)
+            elo_implied_ppg = 1.5 + (team_elo - 1500) * 0.003
+            
+            weight_ppg = min(1.0, gp / TOTAL_GAMES)
+            proj_ppg = (ppg * weight_ppg) + (elo_implied_ppg * (1 - weight_ppg))
+            
+            proj_pts = pts + (rem * proj_ppg)
+            
+            projected_standings.append({
+                "team": name,
+                "current_points": pts,
+                "projected_points": round(proj_pts),
+                "current_rank": s.get("rank", 0),
+                "is_bjk": is_bjk(name)
+            })
+            
+        projected_standings.sort(key=lambda x: -x["projected_points"])
+        for i, p in enumerate(projected_standings, 1):
+            p["projected_rank"] = i
+
+        # ── Modul 12: Game State Analysis (Clutch factor) ──
+        game_state = {
+            "lead_after_1": {"w": 0, "l": 0, "otl": 0},
+            "trail_after_1": {"w": 0, "l": 0, "otl": 0},
+            "tied_after_1": {"w": 0, "l": 0, "otl": 0},
+            "lead_after_2": {"w": 0, "l": 0, "otl": 0},
+            "trail_after_2": {"w": 0, "l": 0, "otl": 0},
+            "tied_after_2": {"w": 0, "l": 0, "otl": 0},
+            "game_types": {
+                "one_goal": {"w": 0, "l": 0},
+                "two_goals": {"w": 0, "l": 0},
+                "three_plus_goals": {"w": 0, "l": 0}
+            }
+        }
+
+        for g in bjk_games:
+            res_str = (g.get("result") or "").strip()
+            m = re.match(r'(\d+)\s*-\s*(\d+)', res_str)
+            if not m: continue
+            
+            hg, ag = int(m.group(1)), int(m.group(2))
+            bjk_home = is_bjk(g.get("home_team", ""))
+            
+            pr = parse_period_results(g.get("period_results", ""))
+            if len(pr) < 2: continue # Need at least 2 periods
+            
+            p1_hg, p1_ag = pr[0]["home_gf"], pr[0]["away_gf"]
+            p2_hg, p2_ag = p1_hg + pr[1]["home_gf"], p1_ag + pr[1]["away_gf"]
+            
+            bjk_gf = hg if bjk_home else ag
+            bjk_ga = ag if bjk_home else hg
+            is_ot = len(pr) > 3
+            
+            if bjk_gf > bjk_ga: final = "w"
+            elif bjk_gf < bjk_ga and is_ot: final = "otl"
+            else: final = "l"
+            
+            bjk_p1_gf = p1_hg if bjk_home else p1_ag
+            bjk_p1_ga = p1_ag if bjk_home else p1_hg
+            
+            bjk_p2_gf = p2_hg if bjk_home else p2_ag
+            bjk_p2_ga = p2_ag if bjk_home else p2_hg
+            
+            if bjk_p1_gf > bjk_p1_ga: game_state["lead_after_1"][final] += 1
+            elif bjk_p1_gf < bjk_p1_ga: game_state["trail_after_1"][final] += 1
+            else: game_state["tied_after_1"][final] += 1
+            
+            if bjk_p2_gf > bjk_p2_ga: game_state["lead_after_2"][final] += 1
+            elif bjk_p2_gf < bjk_p2_ga: game_state["trail_after_2"][final] += 1
+            else: game_state["tied_after_2"][final] += 1
+            
+            # Game Types
+            goal_diff = abs(bjk_gf - bjk_ga)
+            win_loss_key = "w" if bjk_gf > bjk_ga else "l"
+            if goal_diff == 1:
+                game_state["game_types"]["one_goal"][win_loss_key] += 1
+            elif goal_diff == 2:
+                game_state["game_types"]["two_goals"][win_loss_key] += 1
+            elif goal_diff >= 3:
+                game_state["game_types"]["three_plus_goals"][win_loss_key] += 1
+
+        # ── Modul 13: Målklockan (Scoring Intensity) ──
+        scoring_timeline = [{"interval": f"{i*10}-{(i+1)*10}", "gf": 0, "ga": 0} for i in range(6)]
+        for e in events:
+            if e.get("event_type") == "goal":
+                t_str = e.get("time", "")
+                m = re.match(r'(\d+):(\d+)', t_str)
+                if not m: continue
+                mins = int(m.group(1))
+                if mins >= 60: continue # Skip OT
+                
+                bin_idx = mins // 10
+                is_bjk_goal = (e.get("team_code") or "").upper() in BJK_CODES
+                is_bjk_game = is_bjk(e.get("home_team")) or is_bjk(e.get("away_team"))
+                
+                if not is_bjk_game: continue
+                
+                if is_bjk_goal:
+                    scoring_timeline[bin_idx]["gf"] += 1
+                else:
+                    scoring_timeline[bin_idx]["ga"] += 1
+
+        # ── Modul 14: Kemimätaren (Top Combinations) ──
+        chemistry = {}
+        for e in events:
+            if e.get("event_type") == "goal" and (e.get("team_code") or "").upper() in BJK_CODES:
+                goal_scorer = e.get("player_name")
+                a1 = e.get("assist1_name")
+                a2 = e.get("assist2_name")
+                
+                if not goal_scorer: continue
+                
+                pairs = []
+                if a1: pairs.append(tuple(sorted([goal_scorer, a1])))
+                if a2: pairs.append(tuple(sorted([goal_scorer, a2])))
+                if a1 and a2: pairs.append(tuple(sorted([a1, a2])))
+                
+                for p in pairs:
+                    if p not in chemistry: chemistry[p] = 0
+                    chemistry[p] += 1
+                    
+        top_chemistry = [{"player1": p[0], "player2": p[1], "goals_created": count} 
+                         for p, count in sorted(chemistry.items(), key=lambda x: -x[1])[:5]]
+
+        # ── Modul 15: First Goal Impact ──
+        first_goal_impact = {"scored_first": {"w":0, "l":0, "otl":0}, "conceded_first": {"w":0, "l":0, "otl":0}}
+        
+        events_sorted = sorted(events, key=lambda x: (x.get("game_id", ""), x.get("period", 1), x.get("time", "00:00")))
+        first_goals = {}
+        for e in events_sorted:
+            gid = e.get("game_id")
+            if gid not in first_goals and e.get("event_type") == "goal":
+                first_goals[gid] = e
+
+        for g in bjk_games:
+            gid = g.get("game_id")
+            if not gid: continue
+            fg = first_goals.get(gid)
+            if not fg: continue
+            
+            bjk_scored_first = (fg.get("team_code") or "").upper() in BJK_CODES
+            
+            res_str = (g.get("result") or "").strip()
+            m = re.match(r'(\d+)\s*-\s*(\d+)', res_str)
+            if not m: continue
+            hg, ag = int(m.group(1)), int(m.group(2))
+            bjk_home = is_bjk(g.get("home_team", ""))
+            bjk_gf = hg if bjk_home else ag
+            bjk_ga = ag if bjk_home else hg
+            pr = parse_period_results(g.get("period_results", ""))
+            is_ot = len(pr) > 3
+            
+            if bjk_gf > bjk_ga: final = "w"
+            elif bjk_gf < bjk_ga and is_ot: final = "otl"
+            else: final = "l"
+            
+            if bjk_scored_first:
+                first_goal_impact["scored_first"][final] += 1
+            else:
+                first_goal_impact["conceded_first"][final] += 1
+
+        # ── Modul 16: Tur/Otur-index (Pythagorean) ──
+        pythagorean = []
+        for s in standings:
+            name = s.get("team_name", "")
+            gp = s.get("games_played", 0)
+            gf = s.get("goals_for", 0)
+            ga = s.get("goals_against", 0)
+            pts = s.get("points", 0)
+            
+            if gp > 0 and (gf + ga) > 0:
+                exp_win_pct = (gf**2) / (gf**2 + ga**2)
+                exp_pts = exp_win_pct * (gp * 3)
+            else:
+                exp_pts = 0
+                
+            pythagorean.append({
+                "team": name,
+                "gp": gp,
+                "pts": pts,
+                "exp_pts": round(exp_pts, 1),
+                "diff": round(pts - exp_pts, 1),
+                "is_bjk": is_bjk(name)
+            })
+        pythagorean.sort(key=lambda x: -x["diff"])
+        
+        # ── Modul 18: SHL Transition Calculations ──
+        leaving_names = [d["name"] for d in SILLY_SEASON_BASELINE.get("confirmed_departures", [])]
+        def is_leaving(player_name):
+            matched = match_player(player_name)
+            if not matched:
+                return False
+            return any(matched == ln for ln in leaving_names)
+
+        # Overrides for new signings (who didn't play in HA last season)
+        signings_overrides = {
+            "Lucas Wallmark": {
+                "proj_ppg": 0.85, 
+                "ha_ppg": 1.40,
+            },
+            "Topi Niemelä": {
+                "proj_ppg": 0.35, 
+                "ha_ppg": 0.58,
+            }
+        }
+
+        shl_skaters = []
+        for p in player_impact:
+            if is_leaving(p["name"]):
+                continue
+            
+            # Check if this player is a new signing that has custom overrides
+            name = p["name"]
+            matched_override = None
+            for override_name, override_data in signings_overrides.items():
+                if name_tokens(name).intersection(name_tokens(override_name)):
+                    matched_override = (override_name, override_data)
+                    break
+                    
+            if matched_override:
+                override_name, override_data = matched_override
+                proj_ppg = override_data["proj_ppg"]
+                ha_ppg = override_data["ha_ppg"]
+                display_name = f"{override_name} 🆕"
+            else:
+                proj_ppg = round(p["p_per_gp"] * 0.60, 2)
+                ha_ppg = round(p["p_per_gp"], 2)
+                display_name = name
+
+            readiness = "GREEN" if proj_ppg >= 0.50 else "AMBER" if proj_ppg >= 0.25 else "RED"
+            shl_skaters.append({
+                "name": display_name,
+                "position": p["position"],
+                "ha_ppg": ha_ppg,
+                "proj_ppg": proj_ppg,
+                "readiness": readiness
+            })
+        
+        shl_goalies = []
+        for g in goalie_radar:
+            if is_leaving(g["name"]):
+                continue
+            proj_sv_pct = round(g["sv_pct"] - 1.8, 1)
+            proj_gaa = round(g["gaa"] + 0.60, 2)
+            readiness = "GREEN" if proj_sv_pct >= 91.0 else "AMBER" if proj_sv_pct >= 89.2 else "RED"
+            shl_goalies.append({
+                "name": g["name"],
+                "ha_sv_pct": g["sv_pct"],
+                "proj_sv_pct": proj_sv_pct,
+                "proj_gaa": proj_gaa,
+                "readiness": readiness
+            })
+            
+        shl_benchmarks = {
+            "pp_pct": {"current": special_teams["pp_pct"], "target": 18.0, "diff": round(special_teams["pp_pct"] - 18.0, 1)},
+            "pk_pct": {"current": special_teams["pk_pct"], "target": 77.0, "diff": round(special_teams["pk_pct"] - 77.0, 1)},
+            "goalie_sv": {"current": max([g["sv_pct"] for g in goalie_radar]) if goalie_radar else 0, "target": 90.0, "diff": round((max([g["sv_pct"] for g in goalie_radar]) if goalie_radar else 0) - 90.0, 1)},
+            "special_teams_index": {"current": special_teams.get("special_teams_index", 0), "target": 95.0, "diff": round(special_teams.get("special_teams_index", 0) - 95.0, 1)}
+        }
+        
+        shl_transition = {
+            "skaters": shl_skaters,
+            "goalies": shl_goalies,
+            "benchmarks": shl_benchmarks
+        }
+
+        # ── Modul 17: AI-Coachen (Gemini) ──
+        bjk_pyth = next((p for p in pythagorean if p["is_bjk"]), None)
+        opp_name = next_game_prediction['opponent'] if next_game_prediction else 'Okänd'
+        win_prob = next_game_prediction['win_prob'] if next_game_prediction else '-'
+        diff = bjk_pyth['diff'] if bjk_pyth else 0
+        p1 = top_chemistry[0]['player1'] if top_chemistry else 'Okänd'
+        p2 = top_chemistry[0]['player2'] if top_chemistry else 'Okänd'
+        goals_created = top_chemistry[0]['goals_created'] if top_chemistry else 0
+        
+        # Season Data
+        recent_streak = streaks[-1] if streaks else None
+        sti = special_teams.get("special_teams_index", 0)
+        
+        # Count RED readiness players for AI
+        red_skaters = len([s for s in shl_skaters if s["readiness"] == "RED"])
+        red_goalies = len([g for g in shl_goalies if g["readiness"] == "RED"])
+        
+        prompt = f"""
+        Du är 'Analytikern', Björklövens interna AI-assisterande tränare och sportchefens strategiska rådgivare.
+        Du MÅSTE svara med en ren, giltig JSON-struktur (inga markdown-taggar som ```json).
+        JSON-strukturen ska exakt ha dessa nycklar:
+        {{
+            "taktik": "Kort taktisk analys (max 3 meningar) baserad på att nästa motståndare är {opp_name}, vår vinstchans är {win_prob}%, och vår Tur/Otur-diff är {diff}.",
+            "sasong_form": "Kort diagnos av säsongen/formen. Vår streak: {recent_streak}. Special Teams Index (PP%+PK%) är {sti} (över 100 är extremt starkt).",
+            "spelar_impact": "Kort spaning om radarpar eller enskilda spelare. Hetast just nu: {p1} & {p2} ({goals_created} mål skapade ihop).",
+            "shl_sportchef": "Sportchef-analys inför SHL (max 3 meningar). Vi har {red_skaters} utespelare och {red_goalies} målvakter som flaggas som 'RED' (under SHL-klass). Ge ett konkret värvningsråd baserat på detta och lagets svagheter."
+        }}
+        Skriv koncist, professionellt och auktoritärt på svenska.
+        """
+        
+        ai_coach_data = {
+            "taktik": "Analytikern är för tillfället offline.",
+            "sasong_form": "Analytikern kunde inte hämta säsongsdata.",
+            "spelar_impact": "Kunde inte ladda spelarscouting.",
+            "shl_sportchef": "Kunde inte generera SHL-scouting."
+        }
+        try:
+            from google import genai
+            import os
+            client = genai.Client(vertexai=True, project=proj, location="europe-west1")
+            ai_res = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt
+            )
+            if ai_res.text:
+                # Clean up potential markdown formatting
+                clean_json = ai_res.text.strip().removeprefix('```json').removesuffix('```').strip()
+                try:
+                    parsed = json.loads(clean_json)
+                    ai_coach_data = parsed
+                except json.JSONDecodeError:
+                    logging.warning(f"Failed to parse AI JSON: {ai_res.text}")
+                    ai_coach_data["taktik"] = ai_res.text
+        except Exception as e:
+            logging.warning(f"AI Coach failed: {e}")
 
         return {
             "status": "ok",
@@ -517,6 +1110,19 @@ def get_analytics():
                 "goalie_radar": goalie_radar,
                 "special_teams": special_teams,
                 "attendance": attendance,
+                "penalty_breakdown": penalty_breakdown,
+                "predictions": {
+                    "elo_history": elo_history,
+                    "next_game": next_game_prediction,
+                    "projected_standings": projected_standings,
+                    "scoring_timeline": scoring_timeline,
+                    "chemistry": top_chemistry,
+                    "first_goal_impact": first_goal_impact,
+                    "pythagorean": pythagorean,
+                    "ai_coach": ai_coach_data,
+                },
+                "game_state": game_state,
+                "shl_transition": shl_transition,
             },
         }
     except Exception as e:

@@ -248,6 +248,12 @@ Miljövariabler:
 - Sidor ej klara: Dashboard, Standings, History
 - Se `slutspel/FRONTEND_2.0_SPECS.md` för fullständig kravspec
 
+### 6.4. Roster-integration & SHL Readiness (Maj 2026) ✅
+- Byggt om spelarmotorn i backend för att beräkna spelarstatistik helt dynamiskt utifrån den fulla truppen via matchhändelser (`swehockey_game_events`).
+- Utvecklat en robust token-baserad namnmatchare med unicode-rensning för full kompatibilitet med trasiga tecken i Swehockey-databasen.
+- Filtrerat bort alla bekräftade förluster (t.ex. Liam Dower-Nilsson) från SHL-framtidsprojekteringar.
+- Skapat en expertbaserad override-mekanism för nyförvärv (t.ex. Lucas Wallmark, Topi Niemelä) för korrekt SHL Readiness-klassificering.
+
 ---
 
 ## 7. Referensdokumentation

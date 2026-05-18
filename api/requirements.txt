@@ -3,3 +3,5 @@ uvicorn
 google-cloud-bigquery
 google-cloud-storage
 requests
+google-genai
+cachetools
