@@ -91,6 +91,13 @@ TRANSFER_RELEVANCE_WORDS = (
     ['kontrakt', 'transfer', 'övergång', 'overgang', 'utlåning', 'utlaning']
 )
 
+# Exclude women's-team coverage from this pipeline (scope is men's roster build).
+WOMENS_CONTEXT_KEYWORDS = [
+    "sdhl", "damhockey", "damlag", "damlaget", "damernas", "damerna",
+    "damspelare", "kvinnliga", "women", "womens", "flickor", "f19", "f18",
+    "f17", "f16",
+]
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def fetch_url(url, timeout=15):
@@ -132,6 +139,19 @@ def is_transfer_relevant(text):
     """Check if text contains any transfer-related keywords."""
     t = text.lower()
     return any(kw in t for kw in TRANSFER_RELEVANCE_WORDS)
+
+
+def is_womens_context(text):
+    """Filter out women's-team content from silly feed."""
+    t = (text or "").lower()
+    return any(kw in t for kw in WOMENS_CONTEXT_KEYWORDS)
+
+
+def is_womens_url(url):
+    """Filter out common women's-team URL patterns."""
+    u = (url or "").lower()
+    womens_url_tokens = ["/dam", "/damer", "sdhl", "/f19", "/f18", "/f17", "/f16"]
+    return any(tok in u for tok in womens_url_tokens)
 
 
 def normalize_title(title):
@@ -475,6 +495,11 @@ def process_articles(raw_articles, ai_cache, stats):
         pub_date = parse_pub_date(art.get("pub_date", ""))
 
         full_text = title
+        body = ""
+
+        # Step 0: keep scope to men's roster build only.
+        if is_womens_context(f"{title} {source_name}") or is_womens_url(link):
+            continue
 
         # Step 1: Must be Björklöven-relevant
         if not has_bjorkloven_context(f"{title} {link} {source_name}"):
@@ -484,13 +509,19 @@ def process_articles(raw_articles, ai_cache, stats):
         if not is_transfer_relevant(title):
             # Try fetching article body for more context
             body = fetch_article_body(link)
+            if is_womens_context(body):
+                continue
             if body and is_transfer_relevant(body):
                 full_text = f"{title} {body}"
             else:
                 continue
         else:
-            # If title alone is transfer-relevant, optionally enrich
-            body = ""
+            # Title can still hide women's context; fetch body for guard check.
+            body = fetch_article_body(link)
+            if is_womens_context(body):
+                continue
+            if body:
+                full_text = f"{title} {body}"
 
         # Step 3: Classify
         tag, confidence = classify_article(title, body, source_name)
