@@ -1,6 +1,6 @@
 # 📐 Data Warehouse Design — Löven Stats Hub
 
-*Senast uppdaterad: 2026-05-03*  
+*Senast uppdaterad: 2026-05-18*  
 *Detta är den officiella referensdokumentationen för hela datamodellen i BigQuery.*
 
 ---
@@ -17,6 +17,25 @@ Modellen är designad för att stödja allt från enkel statistik (mål, assist,
 3. **Multi-source:** Sportradar (live-data), EliteProspects (karriärdata), scrapers (nyheter) och manuell baseline samlas i ett enhetligt schema.
 4. **Multi-league:** Stödjer SHL, HockeyAllsvenskan, J20, och potentiellt andra ligor.
 5. **AI-redo:** Dedikerade AI-tabeller som använder BigQuery ML (Gemini) direkt i SQL.
+
+### 1.1 Nuläge (Implementerat i produktion 2026-05-18)
+
+- `raw_sports` används operativt av API för statistik- och analyticsmoduler.
+- Säsongsstyrning finns via `raw_sports.swehockey_seasons` (inkl. HA och SHL-säsongsnycklar).
+- `GET /api/v1/analytics` innehåller SHL-preseasonmoduler:
+  - `age_curve` (ålderskurva/trajectory per spelare)
+  - `shl_projected_table` (predikterad tabell med `projected_points_p10/p50/p90` och `projected_rank_p10/p50/p90`)
+- `shl_projected_table` returnerar `data_quality`:
+  - `ok` när SHL-källdata finns i `raw_sports.swehockey_standings`
+  - `missing_shl_source` när källa saknas (ingen statisk fallback används)
+- Projektionen använder senaste SHL-standings som styrkebas, men mappas till kommande SHL-lagset för 2026/27 (Björklöven in; MODO/Leksand ut i nuvarande konfiguration).
+
+### 1.2 Viktig avgränsning
+
+- Detta dokument beskriver målmodell + referensdesign.
+- Faktisk driftstatus/implementation dokumenteras även i:
+  - `docs/ARCHITECTURE_IMPLEMENTATION_2026_05.md`
+  - `SYSTEM_DOCUMENTATION.md`
 
 ---
 
