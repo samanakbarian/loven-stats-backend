@@ -33,7 +33,7 @@ Alla `raw_sports`-tabeller har uppdaterats med komplett schema:
 
 ### Analytics API
 
-Ny endpoint `GET /api/v1/analytics` med 10 beräknade moduler:
+Endpoint `GET /api/v1/analytics` med utökade moduler:
 
 | Modul | Data | Beskrivning |
 |-------|------|-------------|
@@ -47,14 +47,22 @@ Ny endpoint `GET /api/v1/analytics` med 10 beräknade moduler:
 | `goalie_radar` | BJK-målvakter | SV%, GAA, V% percentiler |
 | `special_teams` | PP/PK | PP% och PK% beräknade från game events |
 | `attendance` | Publikdata | Snitt, max, min, trend |
+| `age_curve` | SHL-preseason | Ålderskurva och trajectories för truppen |
+| `shl_projected_table` | SHL-preseason | Predikterad tabell med P10/P50/P90 + `data_quality` |
+
+Noteringar:
+- Projektion använder senaste SHL-standings som styrkebas.
+- Teamset mappas till kommande SHL 2026/27 (Björklöven in, MODO/Leksand ut).
+- Om SHL-källdata saknas returneras `data_quality = "missing_shl_source"` och tom tabell.
 
 ### Frontend Analytics
 
-Ny "Analys"-tab under `/statistik` med tre sub-tabbar:
+Ny "Analys"-tab under `/statistik` med sub-tabbar och preseason-SHL:
 
 - **Säsong:** Poängkurva (AreaChart), formkurva (AreaChart), stat-cards
 - **Splits:** Hemma/borta-kort, periodstaplar (BarChart), H2H-tabell
 - **Impact:** Scatter-chart (G/GP × A/GP), efficiency-tabell, målvakts-radar (RadarChart)
+- **Preseason SHL:** readiness-scorecard, age curve, projections-tabell (visas i HA 25/26 som preseason-vy)
 
 Bibliotek: Recharts (react-native charting, MIT).
 
