@@ -2,6 +2,7 @@
 import json
 import logging
 import requests
+import unicodedata
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -1836,18 +1837,78 @@ def compute_freshness_status(last_refresh_iso: str | None) -> str:
 
 
 def _x_sentiment_score(text: str):
-    t = (text or "").lower()
-    positive = ["klar", "nyfÃ¶rvÃ¤rv", "vinner", "fÃ¶rlÃ¤nger", "stÃ¤rker", "succÃ©", "poÃ¤ngkung"]
-    negative = ["lÃ¤mnar", "skadad", "missar", "kris", "fÃ¶rlust", "sparken", "avslutar"]
-    pos_hits = sum(1 for w in positive if w in t)
-    neg_hits = sum(1 for w in negative if w in t)
-    if pos_hits > neg_hits:
-        return "positive", min(95, 55 + (pos_hits - neg_hits) * 10)
-    if neg_hits > pos_hits:
-        return "negative", min(95, 55 + (neg_hits - pos_hits) * 10)
-    return "neutral", 50
+    def _norm(s: str) -> str:
+        s = (s or "").lower()
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = re.sub(r"http\S+", " ", s)
+        s = re.sub(r"[^a-z0-9#@!?\s-]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
 
+    t = _norm(text or "")
 
+    positive_terms = {
+        "klar for": 2,
+        "nyforvarv": 2,
+        "forlanger": 2,
+        "forlangning": 2,
+        "ansluter": 2,
+        "comeback": 1,
+        "vinner": 2,
+        "seger": 2,
+        "starker": 1,
+        "poang": 1,
+        "assist": 1,
+        "mal": 1,
+        "bra": 1,
+        "stabil": 1,
+        "grym": 1,
+        "toppen": 1,
+        "lyfter": 1,
+    }
+    negative_terms = {
+        "lamnar": 2,
+        "skadad": 2,
+        "skada": 2,
+        "missar": 1,
+        "kris": 2,
+        "forlust": 2,
+        "sparken": 2,
+        "avslutar": 1,
+        "tapp": 1,
+        "oro": 1,
+        "svag": 1,
+        "problem": 1,
+        "straffad": 1,
+        "installd": 1,
+    }
+
+    pos_score = 0
+    neg_score = 0
+    for term, weight in positive_terms.items():
+        if term in t:
+            pos_score += weight
+    for term, weight in negative_terms.items():
+        if term in t:
+            neg_score += weight
+
+    if "!" in (text or ""):
+        if pos_score > neg_score:
+            pos_score += 1
+        elif neg_score > pos_score:
+            neg_score += 1
+
+    if pos_score == 0 and neg_score == 0:
+        return "neutral", 50
+    if abs(pos_score - neg_score) <= 1:
+        return "neutral", 52
+
+    if pos_score > neg_score:
+        delta = pos_score - neg_score
+        return "positive", min(95, 58 + delta * 8)
+    delta = neg_score - pos_score
+    return "negative", min(95, 58 + delta * 8)
 def _fetch_x_recent(query: str, max_results: int):
     if not X_BEARER_TOKEN:
         return {"items": [], "error": "missing_token"}
@@ -2463,3 +2524,5 @@ def get_financials():
 # def get_momentum(game_id: str):
 #     # Anropa BigQuery hÃ¤r
 #     pass
+
+
