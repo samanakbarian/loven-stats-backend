@@ -32,6 +32,9 @@ GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", "")
 BQ_DATASET = os.environ.get("BQ_DATASET", "loven_marts")
 BQ_LOVENLAGET_TABLE = os.environ.get("BQ_LOVENLAGET_TABLE", "mart_lovenlaget_snapshot")
+BQ_FINANCIALS_TABLE = os.environ.get("BQ_FINANCIALS_TABLE", "serving_team_economy_dashboard")
+BQ_FINANCIALS_RAW_DATASET = os.environ.get("BQ_FINANCIALS_RAW_DATASET", "raw_content")
+BQ_FINANCIALS_RAW_TABLE = os.environ.get("BQ_FINANCIALS_RAW_TABLE", "bjorkloven_financials_raw")
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN", "")
 X_QUERY_DEFAULT = os.environ.get(
     "X_QUERY_DEFAULT",
@@ -1191,6 +1194,8 @@ def get_analytics(season: str = None):
                     SELECT team_name, games_played, points, rank
                     FROM `{proj}.raw_sports.swehockey_standings`
                     WHERE season_group_id = {int(shl_regular_id)}
+                      AND COALESCE(games_played, 0) >= 40
+                      AND COALESCE(points, 0) > 0
                     QUALIFY ROW_NUMBER() OVER (
                         PARTITION BY team_name, season_group_id
                         ORDER BY scraped_at DESC
@@ -1207,18 +1212,29 @@ def get_analytics(season: str = None):
                 gp = max(1, int(row.get("games_played") or 52))
                 pts = float(row.get("points") or 0)
                 ppg = pts / gp
+                rank = int(row.get("rank") or 14)
+                # Robust seed: blend realized points pace with rank-based strength.
+                # This dampens outliers from imperfect source snapshots.
+                ppg_seed = ppg * 52.0
+                rank_seed = max(42.0, 100.0 - ((rank - 1) * 4.0))
+                base_points = round((ppg_seed * 0.75) + (rank_seed * 0.25))
                 shl_rows.append({
                     "team": row.get("team_name", "Unknown"),
                     "ppg": ppg,
-                    "base_projected_points": round(ppg * 52),
+                    "base_projected_points": int(base_points),
+                    "rank": rank,
                 })
 
             # Use latest SHL season as performance baseline, but lock team set to upcoming SHL 2026/27.
             # Current business context: Björklöven promoted, MODO not in upcoming SHL roster.
-            relegated_from_shl = {"modo hockey", "leksands if"}
+            relegated_from_shl_tokens = {"modo", "leksand", "leksands"}
             promoted_to_shl = [{"team": "IF Björklöven", "seed_points": 58}]
 
-            filtered_rows = [r for r in shl_rows if (r.get("team", "").strip().lower() not in relegated_from_shl)]
+            def _is_relegated_team(team_name):
+                n = (team_name or "").strip().lower()
+                return any(tok in n for tok in relegated_from_shl_tokens)
+
+            filtered_rows = [r for r in shl_rows if not _is_relegated_team(r.get("team", ""))]
             for p in promoted_to_shl:
                 exists = any((r.get("team", "").strip().lower() == p["team"].strip().lower()) for r in filtered_rows)
                 if not exists:
@@ -2251,6 +2267,67 @@ def get_lovenlaget_snapshot():
                 "critical_open": len(critical_now),
             },
         },
+    }
+
+
+@app.get("/api/v1/financials")
+def get_financials():
+    """
+    Return current financial dashboard rows when available.
+    Falls back to lightweight economy status so UI is never empty.
+    """
+    try:
+        bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
+        raw_fqn = f"`{bq_client.project}.{BQ_FINANCIALS_RAW_DATASET}.{BQ_FINANCIALS_RAW_TABLE}`"
+        raw_sql = f"""
+            select *
+            from {raw_fqn}
+            order by financial_year desc, entity
+        """
+        raw_rows = [dict(r.items()) for r in bq_client.query(raw_sql).result()]
+        if raw_rows:
+            return {
+                "status": "ok",
+                "source": "bigquery_raw",
+                "table": f"{BQ_FINANCIALS_RAW_DATASET}.{BQ_FINANCIALS_RAW_TABLE}",
+                "count": len(raw_rows),
+                "items": raw_rows,
+            }
+
+        table_fqn = f"`{bq_client.project}.{BQ_DATASET}.{BQ_FINANCIALS_TABLE}`"
+        rows = [dict(r.items()) for r in bq_client.query(f"select * from {table_fqn}").result()]
+        if rows:
+            return {
+                "status": "ok",
+                "source": "bigquery",
+                "table": BQ_FINANCIALS_TABLE,
+                "count": len(rows),
+                "items": rows,
+            }
+    except Exception as e:
+        logging.warning(f"Kunde inte läsa {BQ_FINANCIALS_TABLE} från BigQuery: {e}")
+
+    # Fallback so frontend never gets an empty economy section.
+    return {
+        "status": "ok",
+        "source": "fallback",
+        "table": BQ_FINANCIALS_TABLE,
+        "count": 1,
+        "items": [
+            {
+                "team_id": "IFB",
+                "season_id": "sr_season_2026_2027_shl",
+                "reporting_period": "latest",
+                "confidence_level": "low",
+                "revenue_total": None,
+                "operating_result": None,
+                "cash": None,
+                "debt": None,
+                "risk_level": "medel",
+                "budget_pressure": "hög",
+                "next_question": "Har klubben råd med två spetsnamn?",
+            }
+        ],
     }
 
 # @app.get("/api/v1/games/{game_id}/momentum")
