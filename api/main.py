@@ -1018,11 +1018,11 @@ def get_analytics(season: str = None):
                 "proj_ppg": 0.85, 
                 "ha_ppg": 1.40,
             },
-            "Topi NiemelÃ¤": {
+            "Topi Niemelä": {
                 "proj_ppg": 0.35, 
                 "ha_ppg": 0.58,
             },
-            "Marcus BjÃƒÂ¶rk": {
+            "Marcus Björk": {
                 "proj_ppg": 0.28,
                 "ha_ppg": 0.45,
             }
@@ -1055,8 +1055,8 @@ def get_analytics(season: str = None):
             name = p["name"]
             matched_override = None
             lname = normalized_name(name)
-            if "marcus" in lname and ("bjork" in lname or "bjÃ¶rk" in lname or "bjÃ£Â¶rk" in lname):
-                matched_override = ("Marcus BjÃ¶rk", signings_overrides.get("Marcus BjÃƒÂ¶rk", {"proj_ppg": 0.28, "ha_ppg": 0.45}))
+            if "marcus" in lname and ("bjork" in lname or "björk" in lname):
+                matched_override = ("Marcus Björk", signings_overrides.get("Marcus Björk", {"proj_ppg": 0.28, "ha_ppg": 0.45}))
             for override_name, override_data in signings_overrides.items():
                 if matched_override:
                     break
@@ -1068,7 +1068,7 @@ def get_analytics(season: str = None):
                 override_name, override_data = matched_override
                 proj_ppg = override_data["proj_ppg"]
                 ha_ppg = override_data["ha_ppg"]
-                display_name = f"{override_name} ðŸ†•"
+                display_name = f"{override_name} 🆕"
             else:
                 proj_ppg = round(p["p_per_gp"] * 0.60, 2)
                 ha_ppg = round(p["p_per_gp"], 2)
@@ -1114,15 +1114,15 @@ def get_analytics(season: str = None):
         # â”€â”€ Modul 19: SHL Survival Age Curve & Trajectory â”€â”€
         roster_ages = {
             "Lucas Wallmark": 31,
-            "Topi NiemelÃ¤": 23,
+            "Topi Niemelä": 23,
             "Axel Ottosson": 30,
             "Marcus Nilsson": 35,
-            "Oscar TellstrÃ¶m": 24,
-            "Anton MalmstrÃ¶m": 26,
+            "Oscar Tellström": 24,
+            "Anton Malmström": 26,
             "Gustaf Kangas": 21,
             "Lenni Killinen": 26,
             "Linus Cronholm": 26,
-            "Marcus BjÃ¶rk": 29,
+            "Marcus Björk": 29,
             "Gustav Possler": 32,
             "Albin Lundin": 30,
             "Fredrik Forsberg": 30,
@@ -1134,8 +1134,8 @@ def get_analytics(season: str = None):
 
         age_skaters = []
         for p in shl_skaters:
-            # Clean name from display name (e.g. remove the emoji " ðŸ†•")
-            raw_name = p["name"].replace(" ðŸ†•", "").strip()
+            # Clean name from display name (e.g. remove the emoji " 🆕")
+            raw_name = p["name"].replace(" 🆕", "").strip()
             
             # Match name to get the age (prefer exact normalized name first).
             matched_age = 26 # Default fallback age
