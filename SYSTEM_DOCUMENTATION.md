@@ -254,6 +254,21 @@ Miljövariabler:
 - Filtrerat bort alla bekräftade förluster (t.ex. Liam Dower-Nilsson) från SHL-framtidsprojekteringar.
 - Skapat en expertbaserad override-mekanism för nyförvärv (t.ex. Lucas Wallmark, Topi Niemelä) för korrekt SHL Readiness-klassificering.
 
+### 6.5. SHL Preseason Projection Engine (Maj 2026) ✅
+- Ny modul i `GET /api/v1/analytics`: `modules.shl_projected_table`.
+- Hämtar SHL-säsong via `raw_sports.swehockey_seasons` och SHL-standings via `raw_sports.swehockey_standings`.
+- Beräknar predikterad SHL-tabell med:
+  - projekterad poäng (`projected_points`)
+  - osäkerhetsintervall (`projected_points_p10/p50/p90`)
+  - rankintervall (`projected_rank_p10/p50/p90`)
+  - top-6 sannolikhet och playoutrisk.
+- Björklöven justeras dynamiskt av:
+  - age-curve-modulen
+  - special teams-index
+  - confirmed signings/departures/expiring i `SILLY_SEASON_BASELINE`.
+- Statisk fallback-tabell är borttagen:
+  - vid saknad SHL-källdata returneras `data_quality="missing_shl_source"` och tom tabell.
+
 ---
 
 ## 7. Referensdokumentation

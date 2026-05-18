@@ -1159,8 +1159,13 @@ def get_analytics(season: str = None):
             "season": "SHL 2026/27 (preseason)",
             "last_updated": datetime.now(timezone.utc).isoformat(),
             "method": "Team-strength blend (historic SHL baseline + BJK roster projection)",
+            "data_quality": "ok",
             "table": [],
-            "bjk_summary": {"projected_rank": None, "projected_points": None, "top6_chance_pct": None, "playout_risk_pct": None},
+            "bjk_summary": {
+                "projected_rank": None, "projected_points": None, "top6_chance_pct": None, "playout_risk_pct": None,
+                "projected_points_p10": None, "projected_points_p50": None, "projected_points_p90": None,
+                "projected_rank_p10": None, "projected_rank_p50": None, "projected_rank_p90": None,
+            },
         }
         try:
             shl_season_rows = q(f"""
@@ -1180,24 +1185,9 @@ def get_analytics(season: str = None):
                     WHERE season_group_id = {int(shl_regular_id)}
                 """)
 
-            # Fallback list if SHL standings are unavailable in BQ right now
             if not shl_standings:
-                shl_standings = [
-                    {"team_name": "Färjestad BK", "games_played": 52, "points": 95, "rank": 1, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Frölunda HC", "games_played": 52, "points": 90, "rank": 2, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Skellefteå AIK", "games_played": 52, "points": 88, "rank": 3, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Luleå HF", "games_played": 52, "points": 85, "rank": 4, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Växjö Lakers", "games_played": 52, "points": 83, "rank": 5, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Rögle BK", "games_played": 52, "points": 80, "rank": 6, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Linköping HC", "games_played": 52, "points": 77, "rank": 7, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Timrå IK", "games_played": 52, "points": 75, "rank": 8, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Malmö Redhawks", "games_played": 52, "points": 73, "rank": 9, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Örebro HK", "games_played": 52, "points": 70, "rank": 10, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "HV71", "games_played": 52, "points": 67, "rank": 11, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "MODO Hockey", "games_played": 52, "points": 64, "rank": 12, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "IF Björklöven", "games_played": 52, "points": 0, "rank": 14, "goals_for": 0, "goals_against": 0},
-                    {"team_name": "Djurgårdens IF", "games_played": 52, "points": 0, "rank": 13, "goals_for": 0, "goals_against": 0},
-                ]
+                shl_projected_table["data_quality"] = "missing_shl_source"
+                raise ValueError("No SHL standings data available in raw_sports.swehockey_standings for latest SHL season")
 
             # Build baseline strength from SHL standings
             shl_rows = []
@@ -1241,15 +1231,28 @@ def get_analytics(season: str = None):
 
             shl_rows.sort(key=lambda x: -x["base_projected_points"])
             projected_table_rows = []
+            volatility = 6 + (departures_count * 0.2) + (expiring_count * 0.6) - (signings_count * 0.15)
+            volatility = max(4.5, min(10.0, volatility))
             for i, r in enumerate(shl_rows, 1):
                 pts = int(r["base_projected_points"])
+                p10_pts = int(max(35, round(pts - (volatility * 1.3))))
+                p90_pts = int(min(110, round(pts + (volatility * 1.3))))
+                rank_spread = 2 if i <= 6 else 3
+                p10_rank = max(1, i - rank_spread)
+                p90_rank = min(len(shl_rows), i + rank_spread)
                 top6_chance = max(2, min(96, int(100 - (i - 1) * 6)))
                 playout_risk = max(2, min(90, int((i - 8) * 8))) if i >= 8 else 2
                 tier = "Topplag" if i <= 4 else "Slutspel" if i <= 10 else "Riskzon"
                 projected_table_rows.append({
                     "projected_rank": i,
+                    "projected_rank_p10": p10_rank,
+                    "projected_rank_p50": i,
+                    "projected_rank_p90": p90_rank,
                     "team": r["team"],
                     "projected_points": pts,
+                    "projected_points_p10": p10_pts,
+                    "projected_points_p50": pts,
+                    "projected_points_p90": p90_pts,
                     "tier": tier,
                     "top6_chance_pct": top6_chance,
                     "playout_risk_pct": playout_risk,
@@ -1263,6 +1266,12 @@ def get_analytics(season: str = None):
                     "projected_points": bjk_row["projected_points"],
                     "top6_chance_pct": bjk_row["top6_chance_pct"],
                     "playout_risk_pct": bjk_row["playout_risk_pct"],
+                    "projected_points_p10": bjk_row["projected_points_p10"],
+                    "projected_points_p50": bjk_row["projected_points_p50"],
+                    "projected_points_p90": bjk_row["projected_points_p90"],
+                    "projected_rank_p10": bjk_row["projected_rank_p10"],
+                    "projected_rank_p50": bjk_row["projected_rank_p50"],
+                    "projected_rank_p90": bjk_row["projected_rank_p90"],
                 }
             shl_projected_table["table"] = projected_table_rows
         except Exception as shl_proj_err:
