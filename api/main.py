@@ -58,6 +58,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 X_BQ_DATASET = os.environ.get("X_BQ_DATASET", "raw_content")
 X_BQ_POSTS_TABLE = os.environ.get("X_BQ_POSTS_TABLE", "x_posts")
 X_BQ_RUNS_TABLE = os.environ.get("X_BQ_RUNS_TABLE", "x_fetch_runs")
+SWEHOCKEY_TEAM_ID = os.environ.get("SWEHOCKEY_TEAM_ID", "1139")
 
 @app.get("/")
 def read_root():
@@ -207,9 +208,14 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         # Team standing
         team_standing = next((s for s in standings if _matches(str(s.get("team_name", "")))), None)
 
-        # Team games â€” sorted by date descending
+        # Team games â€” use team_id when present; fallback to robust name matching
         team_games = sorted(
-            [m for m in schedule if _matches(str(m.get("home_team", ""))) or _matches(str(m.get("away_team", "")))],
+            [
+                m for m in schedule
+                if str(m.get("team_id", "")).strip() == SWEHOCKEY_TEAM_ID
+                or _matches(str(m.get("home_team", "")))
+                or _matches(str(m.get("away_team", "")))
+            ],
             key=lambda g: str(g.get("date", "") or g.get("match_date", "")),
             reverse=True,
         )
@@ -226,6 +232,30 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
                 "points": team_standing.get("points", 0),
                 "gf": 0, "ga": 0,
             }
+        elif team_games:
+            wins = losses = otl = gf = ga = 0
+            for g in team_games:
+                result = str(g.get("result", "") or "")
+                m = re.search(r"(\d+)\s*-\s*(\d+)", result)
+                if not m:
+                    continue
+                hg, ag = int(m.group(1)), int(m.group(2))
+                home = str(g.get("home_team", "") or "")
+                is_home = _matches(home)
+                bjk_gf = hg if is_home else ag
+                bjk_ga = ag if is_home else hg
+                gf += bjk_gf
+                ga += bjk_ga
+                if bjk_gf > bjk_ga:
+                    wins += 1
+                elif bjk_gf < bjk_ga:
+                    has_ot = any(x in str(g.get("status", "") or "").upper() for x in ["OT", "ÖT", "SO", "GWS"])
+                    if has_ot:
+                        otl += 1
+                    else:
+                        losses += 1
+            gp = wins + losses + otl
+            record = {"gp": gp, "wins": wins, "losses": losses, "otl": otl, "otw": 0, "points": wins * 3 + otl, "gf": gf, "ga": ga}
 
         latest_times = []
         for rows in (all_players, all_goalies, standings, schedule):
@@ -307,14 +337,25 @@ def get_analytics(season: str = None):
 
 
 
-        BJK_NAMES = ["IF BjÃ¶rklÃ¶ven", "BjÃ¶rklÃ¶ven"]
+        BJK_NAMES = ["IF Björklöven", "Björklöven", "IF Bjorkloven", "Bjorkloven"]
         BJK_CODES = ["IFB"]
 
+        def _norm_name(s: str) -> str:
+            raw = str(s or "").strip().lower()
+            raw = raw.replace("bjã¶rklã¶ven", "björklöven").replace("lã¶ven", "löven")
+            n = unicodedata.normalize("NFKD", raw)
+            return "".join(ch for ch in n if not unicodedata.combining(ch))
+
         def is_bjk(name):
-            return any(b.lower() in (name or "").lower() for b in BJK_NAMES + BJK_CODES)
+            value = _norm_name(name)
+            return any(_norm_name(b) in value for b in BJK_NAMES + BJK_CODES)
 
         def bjk_game(g):
-            return is_bjk(g.get("home_team", "")) or is_bjk(g.get("away_team", ""))
+            return (
+                str(g.get("team_id", "")).strip() == SWEHOCKEY_TEAM_ID
+                or is_bjk(g.get("home_team", ""))
+                or is_bjk(g.get("away_team", ""))
+            )
 
         def parse_period_results(pr):
             """Parse '(2-1, 0-1, 1-2)' into [{period, home_gf, away_gf}]"""

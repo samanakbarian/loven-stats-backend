@@ -5,6 +5,7 @@ SILLY_SEASON_BASELINE = {
     "last_manual_update": "2026-05-01T00:00:00Z",
 
     "confirmed_extensions": [
+        { "name": "Joel Mustonen", "number": 39, "pos": "CE", "contractUntil": "2027", "years": 1, "date": "2026-05-18", "source": "bjorkloven.com", "note": "Förlängning bekräftad" },
         { "name": "Axel Ottosson", "number": 18, "pos": "CE", "contractUntil": "2028", "years": 2, "date": "2026-04-25", "source": "bjorkloven.com", "note": "Lagkapten, nytt tvåårskontrakt" },
         { "name": "Oscar Tellström", "number": 91, "pos": "LW", "contractUntil": "2028", "years": 2, "date": "2025-12-20", "source": "bjorkloven.com", "note": "Förlängde i december 2025" },
         { "name": "Anton Malmström", "number": 64, "pos": "LD", "contractUntil": "2028", "years": 2, "date": "2025-12-20", "source": "bjorkloven.com", "note": "Förlängde i december 2025" },
@@ -31,7 +32,6 @@ SILLY_SEASON_BASELINE = {
 
     "expiring_contracts": [
         { "name": "Daniel Brodin", "number": 34, "pos": "RW", "status": "UTGÅENDE", "rumor_to": None, "rumor_pct": 0, "source": "hockeynews.se" },
-        { "name": "Joel Mustonen", "number": 39, "pos": "CE", "status": "UTGÅENDE", "rumor_to": None, "rumor_pct": 0, "source": "hockeynews.se" },
         { "name": "Jacob Olofsson", "number": 32, "pos": "CE", "status": "UTGÅENDE", "rumor_to": None, "rumor_pct": 0, "source": "hockeynews.se" },
     ],
 
@@ -62,7 +62,7 @@ SILLY_SEASON_BASELINE = {
         { "name": "Lenni Killinen", "number": 37, "pos": "LW", "status": "FÖRLÄNGD", "contractUntil": "2027", "note": "Förlängde jan 2026" },
         { "name": "Gustaf Kangas", "number": 17, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde jan 2026" },
         { "name": "Daniel Brodin", "number": 34, "pos": "RW", "status": "UTGÅENDE", "contractUntil": "2026", "note": "" },
-        { "name": "Joel Mustonen", "number": 39, "pos": "CE", "status": "UTGÅENDE", "contractUntil": "2026", "note": "" },
+        { "name": "Joel Mustonen", "number": 39, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2027", "note": "Förlängd" },
         { "name": "Jacob Olofsson", "number": 32, "pos": "CE", "status": "UTGÅENDE", "contractUntil": "2026", "note": "" },
         { "name": "Lucas Wallmark", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2032", "note": "6-årskontrakt, moderklubb" },
         { "name": "Topi Niemelä", "number": None, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2028", "note": "Nyförvärv från Malmö" },
@@ -96,7 +96,7 @@ SILLY_SEASON_BASELINE = {
             { "lw": { "player": "Marcus Nilsson", "number": 10, "status": "SIGNERAD" }, "ce": { "player": "Axel Ottosson", "number": 18, "status": "FÖRLÄNGD" }, "rw": { "player": "Gustav Possler", "number": 71, "status": "SIGNERAD" } },
             { "lw": { "player": None, "status": "VAKANT", "rumors": ["SHL-förstärkning", "Ihs-Wozniak tillbaka till Luleå"] }, "ce": { "player": "Lucas Wallmark", "number": None, "status": "NYFÖRVÄRV" }, "rw": { "player": "Fredrik Forsberg", "number": 56, "status": "SIGNERAD" } },
             { "lw": { "player": "Oscar Tellström", "number": 91, "status": "FÖRLÄNGD" }, "ce": { "player": "Gustaf Kangas", "number": 17, "status": "FÖRLÄNGD" }, "rw": { "player": None, "status": "VAKANT", "rumors": ["Dower-Nilsson→Frölunda", "Nyförvärv"] } },
-            { "lw": { "player": "Lenni Killinen", "number": 37, "status": "FÖRLÄNGD" }, "ce": { "player": None, "status": "VAKANT", "rumors": ["Joel Mustonen (osäker)", "Nyförvärv"] }, "rw": { "player": None, "status": "VAKANT", "rumors": ["Daniel Brodin (osäker)", "Nyförvärv"] } },
+            { "lw": { "player": "Lenni Killinen", "number": 37, "status": "FÖRLÄNGD" }, "ce": { "player": "Joel Mustonen", "number": 39, "status": "FÖRLÄNGD" }, "rw": { "player": None, "status": "VAKANT", "rumors": ["Daniel Brodin (osäker)", "Nyförvärv"] } },
         ],
     },
 }
