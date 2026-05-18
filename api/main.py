@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import logging
 import requests
@@ -14,15 +14,15 @@ import re
 from silly_season_data import SILLY_SEASON_BASELINE
 
 app = FastAPI(
-    title="Löven Stats Hub API",
-    description="Backend API for Löven Stats Hub, serving data from BigQuery & GCS",
+    title="LÃ¶ven Stats Hub API",
+    description="Backend API for LÃ¶ven Stats Hub, serving data from BigQuery & GCS",
     version="1.0.0"
 )
 
-# Tillåt CORS för frontend
+# TillÃ¥t CORS fÃ¶r frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Byt till Netlify-domänen i produktion
+    allow_origins=["*"], # Byt till Netlify-domÃ¤nen i produktion
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,12 +38,12 @@ BQ_FINANCIALS_RAW_TABLE = os.environ.get("BQ_FINANCIALS_RAW_TABLE", "bjorkloven_
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN", "")
 X_QUERY_DEFAULT = os.environ.get(
     "X_QUERY_DEFAULT",
-    '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
+    '(BjÃ¶rklÃ¶ven OR Bjorkloven OR #BjÃ¶rklÃ¶ven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
 )
 X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "40"))
 X_QUERY_BROAD_DEFAULT = os.environ.get(
     "X_QUERY_BROAD_DEFAULT",
-    '((Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven OR Löven OR #Löven) (hockey OR SHL OR allsvenskan OR nyförvärv OR förlänger OR lämnar OR silly)) -is:retweet -is:reply lang:sv'
+    '((BjÃ¶rklÃ¶ven OR Bjorkloven OR #BjÃ¶rklÃ¶ven OR #Bjorkloven OR LÃ¶ven OR #LÃ¶ven) (hockey OR SHL OR allsvenskan OR nyfÃ¶rvÃ¤rv OR fÃ¶rlÃ¤nger OR lÃ¤mnar OR silly)) -is:retweet -is:reply lang:sv'
 )
 X_QUERY_OFFICIAL_DEFAULT = os.environ.get(
     "X_QUERY_OFFICIAL_DEFAULT",
@@ -60,14 +60,14 @@ X_BQ_RUNS_TABLE = os.environ.get("X_BQ_RUNS_TABLE", "x_fetch_runs")
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "Welcome to Löven Stats Hub API"}
+    return {"status": "ok", "message": "Welcome to LÃ¶ven Stats Hub API"}
 
 @app.get("/api/v1/health")
 def health_check():
     return {"status": "healthy"}
 
 
-# ── Season lookup ──
+# â”€â”€ Season lookup â”€â”€
 _season_cache = {}
 
 def lookup_season(season_key=None):
@@ -116,16 +116,16 @@ def get_seasons():
 
 
 @app.get("/api/v1/statistics")
-def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,björklöven,bjorkloven,if björklöven")):
+def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven")):
     """
     Returns Swehockey snapshot from raw_sports tables.
-    Serves both league-wide stats and Björklöven-specific data.
+    Serves both league-wide stats and BjÃ¶rklÃ¶ven-specific data.
     """
     try:
         bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
         tokens = [t.strip().lower() for t in str(team_query or "").split(",") if t.strip()]
         if not tokens:
-            tokens = ["ifb", "bjo", "björklöven", "bjorkloven", "if björklöven"]
+            tokens = ["ifb", "bjo", "bjÃ¶rklÃ¶ven", "bjorkloven", "if bjÃ¶rklÃ¶ven"]
 
         def _matches(value: str) -> bool:
             v = (value or "").strip().lower()
@@ -193,7 +193,7 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         # Team standing
         team_standing = next((s for s in standings if _matches(str(s.get("team_name", "")))), None)
 
-        # Team games — sorted by date descending
+        # Team games â€” sorted by date descending
         team_games = sorted(
             [m for m in schedule if _matches(str(m.get("home_team", ""))) or _matches(str(m.get("away_team", "")))],
             key=lambda g: str(g.get("date", "") or g.get("match_date", "")),
@@ -271,7 +271,7 @@ def get_analytics(season: str = None):
         bq = bigquery.Client(project=BQ_PROJECT_ID or None)
         proj = bq.project
 
-        # ── Load all source data ──
+        # â”€â”€ Load all source data â”€â”€
         def q(sql):
             return [dict(r.items()) for r in bq.query(sql).result()]
 
@@ -293,7 +293,7 @@ def get_analytics(season: str = None):
 
 
 
-        BJK_NAMES = ["IF Björklöven", "Björklöven"]
+        BJK_NAMES = ["IF BjÃ¶rklÃ¶ven", "BjÃ¶rklÃ¶ven"]
         BJK_CODES = ["IFB"]
 
         def is_bjk(name):
@@ -316,7 +316,7 @@ def get_analytics(season: str = None):
 
         bjk_games = [g for g in schedule if bjk_game(g)]
 
-        # ── Module 1: Season Timeline ──
+        # â”€â”€ Module 1: Season Timeline â”€â”€
         timeline = []
         cum_pts = 0
         for g in bjk_games:
@@ -355,7 +355,7 @@ def get_analytics(season: str = None):
                 "ga": bjk_ga,
             })
 
-        # ── Module 2: Home vs Away ──
+        # â”€â”€ Module 2: Home vs Away â”€â”€
         def empty_split():
             return {"gp": 0, "w": 0, "l": 0, "otw": 0, "otl": 0, "gf": 0, "ga": 0, "pts": 0}
 
@@ -374,7 +374,7 @@ def get_analytics(season: str = None):
             elif t["result"] == "OTL":
                 s["otl"] += 1
 
-        # ── Module 3: Period Analysis ──
+        # â”€â”€ Module 3: Period Analysis â”€â”€
         period_stats = {1: {"gf": 0, "ga": 0, "games": 0}, 2: {"gf": 0, "ga": 0, "games": 0}, 3: {"gf": 0, "ga": 0, "games": 0}}
         for g in bjk_games:
             pr = parse_period_results(g.get("period_results", ""))
@@ -405,7 +405,7 @@ def get_analytics(season: str = None):
                 "games": ps["games"],
             })
 
-        # ── Module 4: Head-to-Head ──
+        # â”€â”€ Module 4: Head-to-Head â”€â”€
         h2h = {}
         for t in timeline:
             opp = t["opponent"]
@@ -425,7 +425,7 @@ def get_analytics(season: str = None):
 
         h2h_list = sorted(h2h.values(), key=lambda x: (-x["pts"], -(x["gf"] - x["ga"])))
 
-        # ── Module 5: Form Curve (Rolling 10) ──
+        # â”€â”€ Module 5: Form Curve (Rolling 10) â”€â”€
         form = []
         window = 10
         for i in range(len(timeline)):
@@ -449,7 +449,7 @@ def get_analytics(season: str = None):
                 "window": len(w),
             })
 
-        # ── Module 6: Streak Analysis ──
+        # â”€â”€ Module 6: Streak Analysis â”€â”€
         streaks = []
         current = {"type": "", "length": 0, "start": "", "end": ""}
         for t in timeline:
@@ -470,7 +470,7 @@ def get_analytics(season: str = None):
         longest_win = max(win_streaks, key=lambda s: s["length"]) if win_streaks else None
         longest_loss = max(loss_streaks, key=lambda s: s["length"]) if loss_streaks else None
 
-        # ── Module 7: Player Impact ──
+        # â”€â”€ Module 7: Player Impact â”€â”€
         # Build the dynamic list of roster names (skaters and goalies)
         roster_names = []
         roster_skaters = []
@@ -499,7 +499,7 @@ def get_analytics(season: str = None):
         def name_tokens(name):
             if not name: return set()
             s = name.lower()
-            s = s.replace("ö", "o").replace("ä", "a").replace("å", "a")
+            s = s.replace("Ã¶", "o").replace("Ã¤", "a").replace("Ã¥", "a")
             s = s.replace("\ufffd", "")
             s = s.replace(",", " ").replace("-", " ").replace("'", " ")
             return {t for t in s.split() if len(t) > 1}
@@ -628,7 +628,7 @@ def get_analytics(season: str = None):
             })
         player_impact.sort(key=lambda x: -x["p_per_gp"])
 
-        # ── Module 8: Goalie Radar ──
+        # â”€â”€ Module 8: Goalie Radar â”€â”€
         bjk_goalies = [g for g in goalies if is_bjk(g.get("team_code", "")) or is_bjk(g.get("team_name", ""))]
         all_goalies_min10 = sorted([g for g in goalies if (g.get("games_played") or 0) >= 10],
                                     key=lambda g: -(g.get("save_pct") or 0))
@@ -666,7 +666,7 @@ def get_analytics(season: str = None):
                 },
             })
 
-        # ── PP/PK from game events ──
+        # â”€â”€ PP/PK from game events â”€â”€
         bjk_pp_goals = sum(1 for e in events if e.get("event_type") == "goal" and e.get("is_power_play") and (e.get("team_code") or "").upper() in BJK_CODES)
         bjk_penalties_taken = sum(1 for e in events if e.get("event_type") == "penalty" and (e.get("team_code") or "").upper() in BJK_CODES)
         opp_penalties = sum(1 for e in events if e.get("event_type") == "penalty" and (e.get("team_code") or "").upper() not in BJK_CODES)
@@ -686,7 +686,7 @@ def get_analytics(season: str = None):
             "avg_pim_per_game": round(sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES) / max(len(bjk_games), 1), 1),
         }
 
-        # ── Attendance ──
+        # â”€â”€ Attendance â”€â”€
         home_games = [g for g in bjk_games if is_bjk(g.get("home_team", ""))]
         specs = [g.get("spectators") for g in home_games if g.get("spectators")]
         attendance = {
@@ -701,7 +701,7 @@ def get_analytics(season: str = None):
             ]
         }
 
-        # ── Modul 9: Penalty Breakdown ──
+        # â”€â”€ Modul 9: Penalty Breakdown â”€â”€
         bjk_penalties = [e for e in events if e.get("event_type") == "penalty" and (e.get("team_code") or "").upper() in BJK_CODES]
         
         pen_by_type = {}
@@ -709,14 +709,14 @@ def get_analytics(season: str = None):
         pen_by_player = {}
         
         for p in bjk_penalties:
-            ptype = p.get("penalty_type") or "Okänd"
+            ptype = p.get("penalty_type") or "OkÃ¤nd"
             pen_by_type[ptype] = pen_by_type.get(ptype, 0) + 1
             
             per = p.get("period") or 1
             if per > 3: per = 4
             pen_by_period[per] += 1
             
-            name = p.get("player_name") or "Okänd"
+            name = p.get("player_name") or "OkÃ¤nd"
             mins = p.get("penalty_minutes") or 2
             if name not in pen_by_player:
                 pen_by_player[name] = {"count": 0, "minutes": 0}
@@ -729,7 +729,7 @@ def get_analytics(season: str = None):
             "most_penalized": [{"name": k, "count": v["count"], "minutes": v["minutes"]} for k, v in sorted(pen_by_player.items(), key=lambda x: -x[1]["minutes"])[:5]],
         }
 
-        # ── Modul 10: The Prediction Engine (Elo) ──
+        # â”€â”€ Modul 10: The Prediction Engine (Elo) â”€â”€
         elo = {}
         for s in standings:
             elo[s.get("team_name")] = 1500
@@ -776,7 +776,7 @@ def get_analytics(season: str = None):
             elo[at] += K * (s_away - e_away)
 
         # Append current elo to history
-        bjk_current_name = next((k for k in elo if is_bjk(k)), "IF Björklöven")
+        bjk_current_name = next((k for k in elo if is_bjk(k)), "IF BjÃ¶rklÃ¶ven")
         if not elo_history or elo_history[-1]["date"] != "Idag":
             elo_history.append({"date": "Idag", "elo": round(elo.get(bjk_current_name, 1500))})
 
@@ -805,7 +805,7 @@ def get_analytics(season: str = None):
                 "opp_elo": round(opp_elo)
             }
 
-        # ── Modul 11: Projected Standings ──
+        # â”€â”€ Modul 11: Projected Standings â”€â”€
         TOTAL_GAMES = 52
         projected_standings = []
         for s in standings:
@@ -837,7 +837,7 @@ def get_analytics(season: str = None):
         for i, p in enumerate(projected_standings, 1):
             p["projected_rank"] = i
 
-        # ── Modul 12: Game State Analysis (Clutch factor) ──
+        # â”€â”€ Modul 12: Game State Analysis (Clutch factor) â”€â”€
         game_state = {
             "lead_after_1": {"w": 0, "l": 0, "otl": 0},
             "trail_after_1": {"w": 0, "l": 0, "otl": 0},
@@ -898,7 +898,7 @@ def get_analytics(season: str = None):
             elif goal_diff >= 3:
                 game_state["game_types"]["three_plus_goals"][win_loss_key] += 1
 
-        # ── Modul 13: Målklockan (Scoring Intensity) ──
+        # â”€â”€ Modul 13: MÃ¥lklockan (Scoring Intensity) â”€â”€
         scoring_timeline = [{"interval": f"{i*10}-{(i+1)*10}", "gf": 0, "ga": 0} for i in range(6)]
         for e in events:
             if e.get("event_type") == "goal":
@@ -919,7 +919,7 @@ def get_analytics(season: str = None):
                 else:
                     scoring_timeline[bin_idx]["ga"] += 1
 
-        # ── Modul 14: Kemimätaren (Top Combinations) ──
+        # â”€â”€ Modul 14: KemimÃ¤taren (Top Combinations) â”€â”€
         chemistry = {}
         for e in events:
             if e.get("event_type") == "goal" and (e.get("team_code") or "").upper() in BJK_CODES:
@@ -941,7 +941,7 @@ def get_analytics(season: str = None):
         top_chemistry = [{"player1": p[0], "player2": p[1], "goals_created": count} 
                          for p, count in sorted(chemistry.items(), key=lambda x: -x[1])[:5]]
 
-        # ── Modul 15: First Goal Impact ──
+        # â”€â”€ Modul 15: First Goal Impact â”€â”€
         first_goal_impact = {"scored_first": {"w":0, "l":0, "otl":0}, "conceded_first": {"w":0, "l":0, "otl":0}}
         
         events_sorted = sorted(events, key=lambda x: (x.get("game_id", ""), x.get("period", 1), x.get("time", "00:00")))
@@ -978,7 +978,7 @@ def get_analytics(season: str = None):
             else:
                 first_goal_impact["conceded_first"][final] += 1
 
-        # ── Modul 16: Tur/Otur-index (Pythagorean) ──
+        # â”€â”€ Modul 16: Tur/Otur-index (Pythagorean) â”€â”€
         pythagorean = []
         for s in standings:
             name = s.get("team_name", "")
@@ -1003,7 +1003,7 @@ def get_analytics(season: str = None):
             })
         pythagorean.sort(key=lambda x: -x["diff"])
         
-        # ── Modul 18: SHL Transition Calculations ──
+        # â”€â”€ Modul 18: SHL Transition Calculations â”€â”€
         leaving_names = [d["name"] for d in SILLY_SEASON_BASELINE.get("confirmed_departures", [])]
         def is_leaving(player_name):
             matched = match_player(player_name)
@@ -1017,11 +1017,11 @@ def get_analytics(season: str = None):
                 "proj_ppg": 0.85, 
                 "ha_ppg": 1.40,
             },
-            "Topi Niemelä": {
+            "Topi NiemelÃ¤": {
                 "proj_ppg": 0.35, 
                 "ha_ppg": 0.58,
             },
-            "Marcus BjÃ¶rk": {
+            "Marcus BjÃƒÂ¶rk": {
                 "proj_ppg": 0.28,
                 "ha_ppg": 0.45,
             }
@@ -1054,8 +1054,8 @@ def get_analytics(season: str = None):
             name = p["name"]
             matched_override = None
             lname = normalized_name(name)
-            if "marcus" in lname and ("bjork" in lname or "björk" in lname or "bjã¶rk" in lname):
-                matched_override = ("Marcus Björk", signings_overrides.get("Marcus BjÃ¶rk", {"proj_ppg": 0.28, "ha_ppg": 0.45}))
+            if "marcus" in lname and ("bjork" in lname or "bjÃ¶rk" in lname or "bjÃ£Â¶rk" in lname):
+                matched_override = ("Marcus BjÃ¶rk", signings_overrides.get("Marcus BjÃƒÂ¶rk", {"proj_ppg": 0.28, "ha_ppg": 0.45}))
             for override_name, override_data in signings_overrides.items():
                 if matched_override:
                     break
@@ -1067,7 +1067,7 @@ def get_analytics(season: str = None):
                 override_name, override_data = matched_override
                 proj_ppg = override_data["proj_ppg"]
                 ha_ppg = override_data["ha_ppg"]
-                display_name = f"{override_name} 🆕"
+                display_name = f"{override_name} ðŸ†•"
             else:
                 proj_ppg = round(p["p_per_gp"] * 0.60, 2)
                 ha_ppg = round(p["p_per_gp"], 2)
@@ -1110,18 +1110,18 @@ def get_analytics(season: str = None):
             "benchmarks": shl_benchmarks
         }
 
-        # ── Modul 19: SHL Survival Age Curve & Trajectory ──
+        # â”€â”€ Modul 19: SHL Survival Age Curve & Trajectory â”€â”€
         roster_ages = {
             "Lucas Wallmark": 31,
-            "Topi Niemelä": 23,
+            "Topi NiemelÃ¤": 23,
             "Axel Ottosson": 30,
             "Marcus Nilsson": 35,
-            "Oscar Tellström": 24,
-            "Anton Malmström": 26,
+            "Oscar TellstrÃ¶m": 24,
+            "Anton MalmstrÃ¶m": 26,
             "Gustaf Kangas": 21,
             "Lenni Killinen": 26,
             "Linus Cronholm": 26,
-            "Marcus Björk": 29,
+            "Marcus BjÃ¶rk": 29,
             "Gustav Possler": 32,
             "Albin Lundin": 30,
             "Fredrik Forsberg": 30,
@@ -1133,8 +1133,8 @@ def get_analytics(season: str = None):
 
         age_skaters = []
         for p in shl_skaters:
-            # Clean name from display name (e.g. remove the emoji " 🆕")
-            raw_name = p["name"].replace(" 🆕", "").strip()
+            # Clean name from display name (e.g. remove the emoji " ðŸ†•")
+            raw_name = p["name"].replace(" ðŸ†•", "").strip()
             
             # Match name to get the age (prefer exact normalized name first).
             matched_age = 26 # Default fallback age
@@ -1154,7 +1154,7 @@ def get_analytics(season: str = None):
                 trajectory = "UTVECKLING"
             elif matched_age <= 23:
                 multiplier = 0.08
-                trajectory = "TILLVÄXT"
+                trajectory = "TILLVÃ„XT"
             elif matched_age <= 28:
                 multiplier = 0.00
                 trajectory = "PEAK PRIME"
@@ -1187,7 +1187,7 @@ def get_analytics(season: str = None):
 
         age_goalies = []
         for g in shl_goalies:
-            raw_name = g["name"].replace(" 🆕", "").strip()
+            raw_name = g["name"].replace(" ðŸ†•", "").strip()
             
             matched_age = 28 # Default fallback goalie age
             for name, age in roster_ages.items():
@@ -1197,7 +1197,7 @@ def get_analytics(season: str = None):
                     
             if matched_age <= 23:
                 multiplier = 0.05
-                trajectory = "TILLVÄXT"
+                trajectory = "TILLVÃ„XT"
             elif matched_age <= 29:
                 multiplier = 0.00
                 trajectory = "PEAK PRIME"
@@ -1233,7 +1233,7 @@ def get_analytics(season: str = None):
             "goalies": age_goalies
         }
 
-        # ── Modul 20: Predicted SHL Table (Preseason) ──
+        # â”€â”€ Modul 20: Predicted SHL Table (Preseason) â”€â”€
         shl_projected_table = {
             "season": "SHL 2026/27 (preseason)",
             "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -1294,9 +1294,9 @@ def get_analytics(season: str = None):
                 })
 
             # Use latest SHL season as performance baseline, but lock team set to upcoming SHL 2026/27.
-            # Current business context: Björklöven promoted, MODO not in upcoming SHL roster.
+            # Current business context: BjÃ¶rklÃ¶ven promoted, MODO not in upcoming SHL roster.
             relegated_from_shl_tokens = {"modo", "leksand", "leksands"}
-            promoted_to_shl = [{"team": "IF Björklöven", "seed_points": 58}]
+            promoted_to_shl = [{"team": "IF BjÃ¶rklÃ¶ven", "seed_points": 58}]
 
             def _is_relegated_team(team_name):
                 n = (team_name or "").strip().lower()
@@ -1334,12 +1334,12 @@ def get_analytics(season: str = None):
 
             found_bjk = False
             for r in shl_rows:
-                if is_bjk(r["team"]) or "björklöven" in (r["team"] or "").lower():
+                if is_bjk(r["team"]) or "bjÃ¶rklÃ¶ven" in (r["team"] or "").lower():
                     r["base_projected_points"] = round(bjk_points_model)
                     found_bjk = True
                     break
             if not found_bjk:
-                shl_rows.append({"team": "IF Björklöven", "ppg": bjk_points_model / 52.0, "base_projected_points": round(bjk_points_model)})
+                shl_rows.append({"team": "IF BjÃ¶rklÃ¶ven", "ppg": bjk_points_model / 52.0, "base_projected_points": round(bjk_points_model)})
 
             shl_rows.sort(key=lambda x: -x["base_projected_points"])
             projected_table_rows = []
@@ -1368,7 +1368,7 @@ def get_analytics(season: str = None):
                     "tier": tier,
                     "top6_chance_pct": top6_chance,
                     "playout_risk_pct": playout_risk,
-                    "is_bjk": is_bjk(r["team"]) or "björklöven" in (r["team"] or "").lower(),
+                    "is_bjk": is_bjk(r["team"]) or "bjÃ¶rklÃ¶ven" in (r["team"] or "").lower(),
                 })
 
             bjk_row = next((r for r in projected_table_rows if r["is_bjk"]), None)
@@ -1389,13 +1389,13 @@ def get_analytics(season: str = None):
         except Exception as shl_proj_err:
             logging.warning(f"Failed to compute shl_projected_table: {shl_proj_err}")
 
-        # ── Modul 17: AI-Coachen (Gemini) ──
+        # â”€â”€ Modul 17: AI-Coachen (Gemini) â”€â”€
         bjk_pyth = next((p for p in pythagorean if p["is_bjk"]), None)
-        opp_name = next_game_prediction['opponent'] if next_game_prediction else 'Okänd'
+        opp_name = next_game_prediction['opponent'] if next_game_prediction else 'OkÃ¤nd'
         win_prob = next_game_prediction['win_prob'] if next_game_prediction else '-'
         diff = bjk_pyth['diff'] if bjk_pyth else 0
-        p1 = top_chemistry[0]['player1'] if top_chemistry else 'Okänd'
-        p2 = top_chemistry[0]['player2'] if top_chemistry else 'Okänd'
+        p1 = top_chemistry[0]['player1'] if top_chemistry else 'OkÃ¤nd'
+        p2 = top_chemistry[0]['player2'] if top_chemistry else 'OkÃ¤nd'
         goals_created = top_chemistry[0]['goals_created'] if top_chemistry else 0
         
         # Season Data
@@ -1407,21 +1407,21 @@ def get_analytics(season: str = None):
         red_goalies = len([g for g in shl_goalies if g["readiness"] == "RED"])
         
         prompt = f"""
-        Du är 'Analytikern', Björklövens interna AI-assisterande tränare och sportchefens strategiska rådgivare.
-        Du MÅSTE svara med en ren, giltig JSON-struktur (inga markdown-taggar som ```json).
+        Du Ã¤r 'Analytikern', BjÃ¶rklÃ¶vens interna AI-assisterande trÃ¤nare och sportchefens strategiska rÃ¥dgivare.
+        Du MÃ…STE svara med en ren, giltig JSON-struktur (inga markdown-taggar som ```json).
         JSON-strukturen ska exakt ha dessa nycklar:
         {{
-            "taktik": "Kort taktisk analys (max 3 meningar) baserad på att nästa motståndare är {opp_name}, vår vinstchans är {win_prob}%, och vår Tur/Otur-diff är {diff}.",
-            "sasong_form": "Kort diagnos av säsongen/formen. Vår streak: {recent_streak}. Special Teams Index (PP%+PK%) är {sti} (över 100 är extremt starkt).",
-            "spelar_impact": "Kort spaning om radarpar eller enskilda spelare. Hetast just nu: {p1} & {p2} ({goals_created} mål skapade ihop).",
-            "shl_sportchef": "Sportchef-analys inför SHL (max 3 meningar). Vi har {red_skaters} utespelare och {red_goalies} målvakter som flaggas som 'RED' (under SHL-klass). Ge ett konkret värvningsråd baserat på detta och lagets svagheter."
+            "taktik": "Kort taktisk analys (max 3 meningar) baserad pÃ¥ att nÃ¤sta motstÃ¥ndare Ã¤r {opp_name}, vÃ¥r vinstchans Ã¤r {win_prob}%, och vÃ¥r Tur/Otur-diff Ã¤r {diff}.",
+            "sasong_form": "Kort diagnos av sÃ¤songen/formen. VÃ¥r streak: {recent_streak}. Special Teams Index (PP%+PK%) Ã¤r {sti} (Ã¶ver 100 Ã¤r extremt starkt).",
+            "spelar_impact": "Kort spaning om radarpar eller enskilda spelare. Hetast just nu: {p1} & {p2} ({goals_created} mÃ¥l skapade ihop).",
+            "shl_sportchef": "Sportchef-analys infÃ¶r SHL (max 3 meningar). Vi har {red_skaters} utespelare och {red_goalies} mÃ¥lvakter som flaggas som 'RED' (under SHL-klass). Ge ett konkret vÃ¤rvningsrÃ¥d baserat pÃ¥ detta och lagets svagheter."
         }}
-        Skriv koncist, professionellt och auktoritärt på svenska.
+        Skriv koncist, professionellt och auktoritÃ¤rt pÃ¥ svenska.
         """
         
         ai_coach_data = {
-            "taktik": "Analytikern är för tillfället offline.",
-            "sasong_form": "Analytikern kunde inte hämta säsongsdata.",
+            "taktik": "Analytikern Ã¤r fÃ¶r tillfÃ¤llet offline.",
+            "sasong_form": "Analytikern kunde inte hÃ¤mta sÃ¤songsdata.",
             "spelar_impact": "Kunde inte ladda spelarscouting.",
             "shl_sportchef": "Kunde inte generera SHL-scouting."
         }
@@ -1486,7 +1486,7 @@ def get_analytics(season: str = None):
 
 
 def normalize_title(title):
-    return re.sub(r'[^\wåäö\s]', '', title.lower()).strip()
+    return re.sub(r'[^\wÃ¥Ã¤Ã¶\s]', '', title.lower()).strip()
 
 
 
@@ -1511,59 +1511,59 @@ def is_womens_article(article):
 
 def reclassify_tag(article):
     """
-    Conservative keyword-based fallback: only reclassifies ÖVRIGT articles where
-    the TITLE clearly indicates a direct Björklöven transfer action.
+    Conservative keyword-based fallback: only reclassifies Ã–VRIGT articles where
+    the TITLE clearly indicates a direct BjÃ¶rklÃ¶ven transfer action.
     
-    Gemini is usually right to tag things ÖVRIGT — we only override when the title
-    unambiguously is about a player joining/leaving/extending with Björklöven.
+    Gemini is usually right to tag things Ã–VRIGT â€” we only override when the title
+    unambiguously is about a player joining/leaving/extending with BjÃ¶rklÃ¶ven.
     """
-    tag = article.get("tag", "ÖVRIGT")
-    if tag != "ÖVRIGT":
+    tag = article.get("tag", "Ã–VRIGT")
+    if tag != "Ã–VRIGT":
         return article
     
     title = article.get("title", "").lower()
     
-    # Only reclassify based on TITLE, not body (body often mentions Björklöven in passing)
-    title_mentions_bjorkloven = any(kw in title for kw in ['björklöven', 'bjorkloven'])
-    # Be careful with 'löven' — too short, matches 'slöven', 'Gullöven' etc.
-    # Only match ' löven' or start-of-string 'löven'
+    # Only reclassify based on TITLE, not body (body often mentions BjÃ¶rklÃ¶ven in passing)
+    title_mentions_bjorkloven = any(kw in title for kw in ['bjÃ¶rklÃ¶ven', 'bjorkloven'])
+    # Be careful with 'lÃ¶ven' â€” too short, matches 'slÃ¶ven', 'GullÃ¶ven' etc.
+    # Only match ' lÃ¶ven' or start-of-string 'lÃ¶ven'
     if not title_mentions_bjorkloven:
-        if title.startswith('löven') or ' löven' in title:
+        if title.startswith('lÃ¶ven') or ' lÃ¶ven' in title:
             title_mentions_bjorkloven = True
     
     if not title_mentions_bjorkloven:
         return article
     
-    # Exclude "tidigare Björklöven-spelaren" / "ex-Björklöven" patterns (former players, not current squad)
-    if any(kw in title for kw in ['tidigare', 'ex-', 'f.d.', 'före detta', 'forna']):
+    # Exclude "tidigare BjÃ¶rklÃ¶ven-spelaren" / "ex-BjÃ¶rklÃ¶ven" patterns (former players, not current squad)
+    if any(kw in title for kw in ['tidigare', 'ex-', 'f.d.', 'fÃ¶re detta', 'forna']):
         return article
     
-    # Now check for specific transfer actions IN THE TITLE tied to Björklöven
-    # "X förlänger/förlängde med Björklöven"
-    if any(kw in title for kw in ['förlänger', 'förlängde', 'förlängd']):
-        article["tag"] = "KONTRAKTSFÖRLÄNGNING"
+    # Now check for specific transfer actions IN THE TITLE tied to BjÃ¶rklÃ¶ven
+    # "X fÃ¶rlÃ¤nger/fÃ¶rlÃ¤ngde med BjÃ¶rklÃ¶ven"
+    if any(kw in title for kw in ['fÃ¶rlÃ¤nger', 'fÃ¶rlÃ¤ngde', 'fÃ¶rlÃ¤ngd']):
+        article["tag"] = "KONTRAKTSFÃ–RLÃ„NGNING"
         return article
     
-    # "X lämnar Björklöven" / "massflykt från Björklöven" (also handle missing spaces from HTML parsing)
+    # "X lÃ¤mnar BjÃ¶rklÃ¶ven" / "massflykt frÃ¥n BjÃ¶rklÃ¶ven" (also handle missing spaces from HTML parsing)
     if any(phrase in title for phrase in [
-        'lämnar björklöven', 'lämnarbjörklöven', 'lämnar löven', 'lämnarlöven',
-        'från björklöven', 'frånbjörklöven', 'från löven', 'frånlöven',
+        'lÃ¤mnar bjÃ¶rklÃ¶ven', 'lÃ¤mnarbjÃ¶rklÃ¶ven', 'lÃ¤mnar lÃ¶ven', 'lÃ¤mnarlÃ¶ven',
+        'frÃ¥n bjÃ¶rklÃ¶ven', 'frÃ¥nbjÃ¶rklÃ¶ven', 'frÃ¥n lÃ¶ven', 'frÃ¥nlÃ¶ven',
     ]):
-        article["tag"] = "BEKRÄFTAD_FÖRLUST"
+        article["tag"] = "BEKRÃ„FTAD_FÃ–RLUST"
         return article
     
-    # "X klar för Björklöven" / "X ansluter till Björklöven" / "nyförvärv"
+    # "X klar fÃ¶r BjÃ¶rklÃ¶ven" / "X ansluter till BjÃ¶rklÃ¶ven" / "nyfÃ¶rvÃ¤rv"
     if any(phrase in title for phrase in [
-        'klar för björklöven', 'klar förbjörklöven', 'klar för löven', 'klar förlöven',
-        'ansluter till björklöven', 'ansluter tillbjörklöven', 'ansluter till löven',
+        'klar fÃ¶r bjÃ¶rklÃ¶ven', 'klar fÃ¶rbjÃ¶rklÃ¶ven', 'klar fÃ¶r lÃ¶ven', 'klar fÃ¶rlÃ¶ven',
+        'ansluter till bjÃ¶rklÃ¶ven', 'ansluter tillbjÃ¶rklÃ¶ven', 'ansluter till lÃ¶ven',
     ]):
-        article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
+        article["tag"] = "BEKRÃ„FTAT_NYFÃ–RVÃ„RV"
         return article
-    if 'nyförvärv' in title and title_mentions_bjorkloven:
-        article["tag"] = "BEKRÄFTAT_NYFÖRVÄRV"
+    if 'nyfÃ¶rvÃ¤rv' in title and title_mentions_bjorkloven:
+        article["tag"] = "BEKRÃ„FTAT_NYFÃ–RVÃ„RV"
         return article
     
-    # Don't reclassify anything else — trust Gemini's judgment
+    # Don't reclassify anything else â€” trust Gemini's judgment
     return article
 
 def deduplicate_articles(scraped, baseline):
@@ -1600,7 +1600,7 @@ def sync_roster_with_confirmed_signings(baseline):
             "name": name,
             "number": s.get("number"),
             "pos": s.get("pos") or "FW",
-            "status": "NYFÖRVÄRV",
+            "status": "NYFÃ–RVÃ„RV",
             "contractUntil": s.get("contractUntil"),
             "note": s.get("note") or "",
         })
@@ -1652,9 +1652,9 @@ def build_last_24h_summary(current_scraped, previous_scraped, critical_now):
     return {
         "new_signals": len(new_items),
         "articles_24h": len(recent),
-        "signings": count_tag("BEKRÄFTAT_NYFÖRVÄRV"),
-        "departures": count_tag("BEKRÄFTAD_FÖRLUST"),
-        "extensions": count_tag("KONTRAKTSFÖRLÄNGNING"),
+        "signings": count_tag("BEKRÃ„FTAT_NYFÃ–RVÃ„RV"),
+        "departures": count_tag("BEKRÃ„FTAD_FÃ–RLUST"),
+        "extensions": count_tag("KONTRAKTSFÃ–RLÃ„NGNING"),
         "rumors": count_tag("HETT_RYKTE"),
         "critical_open": len(critical_now or []),
     }
@@ -1671,10 +1671,10 @@ def build_dynamic_silly_summary(feed, roster):
 
     recent = [i for i in (feed or []) if is_recent(i)]
 
-    signings = sum(1 for i in recent if i.get("tag") == "BEKRÄFTAT_NYFÖRVÄRV")
-    departures = sum(1 for i in recent if i.get("tag") == "BEKRÄFTAD_FÖRLUST")
-    extensions = sum(1 for i in recent if i.get("tag") == "KONTRAKTSFÖRLÄNGNING")
-    expiring = sum(1 for p in (roster or []) if p.get("status") == "UTGÅENDE")
+    signings = sum(1 for i in recent if i.get("tag") == "BEKRÃ„FTAT_NYFÃ–RVÃ„RV")
+    departures = sum(1 for i in recent if i.get("tag") == "BEKRÃ„FTAD_FÃ–RLUST")
+    extensions = sum(1 for i in recent if i.get("tag") == "KONTRAKTSFÃ–RLÃ„NGNING")
+    expiring = sum(1 for p in (roster or []) if p.get("status") == "UTGÃ…ENDE")
 
     return {
         "contracted": signings + extensions,
@@ -1719,7 +1719,7 @@ def load_recent_silly_snapshots(limit=5):
 @app.get("/api/silly-season")
 def get_silly_season():
     """
-    Hämtar senaste scraper-datan från GCS och mergar med baseline.
+    HÃ¤mtar senaste scraper-datan frÃ¥n GCS och mergar med baseline.
     """
     scraped_articles = []
     previous_scraped_articles = []
@@ -1728,7 +1728,7 @@ def get_silly_season():
     try:
         storage_client = storage.Client()
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
-        # Hämta blob med prefix raw/silly_season/scraped_ sorterat på senast uppdaterad
+        # HÃ¤mta blob med prefix raw/silly_season/scraped_ sorterat pÃ¥ senast uppdaterad
         blobs = list(bucket.list_blobs(prefix="raw/silly_season/scraped_"))
         
         if blobs:
@@ -1743,8 +1743,8 @@ def get_silly_season():
                 prev_data = json.loads(prev_content)
                 previous_scraped_articles = prev_data.get("news_feed", [])
     except Exception as e:
-        logging.error(f"Kunde inte hämta scraper-data från GCS: {e}")
-        # Fortsätt med bara baseline
+        logging.error(f"Kunde inte hÃ¤mta scraper-data frÃ¥n GCS: {e}")
+        # FortsÃ¤tt med bara baseline
     
     baseline = SILLY_SEASON_BASELINE.copy()
     baseline = sync_roster_with_confirmed_signings(baseline)
@@ -1753,23 +1753,23 @@ def get_silly_season():
     scraped_articles = [a for a in (scraped_articles or []) if not is_womens_article(a)]
     previous_scraped_articles = [a for a in (previous_scraped_articles or []) if not is_womens_article(a)]
 
-    # Deduplicera mot baseline för presentation i feed
+    # Deduplicera mot baseline fÃ¶r presentation i feed
     deduped_for_feed = deduplicate_articles(scraped_articles, baseline_feed)
-    # Beräkna verkligt nytt sedan förra scraper-snapshoten
+    # BerÃ¤kna verkligt nytt sedan fÃ¶rra scraper-snapshoten
     new_articles = compute_new_since_previous(scraped_articles, previous_scraped_articles)
 
     for i, article in enumerate(deduped_for_feed):
         article["id"] = f"scraped-{i}"
         article["scraped"] = True
         
-        # Reclassify articles that Gemini incorrectly tagged as ÖVRIGT
+        # Reclassify articles that Gemini incorrectly tagged as Ã–VRIGT
         reclassify_tag(article)
         
-        # Om tiden saknas, försök extrahera den eller sätt aktuell tid
+        # Om tiden saknas, fÃ¶rsÃ¶k extrahera den eller sÃ¤tt aktuell tid
         if "time" not in article:
             article["time"] = datetime.now().strftime("%H:%M")
 
-    # Slå ihop och sortera fallande på datum, sedan tid
+    # SlÃ¥ ihop och sortera fallande pÃ¥ datum, sedan tid
     merged_feed = deduped_for_feed + baseline_feed
     merged_feed.sort(key=lambda x: (x.get("date", ""), x.get("time", "")), reverse=True)
     
@@ -1796,8 +1796,8 @@ def get_silly_season():
 @app.get("/api/silly-season/ops")
 def get_silly_ops():
     """
-    Intern driftvy för silly-pipeline.
-    Returnerar senaste snapshot-körningar från GCS utan att påverka publik UI.
+    Intern driftvy fÃ¶r silly-pipeline.
+    Returnerar senaste snapshot-kÃ¶rningar frÃ¥n GCS utan att pÃ¥verka publik UI.
     """
     try:
         snapshots = load_recent_silly_snapshots(limit=5)
@@ -1809,7 +1809,7 @@ def get_silly_ops():
             "runs": snapshots,
         }
     except Exception as e:
-        logging.error(f"Kunde inte läsa silly ops-data: {e}")
+        logging.error(f"Kunde inte lÃ¤sa silly ops-data: {e}")
         return {
             "status": "error",
             "error": str(e),
@@ -1837,8 +1837,8 @@ def compute_freshness_status(last_refresh_iso: str | None) -> str:
 
 def _x_sentiment_score(text: str):
     t = (text or "").lower()
-    positive = ["klar", "nyförvärv", "vinner", "förlänger", "stärker", "succé", "poängkung"]
-    negative = ["lämnar", "skadad", "missar", "kris", "förlust", "sparken", "avslutar"]
+    positive = ["klar", "nyfÃ¶rvÃ¤rv", "vinner", "fÃ¶rlÃ¤nger", "stÃ¤rker", "succÃ©", "poÃ¤ngkung"]
+    negative = ["lÃ¤mnar", "skadad", "missar", "kris", "fÃ¶rlust", "sparken", "avslutar"]
     pos_hits = sum(1 for w in positive if w in t)
     neg_hits = sum(1 for w in negative if w in t)
     if pos_hits > neg_hits:
@@ -1876,7 +1876,7 @@ def _fetch_x_recent(query: str, max_results: int):
                 "id": tweet.get("id"),
                 "text": text,
                 "created_at": tweet.get("created_at"),
-                "author_name": author.get("name") or username or "okänd",
+                "author_name": author.get("name") or username or "okÃ¤nd",
                 "author_username": username,
                 "url": f"https://x.com/{username}/status/{tweet.get('id')}" if username and tweet.get("id") else None,
                 "lang": tweet.get("lang"),
@@ -2065,30 +2065,30 @@ def _build_x_ai_summary(items):
     if not GEMINI_API_KEY:
         return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": "missing_api_key"}
     if not items:
-        return {"enabled": True, "summary": "Inga relevanta inlägg just nu.", "model": X_AI_MODEL, "error": None}
+        return {"enabled": True, "summary": "Inga relevanta inlÃ¤gg just nu.", "model": X_AI_MODEL, "error": None}
     top = items[:20]
     compact_lines = []
     for i, item in enumerate(top, 1):
         compact_lines.append(f"{i}. @{item.get('author_username','okand')}: {item.get('text','')[:220]}")
     prompt = (
-        "Du analyserar ett svenskt socialt flöde om Björklöven.\n"
-        "Skriv en kort sammanfattning på svenska (max 90 ord):\n"
-        "1) Övergripande ton\n"
-        "2) Viktigaste ämnen\n"
-        "3) En tydlig risk eller möjlighet.\n"
-        "Hitta inte på fakta utanför inläggen.\n\n"
-        "Inlägg:\n" + "\n".join(compact_lines)
+        "Du analyserar ett svenskt socialt flÃ¶de om BjÃ¶rklÃ¶ven.\n"
+        "Skriv en kort sammanfattning pÃ¥ svenska (max 90 ord):\n"
+        "1) Ã–vergripande ton\n"
+        "2) Viktigaste Ã¤mnen\n"
+        "3) En tydlig risk eller mÃ¶jlighet.\n"
+        "Hitta inte pÃ¥ fakta utanfÃ¶r inlÃ¤ggen.\n\n"
+        "InlÃ¤gg:\n" + "\n".join(compact_lines)
     )
     def fallback_summary():
         positives = sum(1 for i in items if i.get("sentiment_label") == "positive")
         negatives = sum(1 for i in items if i.get("sentiment_label") == "negative")
         neutrals = sum(1 for i in items if i.get("sentiment_label") == "neutral")
         top = sorted(items, key=lambda i: (i.get("public_metrics", {}).get("like_count", 0) + i.get("public_metrics", {}).get("retweet_count", 0) * 2), reverse=True)[:2]
-        topics = ", ".join([f"@{t.get('author_username','okänd')}" for t in top]) if top else "inga tydliga toppsignaler"
-        tone = "övervägande neutral" if neutrals >= max(positives, negatives) else ("övervägande positiv" if positives > negatives else "övervägande negativ")
+        topics = ", ".join([f"@{t.get('author_username','okÃ¤nd')}" for t in top]) if top else "inga tydliga toppsignaler"
+        tone = "Ã¶vervÃ¤gande neutral" if neutrals >= max(positives, negatives) else ("Ã¶vervÃ¤gande positiv" if positives > negatives else "Ã¶vervÃ¤gande negativ")
         return (
-            f"Flödet är {tone}. Positiva signaler: {positives}, negativa: {negatives}, neutrala: {neutrals}. "
-            f"Mest synliga konton just nu: {topics}. Fokus ligger främst på truppsnack, rykten och SHL-uppladdning."
+            f"FlÃ¶det Ã¤r {tone}. Positiva signaler: {positives}, negativa: {negatives}, neutrala: {neutrals}. "
+            f"Mest synliga konton just nu: {topics}. Fokus ligger frÃ¤mst pÃ¥ truppsnack, rykten och SHL-uppladdning."
         )
 
     try:
@@ -2237,9 +2237,37 @@ def get_x_feed(force_refresh: bool = Query(False)):
 @app.get("/api/v1/lovenlaget")
 def get_lovenlaget_snapshot():
     """
-    Startsides-snapshot för nya frontenden.
+    Startsides-snapshot for nya frontenden.
     Returnerar komprimerade signaler med konsekvenstext + meta/freshness.
     """
+
+    def _derive_latest_impact_meaning(title: str, tag: str | None = None, impact_level: str | None = None) -> str:
+        t = (title or "").lower()
+        tg = (tag or "").upper()
+        lvl = (impact_level or "").lower()
+
+        staff_keywords = [
+            "materialforvaltare", "material", "fysioterapeut", "fystranare",
+            "assisterande", "tranare", "coach", "sportchef", "ledare", "stab",
+        ]
+        if any(k in t for k in staff_keywords):
+            return "Detta ar en organisationsforandring i staben, inte en direkt forandring av lagbalansen pa isen."
+
+        if tg == "BEKRÄFTAT_NYFÖRVÄRV" or "nyforvarv" in t or "klar for" in t or "ansluter" in t:
+            return "Detta forstarker truppen direkt och paverkar konkurrensen om istid."
+        if tg == "BEKRÄFTAD_FÖRLUST" or "lamnar" in t:
+            return "Detta oppnar en lucka i truppen och kan krava ersattare eller ny rollfordelning."
+        if tg == "KONTRAKTSFÖRLÄNGNING" or "forlanger" in t:
+            return "Detta skapar kontinuitet och minskar osakerheten i lagbygget."
+        if tg == "HETT_RYKTE" or "rykte" in t:
+            return "Detta ar ett rykte och ska foljas, men ar inte tillrackligt for att andra lagbilden an."
+
+        if lvl == "high":
+            return "Detta ar en viktig signal som kan paverka lagbygget pa kort sikt."
+        if lvl == "low":
+            return "Detta ar en mindre signal med begransad direkt effekt pa lagbygget."
+        return "Detta ar en relevant signal att bevaka i den lopande helhetsbilden."
+
     try:
         bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
         table_fqn = f"`{bq_client.project}.{BQ_DATASET}.{BQ_LOVENLAGET_TABLE}`"
@@ -2252,6 +2280,9 @@ def get_lovenlaget_snapshot():
         rows = list(bq_client.query(query).result())
         if rows:
             row = rows[0]
+            latest_title = row.get("latest_impact_title") or "Inga nya signaler ännu"
+            latest_level = row.get("latest_impact_level") or "medium"
+            latest_meaning = _derive_latest_impact_meaning(latest_title, impact_level=latest_level)
             return {
                 "title": "Lövenläget",
                 "season": "2026/2027",
@@ -2266,9 +2297,9 @@ def get_lovenlaget_snapshot():
                     row.get("critical_3") or "",
                 ],
                 "latest_impact": {
-                    "title": row.get("latest_impact_title") or "Inga nya signaler ännu",
-                    "impact_level": row.get("latest_impact_level") or "medium",
-                    "meaning": row.get("latest_impact_meaning") or "Vi väntar på nya verifierade signaler.",
+                    "title": latest_title,
+                    "impact_level": latest_level,
+                    "meaning": latest_meaning,
                 },
                 "squad_status": {
                     "goalies": row.get("goalies_status") or "bevaka",
@@ -2277,9 +2308,9 @@ def get_lovenlaget_snapshot():
                     "forwards": row.get("forwards_status") or "bevaka",
                 },
                 "economy_status": {
-                    "risk_level": row.get("economy_risk_level") or "okänd",
-                    "budget_pressure": row.get("economy_budget_pressure") or "okänd",
-                    "next_question": row.get("economy_next_question") or "Vad behöver prioriteras nu?",
+                    "risk_level": row.get("economy_risk_level") or "okand",
+                    "budget_pressure": row.get("economy_budget_pressure") or "okand",
+                    "next_question": row.get("economy_next_question") or "Vad behover prioriteras nu?",
                 },
                 "meta": {
                     "schema_version": row.get("schema_version") or "v1",
@@ -2312,13 +2343,17 @@ def get_lovenlaget_snapshot():
     readiness_score = max(45, min(90, 62 + len(signings) * 2 - max(0, len(departures) - 5)))
     critical_now = [
         "Toppback saknas",
-        "Centerdjup osäkert" if c_count < 4 else "Centerdjup behöver spets",
-        "Ekonomiskt tryck måste bevakas",
+        "Centerdjup osakert" if c_count < 4 else "Centerdjup behover spets",
+        "Ekonomiskt tryck maste bevakas",
     ]
 
     latest_signal = None
     if silly.get("news_feed"):
         latest_signal = silly["news_feed"][0]
+
+    latest_title = latest_signal.get("title") if latest_signal else "Inga nya signaler ännu"
+    latest_tag = latest_signal.get("tag") if latest_signal else None
+    latest_level = "high" if len(departures) > len(signings) else "medium"
 
     return {
         "title": "Lövenläget",
@@ -2326,13 +2361,13 @@ def get_lovenlaget_snapshot():
         "league": silly.get("league", "SHL"),
         "readiness": {
             "score": readiness_score,
-            "summary": "Nära, men två luckor kan sänka bygget.",
+            "summary": "Nara, men tva luckor kan sanka bygget.",
         },
         "critical_now": critical_now,
         "latest_impact": {
-            "title": latest_signal.get("title") if latest_signal else "Inga nya signaler ännu",
-            "impact_level": "high" if len(departures) > len(signings) else "medium",
-            "meaning": "Det här flyttar nålen direkt och påverkar lagbalansen." if latest_signal else "Vi väntar på nya verifierade signaler.",
+            "title": latest_title,
+            "impact_level": latest_level,
+            "meaning": _derive_latest_impact_meaning(latest_title, tag=latest_tag, impact_level=latest_level) if latest_signal else "Vi väntar på nya verifierade signaler.",
         },
         "squad_status": {
             "goalies": "stabilt" if gk_count >= 2 else "bevaka",
@@ -2342,8 +2377,8 @@ def get_lovenlaget_snapshot():
         },
         "economy_status": {
             "risk_level": "medel",
-            "budget_pressure": "högt",
-            "next_question": "Har klubben råd med två spetsnamn?",
+            "budget_pressure": "hogt",
+            "next_question": "Har klubben rad med tva spetsnamn?",
         },
         "meta": {
             "schema_version": "v1",
@@ -2364,8 +2399,6 @@ def get_lovenlaget_snapshot():
             },
         },
     }
-
-
 @app.get("/api/v1/financials")
 def get_financials():
     """
@@ -2401,7 +2434,7 @@ def get_financials():
                 "items": rows,
             }
     except Exception as e:
-        logging.warning(f"Kunde inte läsa {BQ_FINANCIALS_TABLE} från BigQuery: {e}")
+        logging.warning(f"Kunde inte lÃ¤sa {BQ_FINANCIALS_TABLE} frÃ¥n BigQuery: {e}")
 
     # Fallback so frontend never gets an empty economy section.
     return {
@@ -2420,13 +2453,13 @@ def get_financials():
                 "cash": None,
                 "debt": None,
                 "risk_level": "medel",
-                "budget_pressure": "hög",
-                "next_question": "Har klubben råd med två spetsnamn?",
+                "budget_pressure": "hÃ¶g",
+                "next_question": "Har klubben rÃ¥d med tvÃ¥ spetsnamn?",
             }
         ],
     }
 
 # @app.get("/api/v1/games/{game_id}/momentum")
 # def get_momentum(game_id: str):
-#     # Anropa BigQuery här
+#     # Anropa BigQuery hÃ¤r
 #     pass
