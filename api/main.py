@@ -490,7 +490,9 @@ def get_analytics(season: str = None):
 
         def clean_name(name):
             if not name: return ""
-            name = re.split(r'(Pos|Abuse|Diving|Charging|Illegal|Unsportsmanlike|Kneeing)', name)[0]
+            # Strip event annotation tokens, but only as whole words.
+            # Important: avoid splitting inside real surnames like "Possler".
+            name = re.split(r'\b(Pos|Abuse|Diving|Charging|Illegal|Unsportsmanlike|Kneeing)\b', name)[0]
             name = name.strip()
             return name
 
@@ -512,6 +514,14 @@ def get_analytics(season: str = None):
                 if len(common) >= min(len(tokens), len(rtokens)) or len(common) >= 2:
                     return r
             return None
+
+        def _to_int(v):
+            try:
+                if v is None:
+                    return 0
+                return int(float(v))
+            except Exception:
+                return 0
 
         # Count goals and assists from events
         event_stats = {}
@@ -547,17 +557,43 @@ def get_analytics(season: str = None):
 
         player_impact = []
         for name in roster_skaters:
-            bq_p = None
+            candidates = []
             for p in players:
-                if is_bjk(p.get("team_code", "")) or is_bjk(p.get("team_name", "")):
-                    if match_player(p.get("player_name")) == name:
-                        bq_p = p
-                        break
+                if not (is_bjk(p.get("team_code", "")) or is_bjk(p.get("team_name", ""))):
+                    continue
+                if match_player(p.get("player_name")) == name:
+                    candidates.append(p)
+
+            # Choose strongest/most plausible row instead of first match.
+            # This prevents stale/partial zero-rows from overriding valid stats.
+            bq_p = None
+            if candidates:
+                candidates.sort(
+                    key=lambda p: (
+                        _to_int(p.get("points")),
+                        _to_int(p.get("goals")),
+                        _to_int(p.get("assists")),
+                        _to_int(p.get("games_played")),
+                        str(p.get("scraped_at") or ""),
+                    ),
+                    reverse=True,
+                )
+                bq_p = candidates[0]
             
             gp = bq_p.get("games_played") if bq_p else len(bjk_games) or 52
             goals = bq_p.get("goals") if bq_p else event_stats.get(name, {}).get("goals", 0)
             assists = bq_p.get("assists") if bq_p else event_stats.get(name, {}).get("assists", 0)
             points = goals + assists
+
+            # Guardrail: if a high-GP player has zero in selected BQ row but event feed has signal,
+            # trust event-derived totals instead of a likely bad scrape row.
+            if bq_p and _to_int(gp) >= 20 and _to_int(points) == 0:
+                e_goals = _to_int(event_stats.get(name, {}).get("goals", 0))
+                e_assists = _to_int(event_stats.get(name, {}).get("assists", 0))
+                if (e_goals + e_assists) > 0:
+                    goals = e_goals
+                    assists = e_assists
+                    points = goals + assists
             
             g_pg = round(goals / gp, 3) if gp > 0 else 0
             a_pg = round(assists / gp, 3) if gp > 0 else 0
@@ -997,6 +1033,18 @@ def get_analytics(season: str = None):
                 return "GREEN" if proj_ppg >= 0.35 else "AMBER" if proj_ppg >= 0.18 else "RED"
             return "GREEN" if proj_ppg >= 0.50 else "AMBER" if proj_ppg >= 0.25 else "RED"
 
+        def normalized_name(name):
+            return re.sub(r"\s+", " ", str(name or "").strip().lower())
+
+        def name_match_strict(a, b):
+            na = normalized_name(a)
+            nb = normalized_name(b)
+            if na == nb:
+                return True
+            ta = name_tokens(a)
+            tb = name_tokens(b)
+            return len(ta.intersection(tb)) >= 2
+
         shl_skaters = []
         for p in player_impact:
             if is_leaving(p["name"]):
@@ -1005,8 +1053,13 @@ def get_analytics(season: str = None):
             # Check if this player is a new signing that has custom overrides
             name = p["name"]
             matched_override = None
+            lname = normalized_name(name)
+            if "marcus" in lname and ("bjork" in lname or "björk" in lname or "bjã¶rk" in lname):
+                matched_override = ("Marcus Björk", signings_overrides.get("Marcus BjÃ¶rk", {"proj_ppg": 0.28, "ha_ppg": 0.45}))
             for override_name, override_data in signings_overrides.items():
-                if name_tokens(name).intersection(name_tokens(override_name)):
+                if matched_override:
+                    break
+                if name_match_strict(name, override_name):
                     matched_override = (override_name, override_data)
                     break
                     
@@ -1085,13 +1138,13 @@ def get_analytics(season: str = None):
             
             # Match name to get the age (prefer exact normalized name first).
             matched_age = 26 # Default fallback age
-            raw_name_norm = clean_player_name(raw_name).lower()
-            exact_age_map = {clean_player_name(n).lower(): a for n, a in roster_ages.items()}
+            raw_name_norm = normalized_name(raw_name)
+            exact_age_map = {normalized_name(n): a for n, a in roster_ages.items()}
             if raw_name_norm in exact_age_map:
                 matched_age = exact_age_map[raw_name_norm]
             else:
                 for name, age in roster_ages.items():
-                    if name_tokens(raw_name).intersection(name_tokens(name)):
+                    if name_match_strict(raw_name, name):
                         matched_age = age
                         break
             
@@ -1436,6 +1489,26 @@ def normalize_title(title):
     return re.sub(r'[^\wåäö\s]', '', title.lower()).strip()
 
 
+
+WOMENS_CONTEXT_KEYWORDS = {
+    "sdhl", "dam", "damlag", "damlaget", "damernas", "damerna",
+    "damspelare", "kvinnliga", "women", "womens", "f19", "f18", "f17", "f16",
+}
+
+
+def is_womens_article(article):
+    title = str(article.get("title") or "").lower()
+    body = str(article.get("body") or "").lower()
+    source = str(article.get("source") or "").lower()
+    url = str(article.get("url") or article.get("link") or "").lower()
+    blob = " ".join([title, body, source, url])
+    if any(kw in blob for kw in WOMENS_CONTEXT_KEYWORDS):
+        return True
+    if "petra" in title and ("bj?rkl?ven" in title or "bjorkloven" in title):
+        return True
+    return False
+
+
 def reclassify_tag(article):
     """
     Conservative keyword-based fallback: only reclassifies ÖVRIGT articles where
@@ -1496,10 +1569,14 @@ def reclassify_tag(article):
 def deduplicate_articles(scraped, baseline):
     seen = set()
     for item in baseline:
+        if is_womens_article(item):
+            continue
         seen.add(normalize_title(item.get('title', '')))
     
     unique_scraped = []
     for item in scraped:
+        if is_womens_article(item):
+            continue
         normalized = normalize_title(item.get('title', ''))
         if normalized not in seen:
             seen.add(normalized)
@@ -1672,8 +1749,12 @@ def get_silly_season():
     baseline = SILLY_SEASON_BASELINE.copy()
     baseline = sync_roster_with_confirmed_signings(baseline)
     
+    baseline_feed = [a for a in (baseline.get("news_feed", []) or []) if not is_womens_article(a)]
+    scraped_articles = [a for a in (scraped_articles or []) if not is_womens_article(a)]
+    previous_scraped_articles = [a for a in (previous_scraped_articles or []) if not is_womens_article(a)]
+
     # Deduplicera mot baseline för presentation i feed
-    deduped_for_feed = deduplicate_articles(scraped_articles, baseline.get("news_feed", []))
+    deduped_for_feed = deduplicate_articles(scraped_articles, baseline_feed)
     # Beräkna verkligt nytt sedan förra scraper-snapshoten
     new_articles = compute_new_since_previous(scraped_articles, previous_scraped_articles)
 
@@ -1689,7 +1770,7 @@ def get_silly_season():
             article["time"] = datetime.now().strftime("%H:%M")
 
     # Slå ihop och sortera fallande på datum, sedan tid
-    merged_feed = deduped_for_feed + baseline.get("news_feed", [])
+    merged_feed = deduped_for_feed + baseline_feed
     merged_feed.sort(key=lambda x: (x.get("date", ""), x.get("time", "")), reverse=True)
     
     baseline["news_feed"] = merged_feed
