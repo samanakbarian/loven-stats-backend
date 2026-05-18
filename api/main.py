@@ -2214,7 +2214,11 @@ def _x_apply_batch_llm_sentiment(items):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{X_AI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1200},
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 1200,
+                "response_mime_type": "application/json",
+            },
         }
         res = requests.post(url, json=body, timeout=30)
         if res.status_code != 200:
