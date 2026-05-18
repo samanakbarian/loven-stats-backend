@@ -1180,7 +1180,7 @@ def get_analytics(season: str = None):
             shl_standings = []
             if shl_regular_id:
                 shl_standings = q(f"""
-                    SELECT team_name, games_played, points, rank, goals_for, goals_against
+                    SELECT team_name, games_played, points, rank
                     FROM `{proj}.raw_sports.swehockey_standings`
                     WHERE season_group_id = {int(shl_regular_id)}
                     QUALIFY ROW_NUMBER() OVER (
