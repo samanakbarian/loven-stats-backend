@@ -1295,9 +1295,18 @@ def get_analytics(season: str = None):
                 })
 
             # Use latest SHL season as performance baseline, but lock team set to upcoming SHL 2026/27.
-            # Current business context: BjÃ¶rklÃ¶ven promoted, MODO not in upcoming SHL roster.
+            # Current business context: Björklöven promoted, MODO not in upcoming SHL roster.
             relegated_from_shl_tokens = {"modo", "leksand", "leksands"}
-            promoted_to_shl = [{"team": "IF BjÃ¶rklÃ¶ven", "seed_points": 58}]
+            promoted_to_shl = [{"team": "IF Björklöven", "seed_points": 58}]
+
+            def _normalize_team_label(team_name):
+                n = str(team_name or "").strip()
+                n_low = n.lower()
+                if "bjã¶rklã¶ven" in n_low or "bjã¶rkloven" in n_low or "bjã¶rklöven" in n_low:
+                    return "IF Björklöven"
+                if "björklöven" in n_low or "bjorkloven" in n_low:
+                    return "IF Björklöven"
+                return n
 
             def _is_relegated_team(team_name):
                 n = (team_name or "").strip().lower()
@@ -1335,12 +1344,13 @@ def get_analytics(season: str = None):
 
             found_bjk = False
             for r in shl_rows:
-                if is_bjk(r["team"]) or "bjÃ¶rklÃ¶ven" in (r["team"] or "").lower():
+                r["team"] = _normalize_team_label(r.get("team"))
+                if is_bjk(r["team"]) or "björklöven" in (r["team"] or "").lower() or "bjorkloven" in (r["team"] or "").lower():
                     r["base_projected_points"] = round(bjk_points_model)
                     found_bjk = True
                     break
             if not found_bjk:
-                shl_rows.append({"team": "IF BjÃ¶rklÃ¶ven", "ppg": bjk_points_model / 52.0, "base_projected_points": round(bjk_points_model)})
+                shl_rows.append({"team": "IF Björklöven", "ppg": bjk_points_model / 52.0, "base_projected_points": round(bjk_points_model)})
 
             shl_rows.sort(key=lambda x: -x["base_projected_points"])
             projected_table_rows = []
