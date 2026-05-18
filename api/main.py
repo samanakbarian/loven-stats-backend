@@ -1036,6 +1036,238 @@ def get_analytics(season: str = None):
             "benchmarks": shl_benchmarks
         }
 
+        # ── Modul 19: SHL Survival Age Curve & Trajectory ──
+        roster_ages = {
+            "Lucas Wallmark": 31,
+            "Topi Niemelä": 23,
+            "Axel Ottosson": 30,
+            "Marcus Nilsson": 35,
+            "Oscar Tellström": 24,
+            "Anton Malmström": 26,
+            "Gustaf Kangas": 21,
+            "Lenni Killinen": 26,
+            "Linus Cronholm": 26,
+            "Marcus Björk": 29,
+            "Gustav Possler": 32,
+            "Albin Lundin": 30,
+            "Fredrik Forsberg": 30,
+            "Daniel Brodin": 36,
+            "Joel Mustonen": 34,
+            "Jacob Olofsson": 26,
+            "Frans Tuohimaa": 35
+        }
+
+        age_skaters = []
+        for p in shl_skaters:
+            # Clean name from display name (e.g. remove the emoji " 🆕")
+            raw_name = p["name"].replace(" 🆕", "").strip()
+            
+            # Match name to get the age
+            matched_age = 26 # Default fallback age
+            for name, age in roster_ages.items():
+                if name_tokens(raw_name).intersection(name_tokens(name)):
+                    matched_age = age
+                    break
+            
+            # Aging curve multiplier
+            if matched_age <= 21:
+                multiplier = 0.15
+                trajectory = "UTVECKLING"
+            elif matched_age <= 23:
+                multiplier = 0.08
+                trajectory = "TILLVÄXT"
+            elif matched_age <= 28:
+                multiplier = 0.00
+                trajectory = "PEAK PRIME"
+            elif matched_age <= 33:
+                multiplier = -0.08
+                trajectory = "RUTINERAD"
+            else:
+                multiplier = -0.22
+                trajectory = "VETERANRISK"
+            
+            # Adjusted PPG
+            adj_proj_ppg = round(p["proj_ppg"] * (1 + multiplier), 2)
+            # Ensure it doesn't go below 0
+            adj_proj_ppg = max(0.0, adj_proj_ppg)
+            
+            # Recalculate readiness based on age-adjusted PPG
+            readiness = "GREEN" if adj_proj_ppg >= 0.50 else "AMBER" if adj_proj_ppg >= 0.25 else "RED"
+            
+            age_skaters.append({
+                "name": p["name"],
+                "position": p["position"],
+                "age": matched_age,
+                "ha_ppg": p["ha_ppg"],
+                "base_proj_ppg": p["proj_ppg"],
+                "adj_proj_ppg": adj_proj_ppg,
+                "multiplier_pct": int(multiplier * 100),
+                "trajectory": trajectory,
+                "readiness": readiness
+            })
+
+        age_goalies = []
+        for g in shl_goalies:
+            raw_name = g["name"].replace(" 🆕", "").strip()
+            
+            matched_age = 28 # Default fallback goalie age
+            for name, age in roster_ages.items():
+                if name_tokens(raw_name).intersection(name_tokens(name)):
+                    matched_age = age
+                    break
+                    
+            if matched_age <= 23:
+                multiplier = 0.05
+                trajectory = "TILLVÄXT"
+            elif matched_age <= 29:
+                multiplier = 0.00
+                trajectory = "PEAK PRIME"
+            elif matched_age <= 33:
+                multiplier = -0.04
+                trajectory = "RUTINERAD"
+            else:
+                multiplier = -0.10
+                trajectory = "VETERANRISK"
+                
+            # Adjust SV% relative to average regression
+            adj_proj_sv_pct = round(g["proj_sv_pct"] + (multiplier * 10.0), 1)
+            # Projected GAA goes up when SV% goes down
+            adj_proj_gaa = round(g["proj_gaa"] * (1 - multiplier), 2)
+            
+            readiness = "GREEN" if adj_proj_sv_pct >= 91.0 else "AMBER" if adj_proj_sv_pct >= 89.2 else "RED"
+            
+            age_goalies.append({
+                "name": g["name"],
+                "age": matched_age,
+                "ha_sv_pct": g["ha_sv_pct"],
+                "base_proj_sv_pct": g["proj_sv_pct"],
+                "adj_proj_sv_pct": adj_proj_sv_pct,
+                "base_proj_gaa": g["proj_gaa"],
+                "adj_proj_gaa": adj_proj_gaa,
+                "multiplier_pct": int(multiplier * 100),
+                "trajectory": trajectory,
+                "readiness": readiness
+            })
+
+        age_curve = {
+            "skaters": age_skaters,
+            "goalies": age_goalies
+        }
+
+        # ── Modul 20: Predicted SHL Table (Preseason) ──
+        shl_projected_table = {
+            "season": "SHL 2026/27 (preseason)",
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "method": "Team-strength blend (historic SHL baseline + BJK roster projection)",
+            "table": [],
+            "bjk_summary": {"projected_rank": None, "projected_points": None, "top6_chance_pct": None, "playout_risk_pct": None},
+        }
+        try:
+            shl_season_rows = q(f"""
+                SELECT season_key, season_name, regular_season_id, start_date
+                FROM `{proj}.raw_sports.swehockey_seasons`
+                WHERE LOWER(season_name) LIKE '%shl%'
+                ORDER BY start_date DESC
+                LIMIT 1
+            """)
+            shl_regular_id = shl_season_rows[0]["regular_season_id"] if shl_season_rows else None
+
+            shl_standings = []
+            if shl_regular_id:
+                shl_standings = q(f"""
+                    SELECT team_name, games_played, points, rank, goals_for, goals_against
+                    FROM `{proj}.raw_sports.swehockey_standings`
+                    WHERE season_group_id = {int(shl_regular_id)}
+                """)
+
+            # Fallback list if SHL standings are unavailable in BQ right now
+            if not shl_standings:
+                shl_standings = [
+                    {"team_name": "Färjestad BK", "games_played": 52, "points": 95, "rank": 1, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Frölunda HC", "games_played": 52, "points": 90, "rank": 2, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Skellefteå AIK", "games_played": 52, "points": 88, "rank": 3, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Luleå HF", "games_played": 52, "points": 85, "rank": 4, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Växjö Lakers", "games_played": 52, "points": 83, "rank": 5, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Rögle BK", "games_played": 52, "points": 80, "rank": 6, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Linköping HC", "games_played": 52, "points": 77, "rank": 7, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Timrå IK", "games_played": 52, "points": 75, "rank": 8, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Malmö Redhawks", "games_played": 52, "points": 73, "rank": 9, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Örebro HK", "games_played": 52, "points": 70, "rank": 10, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "HV71", "games_played": 52, "points": 67, "rank": 11, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "MODO Hockey", "games_played": 52, "points": 64, "rank": 12, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "IF Björklöven", "games_played": 52, "points": 0, "rank": 14, "goals_for": 0, "goals_against": 0},
+                    {"team_name": "Djurgårdens IF", "games_played": 52, "points": 0, "rank": 13, "goals_for": 0, "goals_against": 0},
+                ]
+
+            # Build baseline strength from SHL standings
+            shl_rows = []
+            for row in shl_standings:
+                gp = max(1, int(row.get("games_played") or 52))
+                pts = float(row.get("points") or 0)
+                ppg = pts / gp
+                shl_rows.append({
+                    "team": row.get("team_name", "Unknown"),
+                    "ppg": ppg,
+                    "base_projected_points": round(ppg * 52),
+                })
+
+            # BJK dynamic roster lift from current projections + silly season updates
+            sk_adj = [s.get("adj_proj_ppg", 0) for s in age_skaters]
+            g_adj = [g.get("adj_proj_sv_pct", 0) for g in age_goalies]
+            avg_sk_adj = (sum(sk_adj) / len(sk_adj)) if sk_adj else 0.35
+            avg_g_adj = (sum(g_adj) / len(g_adj)) if g_adj else 89.5
+
+            signings_count = len(SILLY_SEASON_BASELINE.get("confirmed_signings", []))
+            departures_count = len(SILLY_SEASON_BASELINE.get("confirmed_departures", []))
+            expiring_count = len(SILLY_SEASON_BASELINE.get("expiring_contracts", []))
+
+            bjk_points_model = 58.0
+            bjk_points_model += (avg_sk_adj - 0.38) * 80.0
+            bjk_points_model += (avg_g_adj - 89.5) * 2.4
+            bjk_points_model += (special_teams.get("special_teams_index", 95.0) - 95.0) * 0.35
+            bjk_points_model += signings_count * 1.8
+            bjk_points_model -= departures_count * 0.5
+            bjk_points_model -= expiring_count * 0.9
+            bjk_points_model = max(46.0, min(96.0, bjk_points_model))
+
+            found_bjk = False
+            for r in shl_rows:
+                if is_bjk(r["team"]) or "björklöven" in (r["team"] or "").lower():
+                    r["base_projected_points"] = round(bjk_points_model)
+                    found_bjk = True
+                    break
+            if not found_bjk:
+                shl_rows.append({"team": "IF Björklöven", "ppg": bjk_points_model / 52.0, "base_projected_points": round(bjk_points_model)})
+
+            shl_rows.sort(key=lambda x: -x["base_projected_points"])
+            projected_table_rows = []
+            for i, r in enumerate(shl_rows, 1):
+                pts = int(r["base_projected_points"])
+                top6_chance = max(2, min(96, int(100 - (i - 1) * 6)))
+                playout_risk = max(2, min(90, int((i - 8) * 8))) if i >= 8 else 2
+                tier = "Topplag" if i <= 4 else "Slutspel" if i <= 10 else "Riskzon"
+                projected_table_rows.append({
+                    "projected_rank": i,
+                    "team": r["team"],
+                    "projected_points": pts,
+                    "tier": tier,
+                    "top6_chance_pct": top6_chance,
+                    "playout_risk_pct": playout_risk,
+                    "is_bjk": is_bjk(r["team"]) or "björklöven" in (r["team"] or "").lower(),
+                })
+
+            bjk_row = next((r for r in projected_table_rows if r["is_bjk"]), None)
+            if bjk_row:
+                shl_projected_table["bjk_summary"] = {
+                    "projected_rank": bjk_row["projected_rank"],
+                    "projected_points": bjk_row["projected_points"],
+                    "top6_chance_pct": bjk_row["top6_chance_pct"],
+                    "playout_risk_pct": bjk_row["playout_risk_pct"],
+                }
+            shl_projected_table["table"] = projected_table_rows
+        except Exception as shl_proj_err:
+            logging.warning(f"Failed to compute shl_projected_table: {shl_proj_err}")
+
         # ── Modul 17: AI-Coachen (Gemini) ──
         bjk_pyth = next((p for p in pythagorean if p["is_bjk"]), None)
         opp_name = next_game_prediction['opponent'] if next_game_prediction else 'Okänd'
@@ -1123,6 +1355,8 @@ def get_analytics(season: str = None):
                 },
                 "game_state": game_state,
                 "shl_transition": shl_transition,
+                "age_curve": age_curve,
+                "shl_projected_table": shl_projected_table,
             },
         }
     except Exception as e:
