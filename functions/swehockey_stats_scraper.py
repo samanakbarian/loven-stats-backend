@@ -74,7 +74,8 @@ def _fetch_html(url: str) -> str | None:
 
 def _extract_table_rows(html: str) -> list[list[str]]:
     soup = BeautifulSoup(html, "lxml")
-    table = soup.select_one("table")
+    # Prefer bootstrap-style stats tables when present; fall back to first table.
+    table = soup.select_one("table.table") or soup.select_one("table")
     if not table:
         return []
     rows: list[list[str]] = []
@@ -101,6 +102,7 @@ def _contains_team_token(values: list[str]) -> bool:
 
 def _fetch_player_stats() -> tuple[list[dict[str, Any]], str | None]:
     urls = [
+        f"{BASE_URL}/Teams/Info/PlayersByTeam/{SWEHOCKEY_TEAM_ID}",
         f"{BASE_URL}/Players/Statistics/ScoringLeaders/{SWEHOCKEY_SEASON_GROUP_ID}",
     ]
     for url in urls:
@@ -226,6 +228,7 @@ def _fetch_standings() -> tuple[list[dict[str, Any]], str | None]:
 
 def _fetch_schedule() -> tuple[list[dict[str, Any]], str | None]:
     urls = [
+        f"{BASE_URL}/Teams/Info/Schedule/{SWEHOCKEY_TEAM_ID}",
         f"{BASE_URL}/ScheduleAndResults/Schedule/{SWEHOCKEY_SEASON_GROUP_ID}",
     ]
     for url in urls:

@@ -92,7 +92,7 @@ Ny Cloud Function `swehockey-stats-scraper` är implementerad och driftsatt i `e
   - `source = "swehockey"`
 - Scheduler aktiv:
   - `swehockey-stats-scraper-job`
-  - `0 */2 * * *`
+  - `0 6 * * 1`
   - `Europe/Stockholm`
 
 ## Nya staging-modeller

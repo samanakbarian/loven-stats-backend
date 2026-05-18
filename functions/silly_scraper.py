@@ -33,6 +33,10 @@ GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 PROJECT_ID = "granskaren-d51a1"
 LOCATION = "europe-west1"
 CACHE_BLOB_NAME = "raw/silly_season/article_ai_cache.json"
+OFFICIAL_RENDERED_BLOB_NAME = os.environ.get(
+    "OFFICIAL_RENDERED_BLOB_NAME",
+    "raw/silly_season/official_rendered_latest.json",
+)
 MAX_CACHE_ITEMS = 20000
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 AI_DISABLED = os.environ.get("AI_DISABLED", "false").lower() == "true"
@@ -320,6 +324,37 @@ def save_to_gcs(data):
         logging.error("GCS save error: %s", e)
 
 
+def load_official_rendered_items():
+    """Load pre-rendered official Bjorkloven items from GCS and normalize shape."""
+    try:
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(OFFICIAL_RENDERED_BLOB_NAME)
+        if not blob.exists():
+            return []
+        payload = json.loads(blob.download_as_string())
+        items = payload.get("news_feed", []) if isinstance(payload, dict) else []
+        normalized = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("title") or "").strip()
+            link = (item.get("url") or item.get("link") or "").strip()
+            if not title or not link:
+                continue
+            normalized.append({
+                "title": title,
+                "link": link,
+                "pub_date": item.get("date", ""),
+                "source_name": item.get("source", "OfficialRendered (Bjorkloven)"),
+                "query_label": "official_rendered",
+            })
+        return normalized
+    except Exception as e:
+        logging.warning("Could not load official rendered items: %s", e)
+        return []
+
+
 # ─── Sources ─────────────────────────────────────────────────────────────────
 
 def fetch_google_news_rss(query, label=""):
@@ -532,12 +567,13 @@ def run_scraper(request):
 
     # Secondary: EliteProspects
     ep_items = fetch_eliteprospects()
+    official_items = load_official_rendered_items()
 
     # Combine all raw articles
-    all_raw = gn_official + gn_transfer + ep_items
+    all_raw = gn_official + gn_transfer + ep_items + official_items
     logging.info(
-        "Raw articles: gn_official=%d, gn_transfer=%d, ep=%d, total=%d",
-        len(gn_official), len(gn_transfer), len(ep_items), len(all_raw)
+        "Raw articles: gn_official=%d, gn_transfer=%d, ep=%d, official=%d, total=%d",
+        len(gn_official), len(gn_transfer), len(ep_items), len(official_items), len(all_raw)
     )
 
     # ── Deduplicate before processing ───────────────────────────────────

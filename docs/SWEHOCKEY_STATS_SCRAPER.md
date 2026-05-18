@@ -60,12 +60,12 @@ gcloud functions deploy swehockey-stats-scraper \
   --set-env-vars="GCP_PROJECT=granskaren-d51a1,GCS_BUCKET=loven-stats-raw-data-prod,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=18263"
 ```
 
-## Scheduler (var 2:e timme, Stockholm)
+## Scheduler (veckovis, Stockholm)
 
 ```bash
 gcloud scheduler jobs create http swehockey-stats-scraper-job \
   --location=europe-west1 \
-  --schedule="0 */2 * * *" \
+  --schedule="0 6 * * 1" \
   --time-zone="Europe/Stockholm" \
   --uri="https://europe-west1-granskaren-d51a1.cloudfunctions.net/swehockey-stats-scraper" \
   --http-method=GET

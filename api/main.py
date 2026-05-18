@@ -4,6 +4,7 @@ import logging
 import requests
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from google.cloud import storage
 from google.cloud import bigquery
 from datetime import datetime, timezone, timedelta
@@ -36,16 +37,23 @@ X_QUERY_DEFAULT = os.environ.get(
     "X_QUERY_DEFAULT",
     '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
 )
-X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "30"))
+X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "40"))
 X_QUERY_BROAD_DEFAULT = os.environ.get(
     "X_QUERY_BROAD_DEFAULT",
     '((Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven OR Löven OR #Löven) (hockey OR SHL OR allsvenskan OR nyförvärv OR förlänger OR lämnar OR silly)) -is:retweet -is:reply lang:sv'
+)
+X_QUERY_OFFICIAL_DEFAULT = os.environ.get(
+    "X_QUERY_OFFICIAL_DEFAULT",
+    '(from:Bjorkloven OR from:IFBjorkloven) -is:retweet -is:reply'
 )
 X_CACHE_BLOB = os.environ.get("X_CACHE_BLOB", "derived/x_feed/latest.json")
 X_CACHE_MINUTES = int(os.environ.get("X_CACHE_MINUTES", "60"))
 X_AI_ENABLED = os.environ.get("X_AI_ENABLED", "false").lower() == "true"
 X_AI_MODEL = os.environ.get("X_AI_MODEL", "gemini-2.5-flash")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+X_BQ_DATASET = os.environ.get("X_BQ_DATASET", "raw_content")
+X_BQ_POSTS_TABLE = os.environ.get("X_BQ_POSTS_TABLE", "x_posts")
+X_BQ_RUNS_TABLE = os.environ.get("X_BQ_RUNS_TABLE", "x_fetch_runs")
 
 @app.get("/")
 def read_root():
@@ -1795,6 +1803,106 @@ def _save_x_cache(payload):
         logging.warning(f"Could not save X cache: {e}")
 
 
+def _ensure_x_bq_tables(client: bigquery.Client):
+    dataset_ref = bigquery.Dataset(f"{client.project}.{X_BQ_DATASET}")
+    dataset_ref.location = "europe-west1"
+    client.create_dataset(dataset_ref, exists_ok=True)
+
+    posts_table_id = f"{client.project}.{X_BQ_DATASET}.{X_BQ_POSTS_TABLE}"
+    posts_schema = [
+        bigquery.SchemaField("fetched_at", "TIMESTAMP"),
+        bigquery.SchemaField("query_mode", "STRING"),
+        bigquery.SchemaField("query", "STRING"),
+        bigquery.SchemaField("tweet_id", "STRING"),
+        bigquery.SchemaField("created_at", "TIMESTAMP"),
+        bigquery.SchemaField("text", "STRING"),
+        bigquery.SchemaField("author_name", "STRING"),
+        bigquery.SchemaField("author_username", "STRING"),
+        bigquery.SchemaField("url", "STRING"),
+        bigquery.SchemaField("lang", "STRING"),
+        bigquery.SchemaField("sentiment_label", "STRING"),
+        bigquery.SchemaField("sentiment_score", "INT64"),
+        bigquery.SchemaField("like_count", "INT64"),
+        bigquery.SchemaField("retweet_count", "INT64"),
+        bigquery.SchemaField("reply_count", "INT64"),
+        bigquery.SchemaField("quote_count", "INT64"),
+        bigquery.SchemaField("bookmark_count", "INT64"),
+        bigquery.SchemaField("impression_count", "INT64"),
+    ]
+    client.create_table(bigquery.Table(posts_table_id, schema=posts_schema), exists_ok=True)
+
+    runs_table_id = f"{client.project}.{X_BQ_DATASET}.{X_BQ_RUNS_TABLE}"
+    runs_schema = [
+        bigquery.SchemaField("fetched_at", "TIMESTAMP"),
+        bigquery.SchemaField("query_mode", "STRING"),
+        bigquery.SchemaField("query", "STRING"),
+        bigquery.SchemaField("count_items", "INT64"),
+        bigquery.SchemaField("latest_item_age_hours", "FLOAT64"),
+        bigquery.SchemaField("error", "STRING"),
+        bigquery.SchemaField("from_cache", "BOOL"),
+        bigquery.SchemaField("cache_minutes", "INT64"),
+    ]
+    client.create_table(bigquery.Table(runs_table_id, schema=runs_schema), exists_ok=True)
+
+
+def _persist_x_payload_to_bq(payload: dict):
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        _ensure_x_bq_tables(bq)
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+        query_mode = meta.get("query_mode")
+        query = payload.get("query")
+
+        post_rows = []
+        for item in payload.get("items", []) or []:
+            metrics = item.get("public_metrics", {}) if isinstance(item.get("public_metrics"), dict) else {}
+            post_rows.append({
+                "fetched_at": fetched_at,
+                "query_mode": query_mode,
+                "query": query,
+                "tweet_id": item.get("id"),
+                "created_at": item.get("created_at"),
+                "text": item.get("text"),
+                "author_name": item.get("author_name"),
+                "author_username": item.get("author_username"),
+                "url": item.get("url"),
+                "lang": item.get("lang"),
+                "sentiment_label": item.get("sentiment_label"),
+                "sentiment_score": int(item.get("sentiment_score") or 0),
+                "like_count": int(metrics.get("like_count") or 0),
+                "retweet_count": int(metrics.get("retweet_count") or 0),
+                "reply_count": int(metrics.get("reply_count") or 0),
+                "quote_count": int(metrics.get("quote_count") or 0),
+                "bookmark_count": int(metrics.get("bookmark_count") or 0),
+                "impression_count": int(metrics.get("impression_count") or 0),
+            })
+
+        run_row = {
+            "fetched_at": fetched_at,
+            "query_mode": query_mode,
+            "query": query,
+            "count_items": int(payload.get("count") or 0),
+            "latest_item_age_hours": meta.get("latest_item_age_hours"),
+            "error": meta.get("error"),
+            "from_cache": bool(meta.get("from_cache")),
+            "cache_minutes": int(meta.get("cache_minutes") or 0),
+        }
+
+        if post_rows:
+            posts_table_id = f"{bq.project}.{X_BQ_DATASET}.{X_BQ_POSTS_TABLE}"
+            errors = bq.insert_rows_json(posts_table_id, post_rows)
+            if errors:
+                logging.warning(f"Failed inserting x_posts rows: {errors[:1]}")
+
+        runs_table_id = f"{bq.project}.{X_BQ_DATASET}.{X_BQ_RUNS_TABLE}"
+        run_errors = bq.insert_rows_json(runs_table_id, [run_row])
+        if run_errors:
+            logging.warning(f"Failed inserting x_fetch_runs row: {run_errors[:1]}")
+    except Exception as e:
+        logging.warning(f"Could not persist X payload to BigQuery: {e}")
+
+
 def _cache_is_fresh(cache_payload):
     if not cache_payload:
         return False
@@ -1926,24 +2034,24 @@ def _build_x_payload(query: str, max_results: int):
 def _build_x_payload_with_fallback(max_results: int):
     primary = _build_x_payload(X_QUERY_DEFAULT, max_results)
     primary_items = primary.get("items", []) or []
+    official = _build_x_payload(X_QUERY_OFFICIAL_DEFAULT, max_results)
+    official_items = official.get("items", []) or []
     primary_age_hours = _latest_item_age_hours(primary_items)
     needs_fallback = (
         len(primary_items) == 0
         or not _has_item_from_today_utc(primary_items)
         or (primary_age_hours is not None and primary_age_hours > 24)
     )
-
-    if not needs_fallback:
-        primary.setdefault("meta", {})
-        primary["meta"]["query_mode"] = "primary"
-        return primary
-
-    fallback = _build_x_payload(X_QUERY_BROAD_DEFAULT, max_results)
-    fallback_items = fallback.get("items", []) or []
+    fallback_items = []
+    fallback_error = None
+    if needs_fallback:
+        fallback = _build_x_payload(X_QUERY_BROAD_DEFAULT, max_results)
+        fallback_items = fallback.get("items", []) or []
+        fallback_error = fallback.get("meta", {}).get("error")
 
     merged = []
     seen = set()
-    for item in primary_items + fallback_items:
+    for item in official_items + primary_items + fallback_items:
         item_id = item.get("id")
         if not item_id or item_id in seen:
             continue
@@ -1977,10 +2085,11 @@ def _build_x_payload_with_fallback(max_results: int):
         "meta": {
             "provider": "x_api_v2_recent_search",
             "generated_at": datetime.utcnow().isoformat() + "Z",
-            "error": primary.get("meta", {}).get("error") or fallback.get("meta", {}).get("error"),
+            "error": primary.get("meta", {}).get("error") or fallback_error or official.get("meta", {}).get("error"),
             "cache_minutes": X_CACHE_MINUTES,
             "ai_summary_ready": bool(ai_summary.get("summary")),
-            "query_mode": "fallback_merged",
+            "query_mode": "fallback_merged" if needs_fallback else "primary_plus_official",
+            "official_query": X_QUERY_OFFICIAL_DEFAULT,
         },
     }
     return payload
@@ -1990,14 +2099,27 @@ def _build_x_payload_with_fallback(max_results: int):
 def get_x_feed(force_refresh: bool = Query(False)):
     cached = _load_x_cache()
     if not force_refresh and _cache_is_fresh(cached):
-        cached.setdefault("meta", {})
-        cached["meta"]["from_cache"] = True
-        return cached
+        # Do not serve "fresh" cache if content itself is stale.
+        cached_items = cached.get("items", []) if isinstance(cached, dict) else []
+        latest_age_hours = _latest_item_age_hours(cached_items)
+        if latest_age_hours is None or latest_age_hours <= 12:
+            cached.setdefault("meta", {})
+            cached["meta"]["from_cache"] = True
+            cached["meta"]["latest_item_age_hours"] = latest_age_hours
+            return JSONResponse(
+                content=cached,
+                headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
+            )
     payload = _build_x_payload_with_fallback(X_MAX_RESULTS_DEFAULT)
     payload.setdefault("meta", {})
     payload["meta"]["from_cache"] = False
+    payload["meta"]["latest_item_age_hours"] = _latest_item_age_hours(payload.get("items", []))
+    _persist_x_payload_to_bq(payload)
     _save_x_cache(payload)
-    return payload
+    return JSONResponse(
+        content=payload,
+        headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
+    )
 
 
 @app.get("/api/v1/lovenlaget")
