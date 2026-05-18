@@ -1201,6 +1201,22 @@ def get_analytics(season: str = None):
                     "base_projected_points": round(ppg * 52),
                 })
 
+            # Use latest SHL season as performance baseline, but lock team set to upcoming SHL 2026/27.
+            # Current business context: Björklöven promoted, MODO not in upcoming SHL roster.
+            relegated_from_shl = {"modo hockey"}
+            promoted_to_shl = [{"team": "IF Björklöven", "seed_points": 58}]
+
+            filtered_rows = [r for r in shl_rows if (r.get("team", "").strip().lower() not in relegated_from_shl)]
+            for p in promoted_to_shl:
+                exists = any((r.get("team", "").strip().lower() == p["team"].strip().lower()) for r in filtered_rows)
+                if not exists:
+                    filtered_rows.append({
+                        "team": p["team"],
+                        "ppg": p["seed_points"] / 52.0,
+                        "base_projected_points": int(p["seed_points"]),
+                    })
+            shl_rows = filtered_rows
+
             # BJK dynamic roster lift from current projections + silly season updates
             sk_adj = [s.get("adj_proj_ppg", 0) for s in age_skaters]
             g_adj = [g.get("adj_proj_sv_pct", 0) for g in age_goalies]
