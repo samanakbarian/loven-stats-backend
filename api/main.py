@@ -984,8 +984,18 @@ def get_analytics(season: str = None):
             "Topi Niemelä": {
                 "proj_ppg": 0.35, 
                 "ha_ppg": 0.58,
+            },
+            "Marcus BjÃ¶rk": {
+                "proj_ppg": 0.28,
+                "ha_ppg": 0.45,
             }
         }
+
+        def skater_readiness_by_position(position, proj_ppg):
+            pos = (position or "").upper()
+            if "D" in pos:
+                return "GREEN" if proj_ppg >= 0.35 else "AMBER" if proj_ppg >= 0.18 else "RED"
+            return "GREEN" if proj_ppg >= 0.50 else "AMBER" if proj_ppg >= 0.25 else "RED"
 
         shl_skaters = []
         for p in player_impact:
@@ -1010,7 +1020,7 @@ def get_analytics(season: str = None):
                 ha_ppg = round(p["p_per_gp"], 2)
                 display_name = name
 
-            readiness = "GREEN" if proj_ppg >= 0.50 else "AMBER" if proj_ppg >= 0.25 else "RED"
+            readiness = skater_readiness_by_position(p["position"], proj_ppg)
             shl_skaters.append({
                 "name": display_name,
                 "position": p["position"],
@@ -1073,12 +1083,17 @@ def get_analytics(season: str = None):
             # Clean name from display name (e.g. remove the emoji " 🆕")
             raw_name = p["name"].replace(" 🆕", "").strip()
             
-            # Match name to get the age
+            # Match name to get the age (prefer exact normalized name first).
             matched_age = 26 # Default fallback age
-            for name, age in roster_ages.items():
-                if name_tokens(raw_name).intersection(name_tokens(name)):
-                    matched_age = age
-                    break
+            raw_name_norm = clean_player_name(raw_name).lower()
+            exact_age_map = {clean_player_name(n).lower(): a for n, a in roster_ages.items()}
+            if raw_name_norm in exact_age_map:
+                matched_age = exact_age_map[raw_name_norm]
+            else:
+                for name, age in roster_ages.items():
+                    if name_tokens(raw_name).intersection(name_tokens(name)):
+                        matched_age = age
+                        break
             
             # Aging curve multiplier
             if matched_age <= 21:
@@ -1103,7 +1118,7 @@ def get_analytics(season: str = None):
             adj_proj_ppg = max(0.0, adj_proj_ppg)
             
             # Recalculate readiness based on age-adjusted PPG
-            readiness = "GREEN" if adj_proj_ppg >= 0.50 else "AMBER" if adj_proj_ppg >= 0.25 else "RED"
+            readiness = skater_readiness_by_position(p["position"], adj_proj_ppg)
             
             age_skaters.append({
                 "name": p["name"],
