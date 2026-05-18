@@ -1207,7 +1207,7 @@ def get_analytics(season: str = None):
 
             # Use latest SHL season as performance baseline, but lock team set to upcoming SHL 2026/27.
             # Current business context: Björklöven promoted, MODO not in upcoming SHL roster.
-            relegated_from_shl = {"modo hockey"}
+            relegated_from_shl = {"modo hockey", "leksands if"}
             promoted_to_shl = [{"team": "IF Björklöven", "seed_points": 58}]
 
             filtered_rows = [r for r in shl_rows if (r.get("team", "").strip().lower() not in relegated_from_shl)]

@@ -268,6 +268,11 @@ Miljövariabler:
   - confirmed signings/departures/expiring i `SILLY_SEASON_BASELINE`.
 - Statisk fallback-tabell är borttagen:
   - vid saknad SHL-källdata returneras `data_quality="missing_shl_source"` och tom tabell.
+- Projektionsbas:
+  - senaste SHL-säsong i `raw_sports.swehockey_standings` används som styrkebas.
+  - lagset mappas till kommande SHL 2026/27 (Björklöven in, MODO/Leksand ut).
+- Frontend policy:
+  - SHL-analyticsfliken ska endast visas när vald säsong är `shl_2627`.
 
 ---
 
