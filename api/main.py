@@ -2182,6 +2182,91 @@ def _build_x_ai_summary(items):
         return {"enabled": True, "summary": fallback_summary(), "model": X_AI_MODEL, "error": "gemini_failed"}
 
 
+def _x_apply_batch_llm_sentiment(items):
+    """
+    Classify sentiment for many tweets in one LLM call.
+    Falls back silently to heuristic labels already present on items.
+    """
+    if not items:
+        return items, {"enabled": False, "model": None, "error": "no_items"}
+    if not X_AI_ENABLED:
+        return items, {"enabled": False, "model": None, "error": "disabled"}
+    if not GEMINI_API_KEY:
+        return items, {"enabled": True, "model": X_AI_MODEL, "error": "missing_api_key"}
+
+    top = items[:60]
+    lines = []
+    for item in top:
+        tid = str(item.get("id") or "")
+        text = (item.get("text") or "").replace("\n", " ").strip()
+        text = text[:280]
+        lines.append(f"{tid}\t{text}")
+
+    prompt = (
+        "You are classifying Swedish hockey tweets for sentiment.\n"
+        "Return ONLY valid JSON as an array.\n"
+        "Each element must be: {\"id\":\"<tweet_id>\",\"label\":\"positive|neutral|negative\",\"score\":0-100}.\n"
+        "Use conservative labels. If uncertain, use neutral.\n\n"
+        "Tweets:\n" + "\n".join(lines)
+    )
+
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{X_AI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1200},
+        }
+        res = requests.post(url, json=body, timeout=30)
+        if res.status_code != 200:
+            return items, {"enabled": True, "model": X_AI_MODEL, "error": f"gemini_http_{res.status_code}"}
+
+        payload = res.json()
+        parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        raw = " ".join([p.get("text", "") for p in parts if isinstance(p, dict)]).strip()
+        if not raw:
+            return items, {"enabled": True, "model": X_AI_MODEL, "error": "empty_response"}
+
+        # Remove code fences if present.
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start == -1 or end == -1 or end <= start:
+            return items, {"enabled": True, "model": X_AI_MODEL, "error": "invalid_json_shape"}
+
+        arr = json.loads(raw[start:end + 1])
+        if not isinstance(arr, list):
+            return items, {"enabled": True, "model": X_AI_MODEL, "error": "invalid_json_type"}
+
+        by_id = {}
+        for row in arr:
+            if not isinstance(row, dict):
+                continue
+            rid = str(row.get("id") or "")
+            label = str(row.get("label") or "").lower()
+            score = int(row.get("score") or 50)
+            if not rid or label not in ("positive", "neutral", "negative"):
+                continue
+            score = max(0, min(100, score))
+            by_id[rid] = (label, score)
+
+        updated = 0
+        out = []
+        for item in items:
+            rid = str(item.get("id") or "")
+            if rid in by_id:
+                label, score = by_id[rid]
+                item = dict(item)
+                item["sentiment_label"] = label
+                item["sentiment_score"] = score
+                updated += 1
+            out.append(item)
+
+        return out, {"enabled": True, "model": X_AI_MODEL, "error": None, "updated": updated}
+    except Exception as e:
+        logging.warning(f"Gemini batch sentiment failed: {e}")
+        return items, {"enabled": True, "model": X_AI_MODEL, "error": "gemini_failed"}
+
+
 def _build_x_payload(query: str, max_results: int):
     fetched = _fetch_x_recent(query, max_results)
     items = fetched.get("items", [])
@@ -2246,6 +2331,9 @@ def _build_x_payload_with_fallback(max_results: int):
     )
     merged = merged[:max_results]
 
+    # Single batch LLM call for sentiment classification (cost-efficient).
+    merged, sentiment_meta = _x_apply_batch_llm_sentiment(merged)
+
     counts = {"positive": 0, "neutral": 0, "negative": 0}
     for item in merged:
         counts[item.get("sentiment_label", "neutral")] = counts.get(item.get("sentiment_label", "neutral"), 0) + 1
@@ -2272,6 +2360,9 @@ def _build_x_payload_with_fallback(max_results: int):
             "ai_summary_ready": bool(ai_summary.get("summary")),
             "query_mode": "fallback_merged" if needs_fallback else "primary_plus_official",
             "official_query": X_QUERY_OFFICIAL_DEFAULT,
+            "sentiment_model": sentiment_meta.get("model"),
+            "sentiment_batch_error": sentiment_meta.get("error"),
+            "sentiment_batch_updated": sentiment_meta.get("updated", 0),
         },
     }
     return payload
