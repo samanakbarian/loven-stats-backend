@@ -1851,6 +1851,8 @@ def _x_sentiment_score(text: str):
     positive_terms = {
         "klar for": 2,
         "nyforvarv": 2,
+        "rykten in": 2,
+        "in till": 1,
         "forlanger": 2,
         "forlangning": 2,
         "ansluter": 2,
@@ -1858,6 +1860,7 @@ def _x_sentiment_score(text: str):
         "vinner": 2,
         "seger": 2,
         "starker": 1,
+        "starkare": 1,
         "poang": 1,
         "assist": 1,
         "mal": 1,
@@ -1865,6 +1868,7 @@ def _x_sentiment_score(text: str):
         "stabil": 1,
         "grym": 1,
         "toppen": 1,
+        "overlever": 1,
         "lyfter": 1,
     }
     negative_terms = {
@@ -1882,6 +1886,10 @@ def _x_sentiment_score(text: str):
         "problem": 1,
         "straffad": 1,
         "installd": 1,
+        "tramsa": 1,
+        "sluta": 1,
+        "oroande": 1,
+        "svagt": 1,
     }
 
     pos_score = 0
@@ -1901,14 +1909,15 @@ def _x_sentiment_score(text: str):
 
     if pos_score == 0 and neg_score == 0:
         return "neutral", 50
-    if abs(pos_score - neg_score) <= 1:
+    # Slightly less conservative than before: allow weak lean instead of hard-neutral.
+    if pos_score == neg_score:
         return "neutral", 52
 
     if pos_score > neg_score:
         delta = pos_score - neg_score
-        return "positive", min(95, 58 + delta * 8)
+        return "positive", min(95, 56 + delta * 8)
     delta = neg_score - pos_score
-    return "negative", min(95, 58 + delta * 8)
+    return "negative", min(95, 56 + delta * 8)
 def _fetch_x_recent(query: str, max_results: int):
     if not X_BEARER_TOKEN:
         return {"items": [], "error": "missing_token"}
