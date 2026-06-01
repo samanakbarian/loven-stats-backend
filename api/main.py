@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import logging
 import requests
@@ -1058,7 +1058,7 @@ def get_analytics(season: str = None):
             })
         pythagorean.sort(key=lambda x: -x["diff"])
         
-        # â”€â”€ Modul 18: SHL Transition Calculations â”€â”€
+        # ── Modul 18: SHL Transition Calculations ──
         leaving_names = [d["name"] for d in SILLY_SEASON_BASELINE.get("confirmed_departures", [])]
         def is_leaving(player_name):
             matched = match_player(player_name)
@@ -1066,21 +1066,10 @@ def get_analytics(season: str = None):
                 return False
             return any(matched == ln for ln in leaving_names)
 
-        # Overrides for new signings (who didn't play in HA last season)
-        signings_overrides = {
-            "Lucas Wallmark": {
-                "proj_ppg": 0.85, 
-                "ha_ppg": 1.40,
-            },
-            "Topi Niemelä": {
-                "proj_ppg": 0.35, 
-                "ha_ppg": 0.58,
-            },
-            "Marcus Björk": {
-                "proj_ppg": 0.28,
-                "ha_ppg": 0.45,
-            }
-        }
+        signings_overrides = {}
+        for signing in SILLY_SEASON_BASELINE.get("confirmed_signings", []):
+            if "shl_projection" in signing:
+                signings_overrides[signing["name"]] = signing["shl_projection"]
 
         def skater_readiness_by_position(position, proj_ppg):
             pos = (position or "").upper()
@@ -1105,15 +1094,9 @@ def get_analytics(season: str = None):
             if is_leaving(p["name"]):
                 continue
             
-            # Check if this player is a new signing that has custom overrides
             name = p["name"]
             matched_override = None
-            lname = normalized_name(name)
-            if "marcus" in lname and ("bjork" in lname or "björk" in lname):
-                matched_override = ("Marcus Björk", signings_overrides.get("Marcus Björk", {"proj_ppg": 0.28, "ha_ppg": 0.45}))
             for override_name, override_data in signings_overrides.items():
-                if matched_override:
-                    break
                 if name_match_strict(name, override_name):
                     matched_override = (override_name, override_data)
                     break
@@ -1165,15 +1148,6 @@ def get_analytics(season: str = None):
             "benchmarks": shl_benchmarks
         }
 
-        # â”€â”€ Modul 19: SHL Survival Age Curve & Trajectory â”€â”€
-        roster_ages = {
-            "Lucas Wallmark": 31,
-            "Topi Niemelä": 23,
-            "Axel Ottosson": 30,
-            "Marcus Nilsson": 35,
-            "Oscar Tellström": 24,
-            "Anton Malmström": 26,
-            "Gustaf Kangas": 21,
             "Lenni Killinen": 26,
             "Linus Cronholm": 26,
             "Marcus Björk": 29,
