@@ -167,7 +167,7 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         # Lookup season
         active = lookup_season(season)
         HA_REGULAR = active["regular"]
-        HA_PLAYOFF = active["playoff"] or active["regular"]
+        HA_PLAYOFF = active.get("playoff")
         season_ids = list(set([sid for sid in [HA_REGULAR, HA_PLAYOFF] if sid]))
 
         all_players = _query_season("swehockey_player_stats", season_ids)
@@ -177,9 +177,9 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
 
         # Split players by season type
         regular_players = [p for p in all_players if p.get("season_group_id") == HA_REGULAR]
-        playoff_players = [p for p in all_players if p.get("season_group_id") == HA_PLAYOFF]
+        playoff_players = [p for p in all_players if p.get("season_group_id") == HA_PLAYOFF] if HA_PLAYOFF else []
         regular_goalies = [g for g in all_goalies if g.get("season_group_id") == HA_REGULAR]
-        playoff_goalies = [g for g in all_goalies if g.get("season_group_id") == HA_PLAYOFF]
+        playoff_goalies = [g for g in all_goalies if g.get("season_group_id") == HA_PLAYOFF] if HA_PLAYOFF else []
 
         # BJK-specific data
         bjk_skaters_regular = sorted(
