@@ -153,10 +153,14 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
                         return True
             return False
 
-        def _query_all(table_name: str):
-            """Return ALL rows from the table (no MAX(scraped_at) filter)."""
+        def _query_season(table_name: str, season_ids: list[int]):
+            """Return rows from the table filtered by season_group_id."""
+            if not season_ids:
+                return []
+            ids_str = ",".join(str(sid) for sid in season_ids if sid)
             q = f"""
             SELECT * FROM `{bq_client.project}.raw_sports.{table_name}`
+            WHERE season_group_id IN ({ids_str}) -- cache bust 1
             """
             return [dict(row.items()) for row in bq_client.query(q).result()]
 
@@ -164,11 +168,12 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         active = lookup_season(season)
         HA_REGULAR = active["regular"]
         HA_PLAYOFF = active["playoff"] or active["regular"]
+        season_ids = list(set([sid for sid in [HA_REGULAR, HA_PLAYOFF] if sid]))
 
-        all_players = _query_all("swehockey_player_stats")
-        all_goalies = _query_all("swehockey_goalie_stats")
-        standings = _query_all("swehockey_standings")
-        schedule = _query_all("swehockey_schedule")
+        all_players = _query_season("swehockey_player_stats", season_ids)
+        all_goalies = _query_season("swehockey_goalie_stats", season_ids)
+        standings = _query_season("swehockey_standings", season_ids)
+        schedule = _query_season("swehockey_schedule", season_ids)
 
         # Split players by season type
         regular_players = [p for p in all_players if p.get("season_group_id") == HA_REGULAR]
@@ -694,9 +699,9 @@ def get_analytics(season: str = None):
             below = sum(1 for v in all_vals if v <= value)
             return round((below / len(all_vals)) * 100)
 
-        sv_vals = [g.get("save_pct", 0) for g in all_goalies_min10]
-        gaa_vals = [g.get("gaa", 0) for g in all_goalies_min10]
-        wp_vals = [g.get("win_pct", 0) for g in all_goalies_min10]
+        sv_vals = [g.get("save_pct") or 0 for g in all_goalies_min10]
+        gaa_vals = [g.get("gaa") or 0 for g in all_goalies_min10]
+        wp_vals = [g.get("win_pct") or 0 for g in all_goalies_min10]
 
         goalie_radar = []
         for g in bjk_goalies:
@@ -1148,6 +1153,7 @@ def get_analytics(season: str = None):
             "benchmarks": shl_benchmarks
         }
 
+        roster_ages = {
             "Lenni Killinen": 26,
             "Linus Cronholm": 26,
             "Marcus Björk": 29,
