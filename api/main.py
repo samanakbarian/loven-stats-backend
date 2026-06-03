@@ -217,8 +217,7 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         team_games = sorted(
             [
                 m for m in schedule
-                if str(m.get("team_id", "")).strip() == SWEHOCKEY_TEAM_ID
-                or _matches(str(m.get("home_team", "")))
+                if _matches(str(m.get("home_team", "")))
                 or _matches(str(m.get("away_team", "")))
             ],
             key=lambda g: str(g.get("date", "") or g.get("match_date", "")),
@@ -357,8 +356,7 @@ def get_analytics(season: str = None):
 
         def bjk_game(g):
             return (
-                str(g.get("team_id", "")).strip() == SWEHOCKEY_TEAM_ID
-                or is_bjk(g.get("home_team", ""))
+                is_bjk(g.get("home_team", ""))
                 or is_bjk(g.get("away_team", ""))
             )
 
