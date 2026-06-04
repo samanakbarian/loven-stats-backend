@@ -55,6 +55,39 @@ För vårt projekt betyder det att `loven-stats-backend` ska bli
 produktionskällan och modellmotorn, medan `slutspel/frontend_v2` ska vara
 kontrollrummet som prioriterar insikter.
 
+## Kommentar på aktuell BigQuery-inventering
+
+Den aktuella inventeringen av BigQuery-lagren pekar i rätt riktning: systemet är
+rådatatungt och saknar ännu ett fullt produktionssatt mellanlager för hockeyn.
+Det är en korrekt riskbild. Den viktiga nyansen är att dbt och flera modeller
+redan finns i repot; det som saknas är att de är körda, fyllda, verifierade och
+kopplade till API:t som produktionskontrakt.
+
+Min tolkning:
+
+- `raw_sports` är rätt plats för nuvarande Swehockey- och eventdata, men ska inte
+  fortsätta vara primär läsyta för produkt-API:t.
+- `loven_staging` får gärna vara tomt i fysisk tabellmening om staging är dbt
+  views, men om datasetet saknar vyer i BigQuery betyder det att dbt inte är
+  materialiserat i miljön.
+- `loven_marts` ska inte bara innehålla ekonomi. Repot har redan modeller för
+  `fact_event_players`, `fact_goalie_game_stats`, `fact_team_standings_snapshot`,
+  `fact_shot_features`, `fact_roster_status`, `fact_match_lineup`,
+  `fact_content_items`, `fact_attendance` och `serving_*`. Nästa steg är därför
+  `dbt run/test` mot riktiga källor och API-migration, inte ny design från noll.
+- `raw_eliteprospects` och `loven_ai` är tydliga tomma expansionsytor. De ska
+  inte byggas publikt förrän identitet, modellregister och källspårbarhet finns.
+- `raw_sportradar` bör betraktas som test/partial tills schemat, freshness och
+  coverage är verifierade. Det ska inte driva skarpa ML-modeller utan
+  datakvalitetsstatus.
+
+Praktisk ändring i prioritering:
+
+1. Kör och verifiera befintliga dbt-modeller.
+2. Skapa ops-tabeller för data quality och model runs.
+3. Migrera API från `raw_sports.*` till `serving_*` där modellen finns.
+4. Först därefter bygg ML/simuleringar ovanpå mart-/serving-lagret.
+
 ## Capability Map
 
 ### 1. Data Foundation
@@ -465,4 +498,3 @@ Prioriterade nya kontrakt:
 13. `PLAYER-002` Player profile/history endpoint.
 14. `SCOUT-001` Player role tags v1.
 15. `WEB-001` Simuleringsvy i frontend v2.
-
