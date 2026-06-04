@@ -20,6 +20,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
+analytics_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
+stats_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
+silly_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
+xfeed_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
+
 # TillÃ¥t CORS fÃ¶r frontend
 app.add_middleware(
     CORSMiddleware,
@@ -307,10 +312,6 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         }
 
 
-analytics_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
-stats_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
-silly_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
-xfeed_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
 
 @app.get("/api/v1/analytics")
 @cached(cache=analytics_cache)
