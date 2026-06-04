@@ -8,6 +8,12 @@ Källa: synkad med `slutspel/docs/ARCHITECTURE_REVIEW_2026.md`
 Detta dokument beskriver hur `loven-stats-backend` levererar målarkitekturen:
 ingestion, datakvalitet, lagring, API och drift.
 
+Feature-backloggen som konkretiserar leveranser, API-kontrakt, beroenden och
+acceptanskriterier finns i `docs/FEATURE_BACKLOG_2026.md`.
+
+Utredningen för avancerad hockeyanalys, machine learning och simuleringar finns
+i `docs/ADVANCED_HOCKEY_ANALYTICS_STACK_2026.md`.
+
 ## Status just nu
 
 Vi har gått från plan till första implementation:
@@ -24,6 +30,7 @@ Not: “klar” i roadmap betyder modellnivå klar i dbt. Full produktionsnytta 
 2. API-kontrakt med tydlig freshness och schema-version.
 3. Kostnadskontrollerad AI/analys.
 4. Driftbar plattform med övervakning och incidentrutiner.
+5. Machine learning och simuleringar med tydlig modellversion, backtesting och osäkerhetsintervall.
 
 ## Implementationsstatus mot prioriteringslistan
 
@@ -86,8 +93,13 @@ Leverabler:
 
 ## Nästa konkreta backlog
 
-1. Aktivera/validera råtabeller i BigQuery (`raw_sports`, `raw_roster`, `raw_financials`).
-2. Kör `dbt run` + `dbt test` i CI/dbt Cloud för nya `marts/core` + `serving`.
-3. Migrera API-endpoints till `serving_*`.
-4. Lägg till relationships- och freshness-tester i dbt.
-5. Inför observability- och cachelager.
+1. Genomför historisk säsongsbackfill för HA 2022/23, 2023/24 och 2024/25.
+2. Inför automatisk datakvalitetskontroll efter scraper/backfill.
+3. Konsolidera `GET /api/v1/current-state` och `GET /api/v1/lovenlaget` så frontend v2 har ett skarpt current-state-kontrakt.
+4. Lägg till `GET /api/v1/season-compare` för säsongsjämförelse.
+5. Parametrisera `GET /api/v1/analytics` med rolling window (`5`, `10`, `20`).
+6. Skapa modellregister för ML/simuleringar (`model_name`, `model_version`, backtest, data quality).
+7. Bygg team strength rating v1 och SHL Monte Carlo simulator v1.
+8. Migrera prioriterade API-endpoints till `serving_*`.
+9. Lägg till relationships- och freshness-tester i dbt.
+10. Inför observability- och cachelager.

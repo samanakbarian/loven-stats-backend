@@ -239,22 +239,46 @@ def _fetch_schedule() -> tuple[list[dict[str, Any]], str | None]:
         if len(rows) < 2:
             continue
         out = []
+        current_date = ""
         for r in rows:
-            if len(r) < 4:
+            if len(r) < 3:
                 continue
-            home_team = _clean(r[1] if len(r) > 1 else "")
-            away_team = _clean(r[2] if len(r) > 2 else "")
-            if not home_team or not away_team:
+                
+            date_match = re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[0]))
+            if date_match:
+                current_date = date_match.group(0)
+            elif re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[1] if len(r) > 1 else "")):
+                current_date = re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[1])).group(0)
+
+            game_str = ""
+            result_str = ""
+            for i, col in enumerate(r):
+                c = _clean(col)
+                if " - " in c and len(c) > 7:
+                    if re.search(r"[a-zA-ZÅÄÖåäö]", c):
+                        game_str = c
+                        if i + 1 < len(r):
+                            result_str = _clean(r[i+1])
+                        break
+            
+            if not game_str or " - " not in game_str:
                 continue
+                
+            home_team, away_team = game_str.split(" - ", 1)
+            home_team = _clean(home_team)
+            away_team = _clean(away_team)
+            if not home_team or not away_team or len(home_team) > 100 or len(away_team) > 100:
+                continue
+
             out.append(
                 {
                     "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
                     "team_id": SWEHOCKEY_TEAM_ID,
-                    "match_date": _clean(r[0]),
+                    "match_date": current_date,
                     "home_team": home_team,
                     "away_team": away_team,
-                    "result": _clean(r[3] if len(r) > 3 else ""),
-                    "status": _clean(r[4] if len(r) > 4 else ""),
+                    "result": result_str,
+                    "status": result_str,
                 }
             )
         if out:

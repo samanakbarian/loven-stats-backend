@@ -259,26 +259,42 @@ def scrape_schedule(season_group_id):
         if not table:
             continue
         out = []
+        current_date = ""
         for tr in table.select("tr"):
             r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
-            if len(r) < 4:
+            if len(r) < 3:
                 continue
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", _clean(r[0])):
+                
+            date_match = re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[0]))
+            if date_match:
+                current_date = date_match.group(0)
+            elif re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[1] if len(r) > 1 else "")):
+                current_date = re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[1])).group(0)
+
+            game_str = ""
+            result_str = ""
+            for i, col in enumerate(r):
+                c = _clean(col)
+                if " - " in c and len(c) > 7:
+                    if re.search(r"[a-zA-ZÅÄÖåäö]", c):
+                        game_str = c
+                        if i + 1 < len(r):
+                            result_str = _clean(r[i+1])
+                        break
+            
+            if not game_str or " - " not in game_str:
                 continue
-            game_str = _clean(r[3] if len(r) > 3 else "")
-            if " - " in game_str:
-                home_team, away_team = game_str.split(" - ", 1)
-            else:
-                home_team, away_team = "", ""
+                
+            home_team, away_team = game_str.split(" - ", 1)
             home_team = _clean(home_team)
             away_team = _clean(away_team)
-            if not home_team or not away_team:
+            if not home_team or not away_team or len(home_team) > 100 or len(away_team) > 100:
                 continue
-            result_str = _clean(r[4] if len(r) > 4 else "")
+
             out.append({
                 "season_group_id": season_group_id,
                 "team_id": TEAM_ID,
-                "match_date": _clean(r[0]),
+                "match_date": current_date,
                 "home_team": home_team,
                 "away_team": away_team,
                 "result": result_str,

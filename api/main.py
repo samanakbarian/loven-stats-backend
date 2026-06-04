@@ -1151,18 +1151,12 @@ def get_analytics(season: str = None):
             "benchmarks": shl_benchmarks
         }
 
-        roster_ages = {
-            "Lenni Killinen": 26,
-            "Linus Cronholm": 26,
-            "Marcus Björk": 29,
-            "Gustav Possler": 32,
-            "Albin Lundin": 30,
-            "Fredrik Forsberg": 30,
-            "Daniel Brodin": 36,
-            "Joel Mustonen": 34,
-            "Jacob Olofsson": 26,
-            "Frans Tuohimaa": 35
-        }
+        roster_ages = {}
+        for r_p in SILLY_SEASON_BASELINE.get("roster", []) + SILLY_SEASON_BASELINE.get("confirmed_departures", []):
+            name = r_p.get("name")
+            age = r_p.get("age")
+            if name and age:
+                roster_ages[name] = int(age)
 
         age_skaters = []
         for p in shl_skaters:
@@ -1646,6 +1640,7 @@ def sync_roster_with_confirmed_signings(baseline):
             "status": "NYFÃ–RVÃ„RV",
             "contractUntil": s.get("contractUntil"),
             "note": s.get("note") or "",
+            "age": s.get("age"),
         })
         existing.add(key)
 
