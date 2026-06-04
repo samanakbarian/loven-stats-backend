@@ -118,6 +118,7 @@ def get_seasons():
 
 
 @app.get("/api/v1/statistics")
+@cached(cache=stats_cache)
 def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven")):
     """
     Returns Swehockey snapshot from raw_sports tables.
@@ -307,6 +308,9 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
 
 
 analytics_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
+stats_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
+silly_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
+xfeed_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
 
 @app.get("/api/v1/analytics")
 @cached(cache=analytics_cache)
@@ -1755,6 +1759,7 @@ def load_recent_silly_snapshots(limit=5):
     return snapshots
 
 @app.get("/api/silly-season")
+@cached(cache=silly_cache)
 def get_silly_season():
     """
     HÃ¤mtar senaste scraper-datan frÃ¥n GCS och mergar med baseline.
@@ -1832,6 +1837,7 @@ def get_silly_season():
     return baseline
 
 @app.get("/api/silly-season/ops")
+@cached(cache=silly_cache)
 def get_silly_ops():
     """
     Intern driftvy fÃ¶r silly-pipeline.
@@ -2444,6 +2450,7 @@ def _build_x_payload_with_fallback(max_results: int):
 
 
 @app.get("/api/v1/x-feed")
+@cached(cache=xfeed_cache)
 def get_x_feed(force_refresh: bool = Query(False)):
     cached = _load_x_cache()
     if not force_refresh and _cache_is_fresh(cached):
