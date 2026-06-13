@@ -1491,23 +1491,36 @@ def get_analytics(season: str = None):
                     "is_bjk": is_bjk(r["team"]) or "bjÃ¶rklÃ¶ven" in (r["team"] or "").lower(),
                 })
 
-            bjk_row = next((r for r in projected_table_rows if r["is_bjk"]), None)
-            if bjk_row:
-                shl_projected_table["bjk_summary"] = {
-                    "projected_rank": bjk_row["projected_rank"],
-                    "projected_points": bjk_row["projected_points"],
-                    "top6_chance_pct": bjk_row["top6_chance_pct"],
-                    "playout_risk_pct": bjk_row["playout_risk_pct"],
-                    "projected_points_p10": bjk_row["projected_points_p10"],
-                    "projected_points_p50": bjk_row["projected_points_p50"],
-                    "projected_points_p90": bjk_row["projected_points_p90"],
-                    "projected_rank_p10": bjk_row["projected_rank_p10"],
-                    "projected_rank_p50": bjk_row["projected_rank_p50"],
-                    "projected_rank_p90": bjk_row["projected_rank_p90"],
-                }
-            shl_projected_table["table"] = projected_table_rows
+            bjk_row = next((r for r in projected_table_rows if r.get("is_bjk") or r.get("team") == "IF Björklöven"), None)
+            shl_projected_table = {
+                "season": "SHL 2026/27 (preseason)",
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "method": "Team-strength blend (historic SHL baseline + BJK roster projection)",
+                "data_quality": "ok",
+                "table": projected_table_rows,
+                "bjk_summary": {
+                    "projected_rank": bjk_row["projected_rank"] if bjk_row else None,
+                    "projected_points": bjk_row["base_projected_points"] if bjk_row else None,
+                    "top6_chance_pct": bjk_row["top6_chance"] if bjk_row else None,
+                    "playout_risk_pct": bjk_row["playout_risk"] if bjk_row else None,
+                    "projected_points_p10": bjk_row["p10_points"] if bjk_row else None,
+                    "projected_points_p50": bjk_row["base_projected_points"] if bjk_row else None,
+                    "projected_points_p90": bjk_row["p90_points"] if bjk_row else None,
+                    "projected_rank_p10": bjk_row["p10_rank"] if bjk_row else None,
+                    "projected_rank_p50": bjk_row["projected_rank"] if bjk_row else None,
+                    "projected_rank_p90": bjk_row["p90_rank"] if bjk_row else None,
+                } if bjk_row else {}
+            }
         except Exception as shl_proj_err:
             logging.warning(f"Failed to compute shl_projected_table: {shl_proj_err}")
+            shl_projected_table = {
+                "season": "SHL 2026/27 (preseason)",
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "method": "Team-strength blend (historic SHL baseline + BJK roster projection)",
+                "data_quality": "error",
+                "table": [],
+                "bjk_summary": {}
+            }
 
         # â”€â”€ Modul 17: AI-Coachen (Gemini) â”€â”€
         bjk_pyth = next((p for p in pythagorean if p["is_bjk"]), None)
