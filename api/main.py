@@ -707,10 +707,12 @@ def get_analytics(season: str = None):
         wp_vals = [g.get("win_pct") or 0 for g in all_goalies_min10]
 
         goalie_radar = []
+        radar_names = []
         for g in bjk_goalies:
             gp = g.get("games_played") or 1
             # Match and clean goalie name
             matched_name = match_player(g.get("goalie_name", "")) or clean_name(g.get("goalie_name", ""))
+            radar_names.append(matched_name)
             goalie_radar.append({
                 "name": matched_name,
                 "gp": gp,
@@ -728,6 +730,22 @@ def get_analytics(season: str = None):
                     "win_pct": percentile(g.get("win_pct", 0), wp_vals),
                 },
             })
+
+        for name in roster_goalies:
+            if name not in radar_names:
+                goalie_radar.append({
+                    "name": name,
+                    "gp": 0,
+                    "sv_pct": 0,
+                    "gaa": 0,
+                    "shutouts": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "win_pct": 0,
+                    "saves_per_gp": 0,
+                    "gsaa": 0,
+                    "percentiles": {"sv_pct": 50, "gaa": 50, "win_pct": 50},
+                })
 
         # â”€â”€ PP/PK from game events â”€â”€
         bjk_pp_goals = sum(1 for e in events if e.get("event_type") == "goal" and e.get("is_power_play") and (e.get("team_code") or "").upper() in BJK_CODES)
@@ -1132,12 +1150,30 @@ def get_analytics(season: str = None):
         for g in goalie_radar:
             if is_leaving(g["name"]):
                 continue
-            proj_sv_pct = round(g["sv_pct"] - 1.8, 1)
-            proj_gaa = round(g["gaa"] + 0.60, 2)
+                
+            name = g["name"]
+            matched_override = None
+            for override_name, override_data in signings_overrides.items():
+                if name_match_strict(name, override_name):
+                    matched_override = (override_name, override_data)
+                    break
+                    
+            if matched_override:
+                override_name, override_data = matched_override
+                proj_sv_pct = override_data.get("proj_sv_pct", 91.0)
+                proj_gaa = override_data.get("proj_gaa", 2.20)
+                ha_sv_pct = override_data.get("ha_sv_pct", 92.0)
+                display_name = f"{override_name} 🆕"
+            else:
+                proj_sv_pct = round(g["sv_pct"] - 1.8, 1)
+                proj_gaa = round(g["gaa"] + 0.60, 2)
+                ha_sv_pct = g["sv_pct"]
+                display_name = name
+
             readiness = "GREEN" if proj_sv_pct >= 91.0 else "AMBER" if proj_sv_pct >= 89.2 else "RED"
             shl_goalies.append({
-                "name": g["name"],
-                "ha_sv_pct": g["sv_pct"],
+                "name": display_name,
+                "ha_sv_pct": ha_sv_pct,
                 "proj_sv_pct": proj_sv_pct,
                 "proj_gaa": proj_gaa,
                 "readiness": readiness
