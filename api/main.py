@@ -718,8 +718,11 @@ def get_analytics(season: str = None):
         def percentile(value, all_vals):
             if not all_vals:
                 return 50
-            below = sum(1 for v in all_vals if v <= value)
-            return round((below / len(all_vals)) * 100)
+            valid_vals = [v for v in all_vals if v is not None]
+            if not valid_vals:
+                return 50
+            below = sum(1 for v in valid_vals if float(v) <= float(value))
+            return round((below / len(valid_vals)) * 100)
 
         sv_vals = [g.get("save_pct") or 0 for g in all_goalies_min10]
         gaa_vals = [g.get("gaa") or 0 for g in all_goalies_min10]
