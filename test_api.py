@@ -1,16 +1,12 @@
-import sys
-import os
-# Add the api folder to path
-sys.path.append(os.path.abspath('c:\\Users\\saman\\loven-stats-backend\\api'))
-import main
-print('--- Seasons ---')
-print(main.get_seasons())
-print('--- Statistics (ha_2324) ---')
-stats = main.get_statistics_snapshot(season='ha_2324')
-print(f"Games played: {stats.get('team_games')}")
-if stats.get('skaters_regular'):
-    top_scorer = stats['skaters_regular'][0]
-    print(f"Top scorer: {top_scorer.get('player_name')} with {top_scorer.get('points')} points")
-else:
-    print("Top scorer: Not found")
-print(f"Team standing rank: {stats.get('team_standing').get('rank') if stats.get('team_standing') else None}")
+import urllib.request, json
+try:
+    with urllib.request.urlopen('https://loven-stats-api-ttpybm4dva-ew.a.run.app/api/v1/analytics?cache_bypass=true') as response:
+        data = json.loads(response.read().decode('utf-8'))
+        goalies = data['modules']['goalie_radar']
+        timeline = data['modules']['timeline']
+        print(f'Goalies count: {len(goalies)}')
+        for g in goalies:
+            print("Goalie:", g['name'])
+        print(f'Timeline games count: {len(timeline["games"])}')
+except Exception as e:
+    print(e)

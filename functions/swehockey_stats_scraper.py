@@ -100,8 +100,8 @@ def _contains_team_token(values: list[str]) -> bool:
     return any(token in joined for token in TEAM_TOKENS)
 
 
-def _fetch_player_stats() -> tuple[list[dict[str, Any]], str | None]:
-    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{SWEHOCKEY_SEASON_GROUP_ID}"
+def _fetch_player_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{season_group_id}"
     html = _fetch_html(url)
     if not html:
         return [], None
@@ -110,7 +110,9 @@ def _fetch_player_stats() -> tuple[list[dict[str, Any]], str | None]:
     out = []
     current_team = ""
     for table in tables:
-        rows = table.select("tr")
+        rows = table.find_all("tr", recursive=False)
+        if not rows and table.find("tbody"):
+            rows = table.find("tbody").find_all("tr", recursive=False)
         if not rows: continue
         first_row = [_clean(c.get_text(" ", strip=True)) for c in rows[0].select("th,td")]
         
@@ -128,7 +130,7 @@ def _fetch_player_stats() -> tuple[list[dict[str, Any]], str | None]:
                         continue
                     out.append(
                         {
-                            "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
+                            "season_group_id": int(season_group_id),
                             "team_id": SWEHOCKEY_TEAM_ID,
                             "team_code": current_team,
                             "player_name": _clean(r[2]),
@@ -142,11 +144,13 @@ def _fetch_player_stats() -> tuple[list[dict[str, Any]], str | None]:
                             "pim": _safe_int(r[8]),
                         }
                     )
-    return out, url
+    # Deduplicate by player name and team code
+    unique_out = {f"{r['team_code']}_{r['player_name']}": r for r in out}
+    return list(unique_out.values()), url
 
 
-def _fetch_goalie_stats() -> tuple[list[dict[str, Any]], str | None]:
-    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{SWEHOCKEY_SEASON_GROUP_ID}"
+def _fetch_goalie_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{season_group_id}"
     html = _fetch_html(url)
     if not html:
         return [], None
@@ -155,7 +159,9 @@ def _fetch_goalie_stats() -> tuple[list[dict[str, Any]], str | None]:
     out = []
     current_team = ""
     for table in tables:
-        rows = table.select("tr")
+        rows = table.find_all("tr", recursive=False)
+        if not rows and table.find("tbody"):
+            rows = table.find("tbody").find_all("tr", recursive=False)
         if not rows: continue
         first_row = [_clean(c.get_text(" ", strip=True)) for c in rows[0].select("th,td")]
         
@@ -172,7 +178,7 @@ def _fetch_goalie_stats() -> tuple[list[dict[str, Any]], str | None]:
                         continue
                     out.append(
                         {
-                            "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
+                            "season_group_id": int(season_group_id),
                             "team_id": SWEHOCKEY_TEAM_ID,
                             "team_code": current_team,
                             "goalie_name": _clean(r[2]),
@@ -185,12 +191,14 @@ def _fetch_goalie_stats() -> tuple[list[dict[str, Any]], str | None]:
                             "toi_minutes": 0,
                         }
                     )
-    return out, url
+    # Deduplicate by goalie name and team code
+    unique_out = {f"{r['team_code']}_{r['goalie_name']}": r for r in out}
+    return list(unique_out.values()), url
 
 
-def _fetch_standings() -> tuple[list[dict[str, Any]], str | None]:
+def _fetch_standings(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
     urls = [
-        f"{BASE_URL}/ScheduleAndResults/Standings/{SWEHOCKEY_SEASON_GROUP_ID}",
+        f"{BASE_URL}/ScheduleAndResults/Standings/{season_group_id}",
     ]
     for url in urls:
         html = _fetch_html(url)
@@ -201,18 +209,21 @@ def _fetch_standings() -> tuple[list[dict[str, Any]], str | None]:
             continue
         out = []
         for r in rows:
-            if len(r) < 9 or not _safe_int(r[0]):
+            if r and _clean(r[0]).lower() == "home":
+                # Stop parsing when we reach the Home standings sub-table
+                break
+            if len(r) < 13 or not _safe_int(r[0]):
                 continue
             out.append(
                 {
-                    "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
+                    "season_group_id": int(season_group_id),
                     "team_name": _clean(r[1]),
                     "rank": _safe_int(r[0]),
                     "games_played": _safe_int(r[2]),
                     "wins": _safe_int(r[3]),
-                    "ot_wins": _safe_int(r[4]),
-                    "ot_losses": _safe_int(r[5]),
-                    "losses": _safe_int(r[6]),
+                    "ot_wins": _safe_int(r[9]) + _safe_int(r[11]),
+                    "ot_losses": _safe_int(r[10]) + _safe_int(r[12]),
+                    "losses": _safe_int(r[5]),
                     "goal_diff": _safe_int(r[7]),
                     "points": _safe_int(r[8]),
                 }
@@ -222,10 +233,10 @@ def _fetch_standings() -> tuple[list[dict[str, Any]], str | None]:
     return [], None
 
 
-def _fetch_schedule() -> tuple[list[dict[str, Any]], str | None]:
+def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
     urls = [
         f"{BASE_URL}/Teams/Info/Schedule/{SWEHOCKEY_TEAM_ID}",
-        f"{BASE_URL}/ScheduleAndResults/Schedule/{SWEHOCKEY_SEASON_GROUP_ID}",
+        f"{BASE_URL}/ScheduleAndResults/Schedule/{season_group_id}",
     ]
     for url in urls:
         html = _fetch_html(url)
@@ -268,7 +279,7 @@ def _fetch_schedule() -> tuple[list[dict[str, Any]], str | None]:
 
             out.append(
                 {
-                    "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
+                    "season_group_id": int(season_group_id),
                     "team_id": SWEHOCKEY_TEAM_ID,
                     "match_date": current_date,
                     "home_team": home_team,
@@ -278,7 +289,9 @@ def _fetch_schedule() -> tuple[list[dict[str, Any]], str | None]:
                 }
             )
         if out:
-            return out, url
+            # Deduplicate by match_date, home_team, away_team
+            unique_out = {f"{r['match_date']}_{r['home_team']}_{r['away_team']}": r for r in out}
+            return list(unique_out.values()), url
     return [], None
 
 
@@ -321,35 +334,67 @@ def run_swehockey_stats_scraper(request):
     bq_client = bigquery.Client(project=GCP_PROJECT)
     _ensure_dataset(bq_client, BQ_DATASET)
 
+    # Fetch active season IDs from BigQuery
+    active_season_ids = []
+    try:
+        query = f"SELECT regular_season_id, playoff_id FROM `{bq_client.project}.{BQ_DATASET}.swehockey_seasons` WHERE is_active = TRUE"
+        for row in bq_client.query(query).result():
+            if row.get("regular_season_id"):
+                active_season_ids.append(str(row["regular_season_id"]))
+            if row.get("playoff_id"):
+                active_season_ids.append(str(row["playoff_id"]))
+    except Exception as e:
+        logging.error("Failed to fetch active seasons from BQ, falling back to env var: %s", e)
+
+    if not active_season_ids:
+        active_season_ids = [SWEHOCKEY_SEASON_GROUP_ID]
+    
+    # Deduplicate active season IDs
+    active_season_ids = list(set(active_season_ids))
+
     result: dict[str, Any] = {"status": "ok", "scraped_at": scraped_at, "types": {}}
 
-    jobs = [
-        ("player_stats", _fetch_player_stats, "swehockey_player_stats"),
-        ("goalie_stats", _fetch_goalie_stats, "swehockey_goalie_stats"),
-        ("standings", _fetch_standings, "swehockey_standings"),
-        ("schedule", _fetch_schedule, "swehockey_schedule"),
-    ]
+    for season_group_id in active_season_ids:
+        jobs = [
+            ("player_stats", _fetch_player_stats, "swehockey_player_stats"),
+            ("goalie_stats", _fetch_goalie_stats, "swehockey_goalie_stats"),
+            ("standings", _fetch_standings, "swehockey_standings"),
+            ("schedule", _fetch_schedule, "swehockey_schedule"),
+        ]
 
-    for data_type, fetcher, table_name in jobs:
-        try:
-            rows, source_url = fetcher()
-            payload = {
-                "meta": {
-                    "source": SOURCE,
-                    "type": data_type,
-                    "team_id": SWEHOCKEY_TEAM_ID,
-                    "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
-                    "source_url": source_url,
-                    "scraped_at": scraped_at,
-                },
-                "rows": rows,
-            }
-            _upload_raw_json(payload, data_type)
-            loaded = _append_bq_rows(bq_client, table_name, rows, scraped_at)
-            result["types"][data_type] = {"ok": True, "rows": len(rows), "bq_loaded": loaded, "source_url": source_url}
-        except Exception as e:
-            logging.exception("Failed scrape type=%s", data_type)
-            result["types"][data_type] = {"ok": False, "error": str(e)}
+        for data_type, fetcher, table_name in jobs:
+            try:
+                rows, source_url = fetcher(season_group_id)
+                payload = {
+                    "meta": {
+                        "source": SOURCE,
+                        "type": data_type,
+                        "team_id": SWEHOCKEY_TEAM_ID,
+                        "season_group_id": int(season_group_id),
+                        "source_url": source_url,
+                        "scraped_at": scraped_at,
+                    },
+                    "rows": rows,
+                }
+                
+                # Use data_type + season_group_id to avoid overwriting different seasons in raw upload
+                gcs_key = f"{data_type}_{season_group_id}"
+                _upload_raw_json(payload, gcs_key)
+                
+                loaded = _append_bq_rows(bq_client, table_name, rows, scraped_at)
+                
+                if data_type not in result["types"]:
+                    result["types"][data_type] = {"ok": True, "rows": 0, "bq_loaded": 0, "source_urls": []}
+                    
+                result["types"][data_type]["rows"] += len(rows)
+                result["types"][data_type]["bq_loaded"] += loaded
+                if source_url:
+                    result["types"][data_type]["source_urls"].append(source_url)
+                    
+            except Exception as e:
+                logging.exception("Failed scrape type=%s season=%s", data_type, season_group_id)
+                if data_type not in result["types"]:
+                    result["types"][data_type] = {"ok": False, "error": str(e)}
 
     status_code = 200 if any(v.get("ok") for v in result["types"].values()) else 500
     return json.dumps(result, ensure_ascii=False), status_code, {"Content-Type": "application/json"}

@@ -165,8 +165,13 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
                 return []
             ids_str = ",".join(str(sid) for sid in season_ids if sid)
             q = f"""
-            SELECT * FROM `{bq_client.project}.raw_sports.{table_name}`
-            WHERE season_group_id IN ({ids_str}) -- cache bust 1
+            SELECT a.* FROM `{bq_client.project}.raw_sports.{table_name}` a
+            INNER JOIN (
+                SELECT season_group_id, MAX(scraped_at) as max_scraped
+                FROM `{bq_client.project}.raw_sports.{table_name}`
+                WHERE season_group_id IN ({ids_str})
+                GROUP BY season_group_id
+            ) b ON a.season_group_id = b.season_group_id AND a.scraped_at = b.max_scraped
             """
             return [dict(row.items()) for row in bq_client.query(q).result()]
 
@@ -331,10 +336,10 @@ def get_analytics(season: str = None):
         active = lookup_season(season)
         REGULAR_ID = active["regular"]
 
-        schedule = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_schedule` WHERE season_group_id = {REGULAR_ID} ORDER BY match_date")
-        players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {REGULAR_ID}")
-        goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {REGULAR_ID}")
-        standings = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {REGULAR_ID}")
+        schedule = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_schedule` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_schedule` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID} ORDER BY a.match_date")
+        players = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_player_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
+        goalies = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_goalie_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
+        standings = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_standings` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
 
         shl_season_rows = q(f"""
             SELECT regular_season_id 
@@ -348,8 +353,8 @@ def get_analytics(season: str = None):
         shl_players = []
         shl_goalies = []
         if shl_regular_id:
-            shl_players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {shl_regular_id}")
-            shl_goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {shl_regular_id}")
+            shl_players = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_player_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
+            shl_goalies = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_goalie_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
 
         
         # Only query events for games in the current regular season schedule to avoid loading other leagues' events
@@ -1369,15 +1374,13 @@ def get_analytics(season: str = None):
             shl_standings = []
             if shl_regular_id:
                 shl_standings = q(f"""
-                    SELECT team_name, games_played, points, rank
-                    FROM `{proj}.raw_sports.swehockey_standings`
-                    WHERE season_group_id = {int(shl_regular_id)}
-                      AND COALESCE(games_played, 0) >= 40
-                      AND COALESCE(points, 0) > 0
-                    QUALIFY ROW_NUMBER() OVER (
-                        PARTITION BY team_name, season_group_id
-                        ORDER BY scraped_at DESC
-                    ) = 1
+                    SELECT a.team_name, a.games_played, a.points, a.rank
+                    FROM `{proj}.raw_sports.swehockey_standings` a
+                    INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {int(shl_regular_id)}) b
+                    ON a.scraped_at = b.max_s
+                    WHERE a.season_group_id = {int(shl_regular_id)}
+                      AND COALESCE(a.games_played, 0) >= 40
+                      AND COALESCE(a.points, 0) > 0
                 """)
 
             if not shl_standings:
@@ -1445,7 +1448,8 @@ def get_analytics(season: str = None):
             bjk_points_model = 58.0
             bjk_points_model += (avg_sk_adj - 0.38) * 80.0
             bjk_points_model += (avg_g_adj - 89.5) * 2.4
-            bjk_points_model += (special_teams.get("special_teams_index", 95.0) - 95.0) * 0.35
+            sti = special_teams.get("special_teams_index") or 95.0
+            bjk_points_model += (sti - 95.0) * 0.35
             bjk_points_model += signings_count * 1.8
             bjk_points_model -= departures_count * 0.5
             bjk_points_model -= expiring_count * 0.9

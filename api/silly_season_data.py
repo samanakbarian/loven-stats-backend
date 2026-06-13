@@ -22,6 +22,7 @@ SILLY_SEASON_BASELINE = {
         { "name": "Tristen Robins", "number": None, "pos": "CE", "from": "Rytíři Kladno", "contractUntil": "2027", "years": 1, "date": "2026-06-01", "source": "bjorkloven.com", "note": "Kanadensisk center, från tjeckiska ligan", "rumor_pct": 100, "age": 24 },
         { "name": "Lassi Lehtinen", "number": None, "pos": "GK", "from": "HV71", "contractUntil": "2027", "years": 1, "date": "2026-06-11", "source": "bjorkloven.com", "note": "Finsk målvakt från HV71, ettårskontrakt", "rumor_pct": 100, "age": 27, "shl_projection": {"proj_sv_pct": 90.5, "ha_sv_pct": 92.5, "proj_gaa": 2.65} },
         { "name": "Emil Alba", "number": None, "pos": "LW", "from": "Färjestad BK", "contractUntil": "2027", "years": 1, "date": "2026-06-12", "source": "bjorkloven.com", "note": "Fysisk tvåvägsforward från Färjestad, ettårskontrakt", "rumor_pct": 100, "age": 28 },
+        { "name": "Lucas Ekeståhl-Jonsson", "number": None, "pos": "LD", "from": "Rögle BK", "contractUntil": "2029", "years": 3, "date": "2026-06-13", "source": "bjorkloven.com", "note": "Återvänder hem. Treårskontrakt", "rumor_pct": 100, "age": 30 },
     ],
 
     "confirmed_departures": [
@@ -42,7 +43,6 @@ SILLY_SEASON_BASELINE = {
     ],
 
     "hot_rumors_in": [
-        { "name": "Lucas Ekeståhl Jonsson", "pos": "LD", "from": "Rögle BK", "rumor_pct": 90, "source": "expressen.se", "credibility": "Nära bekräftelse", "note": "Sägs vara muntligt överens med Björklöven" },
     ],
 
     "hot_rumors_out": [
@@ -74,9 +74,11 @@ SILLY_SEASON_BASELINE = {
         { "name": "Chris DiDomenico", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Nyförvärv från Schweiz", "age": 37 },
         { "name": "Tristen Robins", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Nyförvärv från Tjeckien", "age": 24 },
         { "name": "Emil Alba", "number": None, "pos": "LW", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Nyförvärv från Färjestad", "age": 28 },
+        { "name": "Lucas Ekeståhl-Jonsson", "number": None, "pos": "LD", "status": "NYFÖRVÄRV", "contractUntil": "2029", "note": "Nyförvärv från Rögle", "age": 30 },
     ],
 
     "news_feed": [
+        { "id": "base-new-ekestahl", "date": "2026-06-13", "time": "14:00", "tag": "BEKRÄFTAT_NYFÖRVÄRV", "title": "Lucas Ekeståhl-Jonsson återvänder hem till Björklöven", "body": "Björklöven kan idag meddela att Lucas Ekeståhl-Jonsson återvänder till klubben. Den offensivt skicklige backen har skrivit på ett treårskontrakt som sträcker sig över säsongen 2028/2029.", "source": "bjorkloven.com", "priority": "breaking" },
         { "id": "base-new-alba", "date": "2026-06-12", "time": "12:00", "tag": "BEKRÄFTAT_NYFÖRVÄRV", "title": "Emil Alba klar för Björklöven", "body": "Forwarden Emil Alba ansluter från Färjestad BK på ett ettårskontrakt. Den fysiske tvåvägsforwarden förstärker Löven inför SHL-säsongen.", "source": "bjorkloven.com", "priority": "breaking" },
         { "id": "base-new-lehtinen", "date": "2026-06-11", "time": "10:00", "tag": "BEKRÄFTAT_NYFÖRVÄRV", "title": "Lassi Lehtinen klar för Björklöven", "body": "Finske målvakten Lassi Lehtinen ansluter från HV71 på ett ettårskontrakt. Lehtinen fyller målvaktsbehovet efter att Olle Eriksson Ek lämnade för KHL.", "source": "bjorkloven.com", "priority": "breaking" },
         { "id": "base-new-1", "date": "2026-06-01", "time": "14:00", "tag": "BEKRÄFTAT_NYFÖRVÄRV", "title": "Tristen Robins klar för Björklöven", "body": "Björklöven fortsätter att förstärka truppen inför kommande säsong. Nu står det klart att den kanadensiske forwarden Tristen Robins ansluter från tjeckiska ligan.", "source": "bjorkloven.com", "priority": "breaking" },
@@ -96,7 +98,7 @@ SILLY_SEASON_BASELINE = {
         "defense_pairs": [
             { "ld": { "player": "Linus Cronholm", "number": 24, "status": "FÖRLÄNGD" }, "rd": { "player": "Marcus Björk", "number": 47, "status": "SIGNERAD" } },
             { "ld": { "player": "Anton Malmström", "number": 64, "status": "FÖRLÄNGD" }, "rd": { "player": "Topi Niemelä", "number": None, "status": "NYFÖRVÄRV" } },
-            { "ld": { "player": None, "status": "VAKANT", "rumors": ["Lucas Ekeståhl Jonsson"] }, "rd": { "player": None, "status": "VAKANT", "rumors": ["Nyförvärv"] } },
+            { "ld": { "player": "Lucas Ekeståhl-Jonsson", "number": None, "status": "NYFÖRVÄRV" }, "rd": { "player": None, "status": "VAKANT", "rumors": ["Nyförvärv"] } },
         ],
         "forward_lines": [
             { "lw": { "player": "Marcus Nilsson", "number": 10, "status": "SIGNERAD" }, "ce": { "player": "Lucas Wallmark", "number": None, "status": "NYFÖRVÄRV" }, "rw": { "player": "Gustav Possler", "number": 71, "status": "FÖRLÄNGD" } },
