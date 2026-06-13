@@ -1477,11 +1477,13 @@ def get_analytics(season: str = None):
                 tier = "Topplag" if i <= 4 else "Slutspel" if i <= 10 else "Riskzon"
                 projected_table_rows.append({
                     "projected_rank": i,
+                    "projected_rank_p50": i,
                     "projected_rank_p10": p10_rank,
                     "projected_rank_p50": i,
                     "projected_rank_p90": p90_rank,
                     "team": r["team"],
                     "projected_points": pts,
+                    "projected_points_p50": pts,
                     "projected_points_p10": p10_pts,
                     "projected_points_p50": pts,
                     "projected_points_p90": p90_pts,
@@ -1500,15 +1502,15 @@ def get_analytics(season: str = None):
                 "table": projected_table_rows,
                 "bjk_summary": {
                     "projected_rank": bjk_row["projected_rank"] if bjk_row else None,
-                    "projected_points": bjk_row["base_projected_points"] if bjk_row else None,
-                    "top6_chance_pct": bjk_row["top6_chance"] if bjk_row else None,
-                    "playout_risk_pct": bjk_row["playout_risk"] if bjk_row else None,
-                    "projected_points_p10": bjk_row["p10_points"] if bjk_row else None,
-                    "projected_points_p50": bjk_row["base_projected_points"] if bjk_row else None,
-                    "projected_points_p90": bjk_row["p90_points"] if bjk_row else None,
-                    "projected_rank_p10": bjk_row["p10_rank"] if bjk_row else None,
+                    "projected_points": bjk_row["projected_points"] if bjk_row else None,
+                    "top6_chance_pct": bjk_row["top6_chance_pct"] if bjk_row else None,
+                    "playout_risk_pct": bjk_row["playout_risk_pct"] if bjk_row else None,
+                    "projected_points_p10": bjk_row["projected_points_p10"] if bjk_row else None,
+                    "projected_points_p50": bjk_row["projected_points"] if bjk_row else None,
+                    "projected_points_p90": bjk_row["projected_points_p90"] if bjk_row else None,
+                    "projected_rank_p10": bjk_row["projected_rank_p10"] if bjk_row else None,
                     "projected_rank_p50": bjk_row["projected_rank"] if bjk_row else None,
-                    "projected_rank_p90": bjk_row["p90_rank"] if bjk_row else None,
+                    "projected_rank_p90": bjk_row["projected_rank_p90"] if bjk_row else None,
                 } if bjk_row else {}
             }
         except Exception as shl_proj_err:
@@ -1608,7 +1610,13 @@ def get_analytics(season: str = None):
                     "ai_coach": ai_coach_data,
                 },
                 "game_state": game_state,
+                "shl_transition": {
+                    "skaters": shl_skaters,
+                    "goalies": shl_goalies,
+                    "benchmarks": shl_benchmarks
+                },
                 "age_curve": age_curve,
+                "shl_projected_table": shl_projected_table,
                 "silly_season": {
                     "baseline": SILLY_SEASON_BASELINE,
                     "shl_readiness": {

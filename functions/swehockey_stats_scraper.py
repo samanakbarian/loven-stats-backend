@@ -101,91 +101,91 @@ def _contains_team_token(values: list[str]) -> bool:
 
 
 def _fetch_player_stats() -> tuple[list[dict[str, Any]], str | None]:
-    urls = [
-        f"{BASE_URL}/Teams/Info/PlayersByTeam/{SWEHOCKEY_TEAM_ID}",
-        f"{BASE_URL}/Players/Statistics/ScoringLeaders/{SWEHOCKEY_SEASON_GROUP_ID}",
-    ]
-    for url in urls:
-        html = _fetch_html(url)
-        if not html:
-            continue
-        soup = BeautifulSoup(html, "lxml")
-        tables = soup.select("table")
-        if not tables:
-            continue
-        out = []
-        for table in tables:
-            for tr in table.select("tr"):
-                r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
-                if len(r) < 12 or _is_header_row(r) or not _safe_int(r[0]):
-                    continue
-                team_code = _clean(r[3])
-                out.append(
-                    {
-                        "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
-                        "team_id": SWEHOCKEY_TEAM_ID,
-                        "team_code": team_code,
-                        "player_name": _clean(r[2]),
-                        "jersey_number": _safe_int(r[1]),
-                        "position": _clean(r[4]),
-                        "games_played": _safe_int(r[5]),
-                        "goals": _safe_int(r[6]),
-                        "assists": _safe_int(r[7]),
-                        "points": _safe_int(r[8]),
-                        "plus_minus": _safe_int(r[11]),
-                        "pim": _safe_int(r[10]),
-                    }
-                )
-        if out:
-            filtered = [row for row in out if _contains_team_token([row.get("team_code", ""), row.get("player_name", "")])]
-            if filtered:
-                return filtered, url
-            logging.warning("Player stats: no team-token matches for team_id=%s, returning league rows", SWEHOCKEY_TEAM_ID)
-            return out, url
-    return [], None
+    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{SWEHOCKEY_SEASON_GROUP_ID}"
+    html = _fetch_html(url)
+    if not html:
+        return [], None
+    soup = BeautifulSoup(html, "lxml")
+    tables = soup.select("table")
+    out = []
+    current_team = ""
+    for table in tables:
+        rows = table.select("tr")
+        if not rows: continue
+        first_row = [_clean(c.get_text(" ", strip=True)) for c in rows[0].select("th,td")]
+        
+        # Check if this table starts a new team (Playing Statistics)
+        if len(first_row) > 0 and "Top" in first_row[-1]:
+            current_team = first_row[0]
+            
+        # Is this the Playing Statistics table? (Headers: Rk, No, Name, Pos...)
+        if len(rows) > 3:
+            headers = [_clean(c.get_text(" ", strip=True)) for c in rows[2].select("th,td")]
+            if len(headers) > 3 and headers[3] == "Pos":
+                for tr in rows[3:]:
+                    r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
+                    if len(r) < 12 or _is_header_row(r) or not _safe_int(r[0]):
+                        continue
+                    out.append(
+                        {
+                            "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
+                            "team_id": SWEHOCKEY_TEAM_ID,
+                            "team_code": current_team,
+                            "player_name": _clean(r[2]),
+                            "jersey_number": _safe_int(r[1]),
+                            "position": _clean(r[3]),
+                            "games_played": _safe_int(r[4]),
+                            "goals": _safe_int(r[5]),
+                            "assists": _safe_int(r[6]),
+                            "points": _safe_int(r[7]),
+                            "plus_minus": _safe_int(r[11]),
+                            "pim": _safe_int(r[8]),
+                        }
+                    )
+    return out, url
 
 
 def _fetch_goalie_stats() -> tuple[list[dict[str, Any]], str | None]:
-    urls = [
-        f"{BASE_URL}/Players/Statistics/LeadingGoaliesSVS/{SWEHOCKEY_SEASON_GROUP_ID}",
-    ]
-    for url in urls:
-        html = _fetch_html(url)
-        if not html:
-            continue
-        soup = BeautifulSoup(html, "lxml")
-        tables = soup.select("table")
-        if not tables:
-            continue
-        out = []
-        for table in tables:
-            for tr in table.select("tr"):
-                r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
-                if len(r) < 13 or _is_header_row(r) or not _safe_int(r[0]):
-                    continue
-                team_code = _clean(r[3])
-                out.append(
-                    {
-                        "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
-                        "team_id": SWEHOCKEY_TEAM_ID,
-                        "team_code": team_code,
-                        "goalie_name": _clean(r[2]),
-                        "games_played": _safe_int(r[5]),
-                        "shots_against": _safe_int(r[10]),
-                        "saves": _safe_int(r[11]),
-                        "goals_against": _safe_int(r[7]),
-                        "save_pct": _safe_float(r[12]),
-                        "gaa": _safe_float(r[13] if len(r) > 13 else None),
-                        "toi_minutes": 0,
-                    }
-                )
-        if out:
-            filtered = [row for row in out if _contains_team_token([row.get("team_code", ""), row.get("goalie_name", "")])]
-            if filtered:
-                return filtered, url
-            logging.warning("Goalie stats: no team-token matches for team_id=%s, returning league rows", SWEHOCKEY_TEAM_ID)
-            return out, url
-    return [], None
+    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{SWEHOCKEY_SEASON_GROUP_ID}"
+    html = _fetch_html(url)
+    if not html:
+        return [], None
+    soup = BeautifulSoup(html, "lxml")
+    tables = soup.select("table")
+    out = []
+    current_team = ""
+    for table in tables:
+        rows = table.select("tr")
+        if not rows: continue
+        first_row = [_clean(c.get_text(" ", strip=True)) for c in rows[0].select("th,td")]
+        
+        # Keep track of team from [Top] row
+        if len(first_row) > 0 and "Top" in first_row[-1]:
+            current_team = first_row[0]
+            
+        # Is this the Goalkeeping Statistics table?
+        if len(first_row) > 0 and "Goalkeeping Statistics" in first_row[0]:
+            if len(rows) > 2:
+                for tr in rows[2:]:
+                    r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
+                    if len(r) < 13 or _is_header_row(r) or not _safe_int(r[0]):
+                        continue
+                    out.append(
+                        {
+                            "season_group_id": SWEHOCKEY_SEASON_GROUP_ID,
+                            "team_id": SWEHOCKEY_TEAM_ID,
+                            "team_code": current_team,
+                            "goalie_name": _clean(r[2]),
+                            "games_played": _safe_int(r[5]),
+                            "shots_against": _safe_int(r[9]),
+                            "saves": _safe_int(r[8]),
+                            "goals_against": _safe_int(r[7]),
+                            "save_pct": _safe_float(r[10]),
+                            "gaa": _safe_float(r[11]),
+                            "toi_minutes": 0,
+                        }
+                    )
+    return out, url
 
 
 def _fetch_standings() -> tuple[list[dict[str, Any]], str | None]:
@@ -218,10 +218,6 @@ def _fetch_standings() -> tuple[list[dict[str, Any]], str | None]:
                 }
             )
         if out:
-            filtered = [row for row in out if _contains_team_token([row.get("team_name", "")])]
-            if filtered:
-                return filtered, url
-            logging.warning("Standings: no team-token matches for team_id=%s, returning league rows", SWEHOCKEY_TEAM_ID)
             return out, url
     return [], None
 
@@ -282,10 +278,6 @@ def _fetch_schedule() -> tuple[list[dict[str, Any]], str | None]:
                 }
             )
         if out:
-            filtered = [row for row in out if _contains_team_token([row.get("home_team", ""), row.get("away_team", "")])]
-            if filtered:
-                return filtered, url
-            logging.warning("Schedule: no team-token matches for team_id=%s, returning league rows", SWEHOCKEY_TEAM_ID)
             return out, url
     return [], None
 
