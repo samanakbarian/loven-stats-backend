@@ -170,25 +170,51 @@ def _fetch_goalie_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str
             current_team = first_row[0]
             
         # Is this the Goalkeeping Statistics table?
-        if len(first_row) > 0 and "Goalkeeping Statistics" in first_row[0]:
-            if len(rows) > 2:
-                for tr in rows[2:]:
-                    r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
+        if len(rows) > 2:
+            is_goalie = False
+            start_idx = 0
+            if len(first_row) > 0 and "Goalkeeping Statistics" in first_row[0]:
+                is_goalie = True
+                start_idx = 2
+            elif len(rows) > 1:
+                second_row = [_clean(c.get_text(" ", strip=True)) for c in rows[1].select("th,td")]
+                if len(second_row) > 0 and "Goalkeeping Statistics" in second_row[0]:
+                    is_goalie = True
+                    start_idx = 3
+
+            if is_goalie:
+                for tr in rows[start_idx:]:
+                    cols = tr.select("th,td")
+                    r = [_clean(c.get_text(" ", strip=True)) for c in cols]
                     if len(r) < 13 or _is_header_row(r) or not _safe_int(r[0]):
                         continue
+                    
+                    gpi = _safe_int(cols[5].text.strip())
+                    ga = _safe_int(cols[7].text.strip())
+                    gaa = _safe_float(cols[11].text.strip())
+                    svs = _safe_int(cols[8].text.strip())
+                    svs_pct = _safe_float(cols[10].text.strip())
+                    shutouts = _safe_int(cols[12].text.strip())
+                    wins = _safe_int(cols[13].text.strip())
+                    ties = 0  # Ties column was removed
+                    losses = _safe_int(cols[14].text.strip())
+                    
                     out.append(
                         {
                             "season_group_id": int(season_group_id),
                             "team_id": SWEHOCKEY_TEAM_ID,
                             "team_code": current_team,
                             "goalie_name": _clean(r[2]),
-                            "games_played": _safe_int(r[5]),
+                            "games_played": gpi,
                             "shots_against": _safe_int(r[9]),
-                            "saves": _safe_int(r[8]),
-                            "goals_against": _safe_int(r[7]),
-                            "save_pct": _safe_float(r[10]),
-                            "gaa": _safe_float(r[11]),
+                            "saves": svs,
+                            "goals_against": ga,
+                            "save_pct": svs_pct,
+                            "gaa": gaa,
                             "toi_minutes": 0,
+                            "shutouts": shutouts,
+                            "wins": wins,
+                            "losses": losses,
                         }
                     )
     # Deduplicate by goalie name and team code
@@ -235,7 +261,6 @@ def _fetch_standings(season_group_id: str) -> tuple[list[dict[str, Any]], str | 
 
 def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
     urls = [
-        f"{BASE_URL}/Teams/Info/Schedule/{SWEHOCKEY_TEAM_ID}",
         f"{BASE_URL}/ScheduleAndResults/Schedule/{season_group_id}",
     ]
     for url in urls:
@@ -378,7 +403,7 @@ def run_swehockey_stats_scraper(request):
                 }
                 
                 # Use data_type + season_group_id to avoid overwriting different seasons in raw upload
-                gcs_key = f"{data_type}_{season_group_id}"
+                gcs_key = f"{data_type}_{season_group_id}_{scraped_at.replace(':', '').replace('-', '').replace(' ', '_')}"
                 _upload_raw_json(payload, gcs_key)
                 
                 loaded = _append_bq_rows(bq_client, table_name, rows, scraped_at)
