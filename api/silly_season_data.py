@@ -16,12 +16,12 @@ SILLY_SEASON_BASELINE = {
     ],
 
     "confirmed_signings": [
-        { "name": "Lucas Wallmark", "number": None, "pos": "CE", "from": "HC Fribourg-Gottéron", "contractUntil": "2032", "years": 6, "date": "2026-04-26", "source": "hockeysverige.se", "note": "Moderklubbens stora värvning, 6-årskontrakt", "rumor_pct": 100, "age": 31, "shl_projection": {"proj_ppg": 0.85, "ha_ppg": 1.40} },
-        { "name": "Topi Niemelä", "number": None, "pos": "RD", "from": "Malmö Redhawks", "contractUntil": "2028", "years": 2, "date": "2026-05-17", "source": "pt.se", "note": "Nyförvärv från Malmö", "rumor_pct": 100, "age": 23, "shl_projection": {"proj_ppg": 0.35, "ha_ppg": 0.58} },
-        { "name": "Chris DiDomenico", "number": None, "pos": "CE", "from": "HC Ambrì-Piotta", "contractUntil": "2027", "years": 1, "date": "2026-05-20", "source": "bjorkloven.com", "note": "Klar för Björklöven, värvad från Schweiz", "rumor_pct": 100, "age": 37, "shl_projection": {"proj_ppg": 0.70, "ha_ppg": 1.10} },
-        { "name": "Tristen Robins", "number": None, "pos": "CE", "from": "Rytíři Kladno", "contractUntil": "2027", "years": 1, "date": "2026-06-01", "source": "bjorkloven.com", "note": "Kanadensisk center, från tjeckiska ligan", "rumor_pct": 100, "age": 24, "shl_projection": {"proj_ppg": 0.50, "ha_ppg": 0.80} },
+        { "name": "Lucas Wallmark", "number": None, "pos": "CE", "from": "HC Fribourg-Gottéron", "contractUntil": "2032", "years": 6, "date": "2026-04-26", "source": "hockeysverige.se", "note": "Moderklubbens stora värvning, 6-årskontrakt", "rumor_pct": 100, "age": 31 },
+        { "name": "Topi Niemelä", "number": None, "pos": "RD", "from": "Malmö Redhawks", "contractUntil": "2028", "years": 2, "date": "2026-05-17", "source": "pt.se", "note": "Nyförvärv från Malmö", "rumor_pct": 100, "age": 23 },
+        { "name": "Chris DiDomenico", "number": None, "pos": "CE", "from": "HC Ambrì-Piotta", "contractUntil": "2027", "years": 1, "date": "2026-05-20", "source": "bjorkloven.com", "note": "Klar för Björklöven, värvad från Schweiz", "rumor_pct": 100, "age": 37 },
+        { "name": "Tristen Robins", "number": None, "pos": "CE", "from": "Rytíři Kladno", "contractUntil": "2027", "years": 1, "date": "2026-06-01", "source": "bjorkloven.com", "note": "Kanadensisk center, från tjeckiska ligan", "rumor_pct": 100, "age": 24 },
         { "name": "Lassi Lehtinen", "number": None, "pos": "GK", "from": "HV71", "contractUntil": "2027", "years": 1, "date": "2026-06-11", "source": "bjorkloven.com", "note": "Finsk målvakt från HV71, ettårskontrakt", "rumor_pct": 100, "age": 27, "shl_projection": {"proj_sv_pct": 90.5, "ha_sv_pct": 92.5, "proj_gaa": 2.65} },
-        { "name": "Emil Alba", "number": None, "pos": "LW", "from": "Färjestad BK", "contractUntil": "2027", "years": 1, "date": "2026-06-12", "source": "bjorkloven.com", "note": "Fysisk tvåvägsforward från Färjestad, ettårskontrakt", "rumor_pct": 100, "age": 28, "shl_projection": {"proj_ppg": 0.25, "ha_ppg": 0.40} },
+        { "name": "Emil Alba", "number": None, "pos": "LW", "from": "Färjestad BK", "contractUntil": "2027", "years": 1, "date": "2026-06-12", "source": "bjorkloven.com", "note": "Fysisk tvåvägsforward från Färjestad, ettårskontrakt", "rumor_pct": 100, "age": 28 },
     ],
 
     "confirmed_departures": [

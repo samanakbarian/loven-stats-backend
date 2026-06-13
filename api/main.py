@@ -335,6 +335,22 @@ def get_analytics(season: str = None):
         players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {REGULAR_ID}")
         goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {REGULAR_ID}")
         standings = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {REGULAR_ID}")
+
+        shl_season_rows = q(f"""
+            SELECT regular_season_id 
+            FROM `{proj}.raw_sports.swehockey_seasons` 
+            WHERE LOWER(season_name) LIKE '%shl%'
+            ORDER BY start_date DESC
+            LIMIT 1
+        """)
+        shl_regular_id = shl_season_rows[0]["regular_season_id"] if shl_season_rows else None
+
+        shl_players = []
+        shl_goalies = []
+        if shl_regular_id:
+            shl_players = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {shl_regular_id}")
+            shl_goalies = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {shl_regular_id}")
+
         
         # Only query events for games in the current regular season schedule to avoid loading other leagues' events
         sched_game_ids = [str(g['game_id']) for g in schedule if g.get("game_id")]
@@ -622,10 +638,13 @@ def get_analytics(season: str = None):
         for name in roster_skaters:
             candidates = []
             for p in players:
-                if not (is_bjk(p.get("team_code", "")) or is_bjk(p.get("team_name", ""))):
-                    continue
                 if match_player(p.get("player_name")) == name:
                     candidates.append(p)
+            if not candidates and shl_players:
+                for p in shl_players:
+                    if match_player(p.get("player_name")) == name:
+                        p["_is_shl_source"] = True
+                        candidates.append(p)
 
             # Choose strongest/most plausible row instead of first match.
             # This prevents stale/partial zero-rows from overriding valid stats.
@@ -688,11 +707,11 @@ def get_analytics(season: str = None):
                     "ppg_diff": round(p_pg - avg_ppg, 3),
                     "gpg_diff": round(g_pg - avg_gpg, 3),
                 },
+                "_is_shl_source": bq_p.get("_is_shl_source", False) if bq_p else False
             })
         player_impact.sort(key=lambda x: -x["p_per_gp"])
 
-        # â”€â”€ Module 8: Goalie Radar â”€â”€
-        bjk_goalies = [g for g in goalies if is_bjk(g.get("team_code", "")) or is_bjk(g.get("team_name", ""))]
+        # ── Module 8: Goalie Radar ──
         all_goalies_min10 = sorted([g for g in goalies if (g.get("games_played") or 0) >= 10],
                                     key=lambda g: -(g.get("save_pct") or 0))
 
@@ -708,31 +727,48 @@ def get_analytics(season: str = None):
 
         goalie_radar = []
         radar_names = []
-        for g in bjk_goalies:
-            gp = g.get("games_played") or 1
-            # Match and clean goalie name
-            matched_name = match_player(g.get("goalie_name", "")) or clean_name(g.get("goalie_name", ""))
-            radar_names.append(matched_name)
-            goalie_radar.append({
-                "name": matched_name,
-                "gp": gp,
-                "sv_pct": g.get("save_pct", 0),
-                "gaa": g.get("gaa", 0),
-                "shutouts": g.get("shutouts", 0),
-                "wins": g.get("wins", 0),
-                "losses": g.get("losses", 0),
-                "win_pct": g.get("win_pct", 0),
-                "saves_per_gp": round((g.get("saves", 0) / gp), 1),
-                "gsaa": round(g.get("saves", 0) - (g.get("saves", 0) / (g.get("save_pct", 0)/100 if g.get("save_pct") else 1)) * 0.90, 1), # Roughly estimating GSAA assuming 90% is avg
-                "percentiles": {
-                    "sv_pct": percentile(g.get("save_pct", 0), sv_vals),
-                    "gaa": 100 - percentile(g.get("gaa", 0), gaa_vals),  # lower is better
-                    "win_pct": percentile(g.get("win_pct", 0), wp_vals),
-                },
-            })
-
         for name in roster_goalies:
-            if name not in radar_names:
+            candidates = []
+            for g in goalies:
+                if match_player(g.get("goalie_name", "")) == name:
+                    candidates.append(g)
+            if not candidates and shl_goalies:
+                for g in shl_goalies:
+                    if match_player(g.get("goalie_name", "")) == name:
+                        g["_is_shl_source"] = True
+                        candidates.append(g)
+            
+            if candidates:
+                candidates.sort(
+                    key=lambda g: (
+                        float(g.get("save_pct") or 0),
+                        _to_int(g.get("games_played")),
+                    ),
+                    reverse=True,
+                )
+                g = candidates[0]
+                gp = g.get("games_played") or 1
+                matched_name = name
+                radar_names.append(matched_name)
+                goalie_radar.append({
+                    "name": matched_name,
+                    "gp": gp,
+                    "sv_pct": g.get("save_pct", 0),
+                    "gaa": g.get("gaa", 0),
+                    "shutouts": g.get("shutouts", 0),
+                    "wins": g.get("wins", 0),
+                    "losses": g.get("losses", 0),
+                    "win_pct": g.get("win_pct", 0),
+                    "saves_per_gp": round((g.get("saves", 0) / gp), 1),
+                    "gsaa": round(g.get("saves", 0) - (g.get("saves", 0) / (g.get("save_pct", 0)/100 if g.get("save_pct") else 1)) * 0.90, 1),
+                    "percentiles": {
+                        "sv_pct": percentile(float(g.get("save_pct") or 0), sv_vals),
+                        "gaa": 100 - percentile(float(g.get("gaa") or 0), gaa_vals),
+                        "win_pct": percentile(float(g.get("win_pct") or 0), wp_vals)
+                    },
+                    "_is_shl_source": g.get("_is_shl_source", False)
+                })
+            else:
                 goalie_radar.append({
                     "name": name,
                     "gp": 0,
@@ -1093,9 +1129,10 @@ def get_analytics(season: str = None):
             return any(matched == ln for ln in leaving_names)
 
         signings_overrides = {}
-        for signing in SILLY_SEASON_BASELINE.get("confirmed_signings", []):
-            if "shl_projection" in signing:
-                signings_overrides[signing["name"]] = signing["shl_projection"]
+        for list_name in ["confirmed_signings", "roster"]:
+            for signing in SILLY_SEASON_BASELINE.get(list_name, []):
+                if "shl_projection" in signing:
+                    signings_overrides[signing["name"]] = signing["shl_projection"]
 
         def skater_readiness_by_position(position, proj_ppg):
             pos = (position or "").upper()
@@ -1133,9 +1170,20 @@ def get_analytics(season: str = None):
                 ha_ppg = override_data["ha_ppg"]
                 display_name = f"{override_name} 🆕"
             else:
-                proj_ppg = round(p["p_per_gp"] * 0.60, 2)
-                ha_ppg = round(p["p_per_gp"], 2)
-                display_name = name
+                is_shl_exempt = p.get("_is_shl_source") or name in ["Fredrik Forsberg", "Marcus Nilsson"]
+                if is_shl_exempt:
+                    proj_ppg = round(p["p_per_gp"], 2)
+                    ha_ppg = round(p["p_per_gp"], 2)
+                    display_name = f"{name} (SHL/Exempt)"
+                elif p["p_per_gp"] == 0 and any(s.get("name") == name for s in SILLY_SEASON_BASELINE.get("confirmed_signings", [])):
+                    # Utlandsspelare / missing stats heuristic
+                    proj_ppg = 0.50 if "D" not in p["position"] else 0.30
+                    ha_ppg = proj_ppg / 0.60
+                    display_name = f"{name} (Utland)"
+                else:
+                    proj_ppg = round(p["p_per_gp"] * 0.60, 2)
+                    ha_ppg = round(p["p_per_gp"], 2)
+                    display_name = name
 
             readiness = skater_readiness_by_position(p["position"], proj_ppg)
             shl_skaters.append({
@@ -1301,7 +1349,7 @@ def get_analytics(season: str = None):
             "goalies": age_goalies
         }
 
-        # â”€â”€ Modul 20: Predicted SHL Table (Preseason) â”€â”€
+        # — Modul 20: Predicted SHL Table (Preseason) —
         shl_projected_table = {
             "season": "SHL 2026/27 (preseason)",
             "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -1315,15 +1363,6 @@ def get_analytics(season: str = None):
             },
         }
         try:
-            shl_season_rows = q(f"""
-                SELECT season_key, season_name, regular_season_id, start_date
-                FROM `{proj}.raw_sports.swehockey_seasons`
-                WHERE LOWER(season_name) LIKE '%shl%'
-                ORDER BY start_date DESC
-                LIMIT 1
-            """)
-            shl_regular_id = shl_season_rows[0]["regular_season_id"] if shl_season_rows else None
-
             shl_standings = []
             if shl_regular_id:
                 shl_standings = q(f"""
@@ -1553,9 +1592,16 @@ def get_analytics(season: str = None):
                     "ai_coach": ai_coach_data,
                 },
                 "game_state": game_state,
-                "shl_transition": shl_transition,
                 "age_curve": age_curve,
-                "shl_projected_table": shl_projected_table,
+                "silly_season": {
+                    "baseline": SILLY_SEASON_BASELINE,
+                    "shl_readiness": {
+                        "skaters": shl_skaters,
+                        "goalies": shl_goalies,
+                        "benchmarks": shl_benchmarks
+                    },
+                    "shl_projected_table": shl_projected_table
+                },
             },
         }
     except Exception as e:
