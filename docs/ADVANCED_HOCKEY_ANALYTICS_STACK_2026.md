@@ -1,6 +1,6 @@
 # Advanced Hockey Analytics Stack 2026
 
-Senast uppdaterad: 2026-06-04
+Senast uppdaterad: 2026-06-14
 Gäller för: `loven-stats-backend` och `slutspel/frontend_v2`
 
 ## Syfte
@@ -10,6 +10,27 @@ Det här dokumentet sammanställer vad avancerad hockeyanalys-mjukvara innehåll
 vi ska ha datagrund, scouting, matchanalys, machine learning, simuleringar och
 produktvyer. Det ska däremot byggas i rätt ordning, så varje lager förstärker
 nästa.
+
+Den verifierade integrationen mot aktuell kod och produktion finns i
+`docs/ARCHITECTURE_INTEGRATION_2026_06.md`. Det dokumentet är normerande för
+vad som är implementerat, delvis infört respektive planerat.
+
+## Aktuell integrationsstatus
+
+- Swehockey-ingestionen stödjer flera aktiva `season_group_id`, separata
+  regular season/playoff-körningar och append-laddning till BigQuery.
+- Fem säsonger finns registrerade i `raw_sports.swehockey_seasons`, men både
+  `shl_2526` och `ha_2526` är aktiva. Aktiv säsong får därför inte väljas med
+  ett odeterministiskt `LIMIT 1`.
+- `GET /api/v1/statistics` och `GET /api/v1/analytics` väljer senaste
+  `scraped_at`-snapshot och har processlokal cache.
+- Analytics v0 innehåller bland annat form, streaks, player impact,
+  goalie radar, special teams, predictions, age curve, SHL transition och
+  projected table.
+- SHL-projektionen är en heuristisk preseasonmodell. Den är inte en
+  Monte Carlo-simulering och saknar modellregister, kalibrering och backtesting.
+- `slutspel/frontend_v2` använder Preseason SHL som standardvy och läser
+  analytics från FastAPI. Matchcenter och roster använder fortfarande mockdata.
 
 ## Externa referenser
 
@@ -105,12 +126,17 @@ Status i projektet:
 
 - `raw_sports.swehockey_seasons` finns och används av `GET /api/v1/seasons`.
 - `GET /api/v1/statistics` och `GET /api/v1/analytics` kan filtrera på säsong.
+- Swehockey-scrapern itererar över aktiva regular season/playoff-id:n och
+  lagrar separata råfiler före append-load.
+- Historiska metadata finns för HA 2023/24, SHL 2024/25 och HA 2024/25.
 - dbt har staging/marts/serving, men API:t använder fortfarande mycket
   ad hoc-logik direkt mot `raw_sports.*`.
 
 Nästa steg:
 
-- Genomför backfill.
+- Verifiera faktisk datatäckning per historisk säsong och slutför backfill.
+- Inför entydig aktiv säsong per liga eller explicit `default_season`.
+- Lägg till `run_id`, radantal, felstatus och dedupe-policy per ingestion.
 - Inför `raw_ops.data_quality_runs`.
 - Migrera API till `serving_*` där det ger stabilare kontrakt.
 
@@ -199,7 +225,10 @@ Måste finnas:
 
 Status i projektet:
 
-- `GET /api/v1/analytics` har redan `age_curve`.
+- `GET /api/v1/analytics` har `age_curve`, `player_impact`, liga-percentiler
+  och `goalie_radar`.
+- Roster- och silly-data används som manuellt förstärkt benchmarkunderlag för
+  SHL transition.
 - Player identity saknas som stabil dimension.
 - Frontend saknar riktig spelarprofilvy med historik.
 
@@ -222,11 +251,17 @@ Måste finnas:
 
 Status i projektet:
 
-- SHL-preseasonmoduler finns delvis i `GET /api/v1/analytics`.
+- SHL-preseasonmodulerna `shl_transition`, `special_teams`,
+  `shl_projected_table` och silly-baserad readiness finns i
+  `GET /api/v1/analytics`.
+- Projektionen blandar historisk SHL-tabell, spelar-/målvaktsbenchmark,
+  special teams och manuella rosterjusteringar.
+- Ingen fristående Elo/Glicko-rating, lineupmodell eller matchupmodell finns.
 - Rosterläge finns i silly/lovenlaget men inte som full serving-driven endpoint.
 
 Nästa steg:
 
+- Extrahera projektionen från `api/main.py` till ett versionerat modelljobb.
 - Bygg ratingmodell först på lagresultat och målskillnad.
 - Lägg till xG/team-strength när shot quality finns.
 - Koppla roster-effekt till simulatorn.
@@ -267,6 +302,15 @@ Obligatoriska modellkrav:
 - `backtest_metrics`
 - `known_limitations`
 - `data_quality`
+
+Status i projektet:
+
+- Gemini används för AI Coach-text ovanpå strukturerad analytics och skyddas
+  delvis av analytics-cachen.
+- Det finns ännu inget träningsflöde, modellregister, artifact store,
+  godkännandesteg eller reproducerbar backtesting.
+- Heuristiska predictions och projected table ska märkas som
+  `model_type=heuristic` tills de ersätts eller kalibreras.
 
 ### 8. Simuleringar
 
@@ -327,8 +371,12 @@ Output:
 
 Status i projektet:
 
-- `GET /api/v1/analytics` har redan en SHL-projected-table-modul.
-- Den ska utvecklas till en separat simulationsmotor med körlogg och backtesting.
+- `GET /api/v1/analytics` har en SHL projected-table v0 med poängestimat,
+  intervall och top-6/playout-procent.
+- Intervallen och procentsatserna är deterministiska heuristiker, inte resultat
+  från stokastiska simuleringar.
+- Modulen ska flyttas till en separat simulationsmotor med modellversion,
+  körlogg, seed, antaganden, kalibrering och backtesting.
 
 ### 9. Scouting och Roster Intelligence
 
@@ -357,7 +405,8 @@ Nästa steg:
 
 För fans:
 
-- Lövenläget: viktigaste signalen nu.
+- Preseason SHL: nuvarande standardvy med live analytics v0.
+- Lövenläget: viktigaste signalen nu, men routen är för närvarande dold.
 - Matchcenter: momentum, förklaring, live/post-game.
 - Statistik: säsong, jämför, spelare, målvakter, lag.
 - Simuleringar: SHL-projektion, tabellrisk, scenario.

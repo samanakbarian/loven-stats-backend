@@ -1,6 +1,6 @@
 # Feature Backlog 2026
 
-Senast uppdaterad: 2026-06-04
+Senast uppdaterad: 2026-06-14
 Galler for: `loven-stats-backend` som produktionskalla och `slutspel/frontend_v2` som konsument.
 
 ## Syfte
@@ -12,6 +12,9 @@ behover i data, API, frontend och verifiering.
 För avancerad hockeyanalys, machine learning, simuleringar, scoutinglager och
 modellkrav, se även `docs/ADVANCED_HOCKEY_ANALYTICS_STACK_2026.md`.
 
+Verifierad implementationsstatus och arkitekturgap finns i
+`docs/ARCHITECTURE_INTEGRATION_2026_06.md`.
+
 ## Nulage att utga fran
 
 - Backend har redan `GET /api/v1/seasons`, `GET /api/v1/statistics`,
@@ -19,12 +22,19 @@ modellkrav, se även `docs/ADVANCED_HOCKEY_ANALYTICS_STACK_2026.md`.
   `GET /api/v1/x-feed` och `GET /api/v1/financials`.
 - `GET /api/v1/statistics` och `GET /api/v1/analytics` laser fortfarande mest
   direkt fran `raw_sports.*` och bygger svar i Python.
+- Båda endpointsen väljer senaste `scraped_at`-snapshot och använder en
+  processlokal TTL-cache.
+- Swehockey-scrapern kan iterera över flera aktiva regular season/playoff-id:n.
+- Fem säsongsrader finns registrerade, men `shl_2526` och `ha_2526` är båda
+  aktiva och kräver ligaspecifik defaultlogik.
 - dbt-lagret har `staging`, `marts/core` och `serving`, men flera API-floden
   ar inte migrerade till `serving_*` annu.
 - `slutspel/frontend_v2` anropar aven `/api/v1/current-state` och
   `/api/v1/sportradar/results`, som finns i gamla Node-servern men inte i
   FastAPI-backenden.
 - Roster och matchcenter ar delvis mockade i frontend v2.
+- Preseason SHL är frontendens standardvy och använder analytics v0.
+- SHL projected table är en heuristisk v0, inte en Monte Carlo-simulering.
 - `raw_sports.swehockey_seasons` ar central for sasongsstyrning.
 
 ## Prioriterad implementation
@@ -73,6 +83,8 @@ spelarutveckling, modell-backtesting och mer trovärdiga SHL-projektioner.
 Befintliga byggblock:
 - `backfill_season.py` har redan logik for spelare, malvakter, tabell och schema.
 - `raw_sports.swehockey_seasons` anvands av `lookup_season()` i `api/main.py`.
+- Metadata finns för HA 2023/24, SHL 2024/25, HA 2024/25, SHL 2025/26 och
+  HA 2025/26; faktisk tabelltäckning måste verifieras separat.
 - `tests/test_data_validation.py` validerar redan dubbletter, schema-parsning och
   kanda kontrollvarden.
 

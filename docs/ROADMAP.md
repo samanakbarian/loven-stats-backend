@@ -1,7 +1,7 @@
 # Roadmap 2026 — Backend Leveransplan (Synkad)
 
-Senast uppdaterad: 2026-05-11  
-Källa: synkad med `slutspel/docs/ARCHITECTURE_REVIEW_2026.md`
+Senast uppdaterad: 2026-06-14
+Källa: verifierad mot backend, `slutspel/frontend_v2` och produktions-API
 
 ## Syfte
 
@@ -14,6 +14,9 @@ acceptanskriterier finns i `docs/FEATURE_BACKLOG_2026.md`.
 Utredningen för avancerad hockeyanalys, machine learning och simuleringar finns
 i `docs/ADVANCED_HOCKEY_ANALYTICS_STACK_2026.md`.
 
+Aktuell integration mellan kodbasen och målarkitekturen finns i
+`docs/ARCHITECTURE_INTEGRATION_2026_06.md`.
+
 ## Status just nu
 
 Vi har gått från plan till första implementation:
@@ -21,8 +24,14 @@ Vi har gått från plan till första implementation:
 - dbt-lager för `staging`, `marts/core` och `serving` är etablerat
 - prioriterade fact-tabeller är definierade som dbt-modeller
 - serving-vyer för API är etablerade
+- Swehockey-ingestionen stödjer flera säsongs-id:n och senaste snapshot
+- analytics v0 och SHL preseason-projektion används av frontend v2
+- processlokal TTL-cache finns för analytics, statistics, silly och X-feed
 
-Not: “klar” i roadmap betyder modellnivå klar i dbt. Full produktionsnytta kräver att råtabeller fylls kontinuerligt och att API läser från `serving_*`.
+Not: “klar” i roadmap betyder modellnivå klar i dbt. Full produktionsnytta
+kräver fortfarande verifierade dbt-körningar, datakvalitetslogg och att API
+läser från `serving_*`. Analytics- och simulationsstatus ska inte tolkas som
+färdig ML; nuvarande SHL-projektion är heuristisk v0.
 
 ## Målbild (oförändrad)
 
@@ -41,7 +50,9 @@ Not: “klar” i roadmap betyder modellnivå klar i dbt. Full produktionsnytta 
 5. `loven_serving` (modellnivå) — klar (`serving_*` modeller)
 6. Orchestration-lager — delvis (Cloud Functions/Run Jobs finns; schedulerkedja behöver härdas)
 7. Data quality/dbt tests — delvis (grundtester tillagda; relations/freshness kvar)
-8. Cache/Firestore — ej implementerat
+8. Cache — delvis (processlokal TTL-cache finns; distribuerad cache saknas)
+9. Analytics/SHL projection — delvis (produktkopplad heuristik v0; modelljobb,
+   register, kalibrering och backtesting saknas)
 
 ## Leveransfaser (uppdaterad)
 
@@ -64,6 +75,8 @@ Mål:
 Leverabler:
 - verifierad körkedja med återstartbarhet
 - tydlig freshness per källa och endpoint
+- entydig aktiv säsong per liga
+- `run_id`, radantal och data quality-resultat per körning
 
 ## Fas 3 — API migration till serving (nästa)
 Mål:
@@ -83,6 +96,16 @@ Leverabler:
 - `etl_run_log`, `api_request_log`, stale-larm
 - Firestore-cache för produktvyer
 
+## Fas 5 — Modell- och simulationslager
+Mål:
+- flytta heuristisk analytics från request path till reproducerbara modelljobb
+- införa modellregister, backtesting och kalibrerade osäkerhetsintervall
+
+Leverabler:
+- team strength rating v1
+- versionerad SHL-simulator med Monte Carlo
+- snapshot-tabeller för godkända modellresultat
+
 ## Styrmätetal
 
 - Freshness SLA per endpoint
@@ -93,13 +116,14 @@ Leverabler:
 
 ## Nästa konkreta backlog
 
-1. Genomför historisk säsongsbackfill för HA 2022/23, 2023/24 och 2024/25.
-2. Inför automatisk datakvalitetskontroll efter scraper/backfill.
-3. Konsolidera `GET /api/v1/current-state` och `GET /api/v1/lovenlaget` så frontend v2 har ett skarpt current-state-kontrakt.
-4. Lägg till `GET /api/v1/season-compare` för säsongsjämförelse.
-5. Parametrisera `GET /api/v1/analytics` med rolling window (`5`, `10`, `20`).
-6. Skapa modellregister för ML/simuleringar (`model_name`, `model_version`, backtest, data quality).
-7. Bygg team strength rating v1 och SHL Monte Carlo simulator v1.
-8. Migrera prioriterade API-endpoints till `serving_*`.
-9. Lägg till relationships- och freshness-tester i dbt.
-10. Inför observability- och cachelager.
+1. Gör aktiv säsong deterministisk per liga och ta bort globalt `LIMIT 1`.
+2. Verifiera historisk datatäckning och slutför saknade backfill-körningar.
+3. Inför `raw_ops.ingestion_runs`, `data_quality_runs` och automatiska kontroller.
+4. Uppdatera kontrakttester till nuvarande analytics-schema och rensa
+   diagnostik-/engångsskript från produktionsroten.
+5. Kör och verifiera dbt-modeller mot skarpa råkällor.
+6. Migrera latest-snapshot och prioriterade endpoints till `serving_*`.
+7. Konsolidera `GET /api/v1/current-state` och `GET /api/v1/lovenlaget`.
+8. Extrahera SHL projection v0 till ett versionerat modelljobb och modellregister.
+9. Bygg team strength rating v1 och kalibrerad SHL Monte Carlo simulator v1.
+10. Ersätt processlokal cache med distribuerad cache där flera instanser kräver det.

@@ -2,6 +2,10 @@
 
 Senast uppdaterad: 2026-05-18
 
+Fortsatt verifiering mot aktuell kod och produktion finns i
+`docs/ARCHITECTURE_INTEGRATION_2026_06.md`. Juni-dokumentet gäller vid
+statusskillnader; detta dokument beskriver majleveransen.
+
 ## Genomfört i denna leverans
 
 Denna leverans etablerar en första körbar implementation av målarkitekturen i dbt:
@@ -134,13 +138,15 @@ Ny Cloud Function `swehockey-stats-scraper` är implementerad och driftsatt i `e
 5. `loven_serving` (modellnivå) — klar (V1)
 6. Orchestration-lager — delvis (Cloud Functions/Run Jobs finns, scheduler-kedja kvar att härda)
 7. Data quality/tests — delvis (grundtester i dbt tillagda)
-8. Cache/Firestore — ej implementerat
-9. **Multi-season-stöd — planerat (se MULTI_SEASON_PLAN.md)**
+8. Cache/Firestore — ej implementerat i majleveransen
+9. **Multi-season-stöd — implementerat V1 efter majleveransen**
 
 ## Nästa steg
 
-1. **Implementera multi-season-stöd** (se `slutspel/docs/MULTI_SEASON_PLAN.md`)
-2. Aktivera och verifiera råtabeller i BigQuery (`raw_roster`, `raw_financials`)
-3. Publicera API-endpoints som läser från `serving_*` i stället för ad hoc raw_sports-queries
-4. Lägg in freshness-/relationships-tester per råkälla
-5. Inför cache- och observability-lager
+1. Verifiera multi-season-täckning och entydig aktiv säsong per liga.
+2. Aktivera och verifiera råtabeller i BigQuery (`raw_roster`, `raw_financials`).
+3. Publicera API-endpoints som läser från `serving_*` i stället för ad hoc
+   `raw_sports`-queries.
+4. Lägg in freshness-/relationships-tester per råkälla.
+5. Ersätt processlokal cache med distribuerad cache där det behövs och inför
+   observability-lager.
