@@ -110,6 +110,8 @@ def _fetch_player_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str
     out = []
     current_team = ""
     for table in tables:
+        if table.find("table"):
+            continue  # Skip wrapper tables that contain nested tables
         rows = table.find_all("tr", recursive=False)
         if not rows and table.find("tbody"):
             rows = table.find("tbody").find_all("tr", recursive=False)
@@ -159,62 +161,73 @@ def _fetch_goalie_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str
     out = []
     current_team = ""
     for table in tables:
+        if table.find("table"):
+            continue  # Skip wrapper tables that contain nested tables
         rows = table.find_all("tr", recursive=False)
         if not rows and table.find("tbody"):
             rows = table.find("tbody").find_all("tr", recursive=False)
-        if not rows: continue
+        if not rows:
+            continue
         first_row = [_clean(c.get_text(" ", strip=True)) for c in rows[0].select("th,td")]
-        
+
         # Keep track of team from [Top] row
         if len(first_row) > 0 and "Top" in first_row[-1]:
             current_team = first_row[0]
-            
+
         # Is this the Goalkeeping Statistics table?
         if len(rows) > 2:
             is_goalie = False
             start_idx = 0
+            header_row = []
             if len(first_row) > 0 and "Goalkeeping Statistics" in first_row[0]:
                 is_goalie = True
                 start_idx = 2
+                if len(rows) > 1:
+                    header_row = [_clean(c.get_text(" ", strip=True)) for c in rows[1].select("th,td")]
             elif len(rows) > 1:
                 second_row = [_clean(c.get_text(" ", strip=True)) for c in rows[1].select("th,td")]
                 if len(second_row) > 0 and "Goalkeeping Statistics" in second_row[0]:
                     is_goalie = True
                     start_idx = 3
+                    if len(rows) > 2:
+                        header_row = [_clean(c.get_text(" ", strip=True)) for c in rows[2].select("th,td")]
 
             if is_goalie:
+                # Build column index map from header row for robust lookup
+                # Expected columns: Rk No Name GPT GKD GPI MIP GA SVS SOG SVS% GAA SO W L
+                col_map = {h: i for i, h in enumerate(header_row)}
+
+                def _col(cols_list, key, fallback_idx):
+                    idx = col_map.get(key, fallback_idx)
+                    if idx < len(cols_list):
+                        return _clean(cols_list[idx].get_text(" ", strip=True))
+                    return ""
+
                 for tr in rows[start_idx:]:
                     cols = tr.select("th,td")
                     r = [_clean(c.get_text(" ", strip=True)) for c in cols]
-                    if len(r) < 13 or _is_header_row(r) or not _safe_int(r[0]):
+                    if len(r) < 3 or _is_header_row(r) or not _safe_int(r[0]):
                         continue
-                    
-                    gpi = _safe_int(cols[5].text.strip())
-                    ga = _safe_int(cols[7].text.strip())
-                    gaa = _safe_float(cols[11].text.strip())
-                    svs = _safe_int(cols[8].text.strip())
-                    svs_pct = _safe_float(cols[10].text.strip())
-                    shutouts = _safe_int(cols[12].text.strip())
-                    wins = _safe_int(cols[13].text.strip())
-                    ties = 0  # Ties column was removed
-                    losses = _safe_int(cols[14].text.strip())
-                    
+                    gpi = _safe_int(_col(cols, "GPI", 5))
+                    if gpi == 0:
+                        continue  # Skip goalies with no games played
+
                     out.append(
                         {
                             "season_group_id": int(season_group_id),
                             "team_id": SWEHOCKEY_TEAM_ID,
                             "team_code": current_team,
-                            "goalie_name": _clean(r[2]),
+                            "goalie_name": _clean(r[2]) if len(r) > 2 else "",
                             "games_played": gpi,
-                            "shots_against": _safe_int(r[9]),
-                            "saves": svs,
-                            "goals_against": ga,
-                            "save_pct": svs_pct,
-                            "gaa": gaa,
+                            "shots_against": _safe_int(_col(cols, "SOG", 9)),
+                            "saves": _safe_int(_col(cols, "SVS", 8)),
+                            "goals_against": _safe_int(_col(cols, "GA", 7)),
+                            "save_pct": _safe_float(_col(cols, "SVS%", 10)),
+                            "gaa": _safe_float(_col(cols, "GAA", 11)),
                             "toi_minutes": 0,
-                            "shutouts": shutouts,
-                            "wins": wins,
-                            "losses": losses,
+                            "shutouts": _safe_int(_col(cols, "SO", 12)),
+                            "wins": _safe_int(_col(cols, "W", 13)),
+                            "losses": _safe_int(_col(cols, "L", 14)),
                         }
                     )
     # Deduplicate by goalie name and team code

@@ -341,14 +341,39 @@ def get_analytics(season: str = None):
         goalies = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_goalie_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
         standings = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_standings` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
 
-        shl_season_rows = q(f"""
-            SELECT regular_season_id 
-            FROM `{proj}.raw_sports.swehockey_seasons` 
-            WHERE LOWER(season_name) LIKE '%shl%'
-            ORDER BY start_date DESC
-            LIMIT 1
+        # Find the SHL season whose start_date is closest to the current HA season,
+        # but only among seasons that actually have goalie data loaded.
+        # Two-step: (1) get seasons with data, (2) pick closest to REGULAR_ID's start_date.
+        shl_with_data = q(f"""
+            SELECT s.regular_season_id, s.start_date
+            FROM `{proj}.raw_sports.swehockey_seasons` s
+            WHERE LOWER(s.league) = 'shl'
+              AND EXISTS (
+                SELECT 1 FROM `{proj}.raw_sports.swehockey_goalie_stats` g
+                WHERE g.season_group_id = s.regular_season_id
+              )
+            ORDER BY s.start_date DESC
         """)
-        shl_regular_id = shl_season_rows[0]["regular_season_id"] if shl_season_rows else None
+        ha_start_rows = q(f"""
+            SELECT start_date FROM `{proj}.raw_sports.swehockey_seasons`
+            WHERE regular_season_id = {REGULAR_ID}
+        """)
+        ha_start = ha_start_rows[0]["start_date"] if ha_start_rows else None
+        shl_regular_id = None
+        if shl_with_data:
+            if ha_start:
+                def _date_diff(row):
+                    import datetime
+                    s = row.get("start_date")
+                    if s is None:
+                        return 99999
+                    if hasattr(s, "toordinal"):
+                        return abs(s.toordinal() - ha_start.toordinal())
+                    return 99999
+                best = min(shl_with_data, key=_date_diff)
+            else:
+                best = shl_with_data[0]
+            shl_regular_id = best["regular_season_id"]
 
         shl_players = []
         shl_goalies = []
@@ -1221,9 +1246,15 @@ def get_analytics(season: str = None):
                 ha_sv_pct = override_data.get("ha_sv_pct", 92.0)
                 display_name = f"{override_name} 🆕"
             else:
-                proj_sv_pct = round(g["sv_pct"] - 1.8, 1)
-                proj_gaa = round(g["gaa"] + 0.60, 2)
                 ha_sv_pct = g["sv_pct"]
+                if g.get("_is_shl_source") or ha_sv_pct == 0:
+                    # Source is already SHL data — use directly, no HA-to-SHL regression
+                    shl_sv = ha_sv_pct
+                    proj_sv_pct = round(shl_sv, 1)
+                else:
+                    # HA data — apply typical HA-to-SHL regression of -1.8%
+                    proj_sv_pct = round(ha_sv_pct - 1.8, 1)
+                proj_gaa = round(g["gaa"] + 0.60, 2) if not g.get("_is_shl_source") else round(g["gaa"], 2)
                 display_name = name
 
             readiness = "GREEN" if proj_sv_pct >= 91.0 else "AMBER" if proj_sv_pct >= 89.2 else "RED"

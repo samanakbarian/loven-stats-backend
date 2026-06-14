@@ -1,0 +1,2 @@
+shl_readiness goalies: ['Frans Tuohimaa', 'Lassi Lehtinen 🆕']
+season_overview goalies: []
