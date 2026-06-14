@@ -13,14 +13,22 @@ with src as (
     coalesce(cast(points as int64), 0) as points,
     coalesce(cast(goal_diff as int64), 0) as goal_diff,
     coalesce(cast(source as string), 'swehockey') as source_system,
+    cast(run_id as string) as run_id,
     coalesce(cast(scraped_at as timestamp), current_timestamp()) as scraped_at
   from {{ source('raw_sports', 'swehockey_standings') }}
+),
+eligible as (
+  select src.*
+  from src
+  left join {{ ref('stg_successful_ingestion_runs') }} successful
+    on src.run_id = successful.run_id
+  where src.run_id is null or successful.run_id is not null
 ),
 dedup as (
   select
     *,
     {{ dbt_utils.generate_surrogate_key(['season_id', 'team_name']) }} as sk_team_row
-  from src
+  from eligible
   qualify row_number() over (
     partition by season_id, team_name
     order by scraped_at desc
@@ -41,7 +49,7 @@ select
   '' as form_last_5,
   case when games_played = 0 then 0 else cast(points as numeric) / games_played end as points_per_game,
   source_system,
+  run_id as source_run_id,
   sk_team_row as source_record_id,
   scraped_at as ingested_at
 from dedup
-

@@ -7,7 +7,7 @@ Cloud Function Gen2: `swehockey-stats-scraper`.
 Scrapar `stats.swehockey.se` med:
 
 - `SWEHOCKEY_TEAM_ID` (default `1139`)
-- `SWEHOCKEY_SEASON_GROUP_ID` (default `18263`)
+- `SWEHOCKEY_SEASON_GROUP_ID` (fallback `20961`, SHL 2026/27)
 
 Datatyper:
 
@@ -57,7 +57,7 @@ gcloud functions deploy swehockey-stats-scraper \
   --allow-unauthenticated \
   --memory=1024Mi \
   --timeout=300s \
-  --set-env-vars="GCP_PROJECT=granskaren-d51a1,GCS_BUCKET=loven-stats-raw-data-prod,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=18263"
+  --set-env-vars="GCP_PROJECT=granskaren-d51a1,GCS_BUCKET=loven-stats-raw-data-prod,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961"
 ```
 
 ## Scheduler (veckovis, Stockholm)

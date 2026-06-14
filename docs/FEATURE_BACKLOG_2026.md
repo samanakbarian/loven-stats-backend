@@ -25,8 +25,8 @@ Verifierad implementationsstatus och arkitekturgap finns i
 - Båda endpointsen väljer senaste `scraped_at`-snapshot och använder en
   processlokal TTL-cache.
 - Swehockey-scrapern kan iterera över flera aktiva regular season/playoff-id:n.
-- Fem säsongsrader finns registrerade, men `shl_2526` och `ha_2526` är båda
-  aktiva och kräver ligaspecifik defaultlogik.
+- Sju säsongsrader är definierade från HA 2023/24 till 2026/27. Både SHL och
+  HA 2026/27 är aktiva för ingestion; API-defaulten väljer SHL deterministiskt.
 - dbt-lagret har `staging`, `marts/core` och `serving`, men flera API-floden
   ar inte migrerade till `serving_*` annu.
 - `slutspel/frontend_v2` anropar aven `/api/v1/current-state` och

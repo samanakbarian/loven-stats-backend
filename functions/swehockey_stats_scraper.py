@@ -11,24 +11,36 @@ from bs4 import BeautifulSoup
 from google.cloud import bigquery
 from google.cloud import storage
 
+try:
+    from etl_runtime import (
+        BigQueryRunLogger,
+        checks_passed,
+        ensure_lineage_columns,
+        validate_rows,
+    )
+except ImportError:
+    from functions.etl_runtime import (
+        BigQueryRunLogger,
+        checks_passed,
+        ensure_lineage_columns,
+        validate_rows,
+    )
+
 logging.basicConfig(level=logging.INFO)
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "granskaren-d51a1")
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "loven-stats-raw-data-prod")
 SWEHOCKEY_TEAM_ID = os.environ.get("SWEHOCKEY_TEAM_ID", "1139")
-SWEHOCKEY_SEASON_GROUP_ID = os.environ.get("SWEHOCKEY_SEASON_GROUP_ID", "18263")
+SWEHOCKEY_SEASON_GROUP_ID = os.environ.get("SWEHOCKEY_SEASON_GROUP_ID", "20961")
 BASE_URL = "https://stats.swehockey.se"
 BQ_DATASET = "raw_sports"
 SOURCE = "swehockey"
+PIPELINE_NAME = "swehockey_stats"
 TEAM_TOKENS = [t.strip().lower() for t in os.environ.get("SWEHOCKEY_TEAM_TOKENS", "björklöven,bjorkloven,löven,bjo").split(",") if t.strip()]
 
 
 def _now():
     return datetime.now(timezone.utc)
-
-
-def _timestamp_str() -> str:
-    return _now().strftime("%Y%m%d_%H%M%S")
 
 
 def _safe_int(v: Any) -> int:
@@ -333,13 +345,58 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
     return [], None
 
 
-def _upload_raw_json(payload: dict[str, Any], data_type: str):
-    blob_name = f"raw/web_scrapers/shl_stats/{_timestamp_str()}_{data_type}.json"
+def _scrape_jobs():
+    return [
+        {
+            "data_type": "player_stats",
+            "fetcher": _fetch_player_stats,
+            "table_name": "swehockey_player_stats",
+            "required_fields": ("season_group_id", "team_code", "player_name"),
+            "key_fields": ("season_group_id", "team_code", "player_name"),
+        },
+        {
+            "data_type": "goalie_stats",
+            "fetcher": _fetch_goalie_stats,
+            "table_name": "swehockey_goalie_stats",
+            "required_fields": ("season_group_id", "team_code", "goalie_name"),
+            "key_fields": ("season_group_id", "team_code", "goalie_name"),
+        },
+        {
+            "data_type": "standings",
+            "fetcher": _fetch_standings,
+            "table_name": "swehockey_standings",
+            "required_fields": ("season_group_id", "team_name", "rank"),
+            "key_fields": ("season_group_id", "team_name"),
+        },
+        {
+            "data_type": "schedule",
+            "fetcher": _fetch_schedule,
+            "table_name": "swehockey_schedule",
+            "required_fields": ("season_group_id", "match_date", "home_team", "away_team"),
+            "key_fields": ("season_group_id", "match_date", "home_team", "away_team"),
+        },
+    ]
+
+
+def _upload_raw_json(
+    payload: dict[str, Any],
+    *,
+    run_id: str,
+    season_group_id: str,
+    data_type: str,
+    scraped_at: str,
+):
+    scrape_date = scraped_at[:10]
+    blob_name = (
+        f"raw/web_scrapers/swehockey/{scrape_date}/{run_id}/"
+        f"{season_group_id}/{data_type}.json"
+    )
     storage_client = storage.Client(project=GCP_PROJECT)
     bucket = storage_client.bucket(GCS_BUCKET)
     blob = bucket.blob(blob_name)
     blob.upload_from_string(json.dumps(payload, ensure_ascii=False), content_type="application/json")
     logging.info("Uploaded raw JSON: gs://%s/%s", GCS_BUCKET, blob_name)
+    return f"gs://{GCS_BUCKET}/{blob_name}"
 
 
 def _ensure_dataset(client: bigquery.Client, dataset_id: str):
@@ -348,7 +405,17 @@ def _ensure_dataset(client: bigquery.Client, dataset_id: str):
     client.create_dataset(ds_ref, exists_ok=True)
 
 
-def _append_bq_rows(client: bigquery.Client, table_name: str, rows: list[dict[str, Any]], scraped_at: str):
+def _append_bq_rows(
+    client: bigquery.Client,
+    table_name: str,
+    rows: list[dict[str, Any]],
+    *,
+    scraped_at: str,
+    run_id: str,
+    source_url: str | None,
+):
+    table_id = f"{client.project}.{BQ_DATASET}.{table_name}"
+    ensure_lineage_columns(client, table_id)
     if not rows:
         return 0
     enriched = []
@@ -356,9 +423,10 @@ def _append_bq_rows(client: bigquery.Client, table_name: str, rows: list[dict[st
         item = dict(row)
         item["scraped_at"] = scraped_at
         item["source"] = SOURCE
+        item["run_id"] = run_id
+        item["source_url"] = source_url
         enriched.append(item)
 
-    table_id = f"{client.project}.{BQ_DATASET}.{table_name}"
     job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
     job = client.load_table_from_json(enriched, table_id, job_config=job_config)
     job.result()
@@ -387,52 +455,152 @@ def run_swehockey_stats_scraper(request):
     if not active_season_ids:
         active_season_ids = [SWEHOCKEY_SEASON_GROUP_ID]
     
-    # Deduplicate active season IDs
-    active_season_ids = list(set(active_season_ids))
+    active_season_ids = sorted(set(active_season_ids), key=int)
+    run_logger = BigQueryRunLogger(bq_client)
+    run_id = run_logger.start_run(
+        pipeline_name=PIPELINE_NAME,
+        source=SOURCE,
+        season_group_ids=[int(value) for value in active_season_ids],
+        metadata={"scraped_at": scraped_at},
+    )
+    result: dict[str, Any] = {
+        "status": "running",
+        "run_id": run_id,
+        "scraped_at": scraped_at,
+        "season_group_ids": [int(value) for value in active_season_ids],
+        "types": {},
+    }
+    fetched_batches: list[dict[str, Any]] = []
+    fetched_rows = 0
+    loaded_rows = 0
+    failed_steps = 0
 
-    result: dict[str, Any] = {"status": "ok", "scraped_at": scraped_at, "types": {}}
-
-    for season_group_id in active_season_ids:
-        jobs = [
-            ("player_stats", _fetch_player_stats, "swehockey_player_stats"),
-            ("goalie_stats", _fetch_goalie_stats, "swehockey_goalie_stats"),
-            ("standings", _fetch_standings, "swehockey_standings"),
-            ("schedule", _fetch_schedule, "swehockey_schedule"),
-        ]
-
-        for data_type, fetcher, table_name in jobs:
-            try:
-                rows, source_url = fetcher(season_group_id)
-                payload = {
-                    "meta": {
-                        "source": SOURCE,
-                        "type": data_type,
-                        "team_id": SWEHOCKEY_TEAM_ID,
-                        "season_group_id": int(season_group_id),
+    try:
+        for season_group_id in active_season_ids:
+            for job in _scrape_jobs():
+                data_type = job["data_type"]
+                rows, source_url = job["fetcher"](season_group_id)
+                fetched_rows += len(rows)
+                fetched_batches.append(
+                    {
+                        **job,
+                        "season_group_id": season_group_id,
+                        "rows": rows,
                         "source_url": source_url,
-                        "scraped_at": scraped_at,
-                    },
-                    "rows": rows,
-                }
-                
-                # Use data_type + season_group_id to avoid overwriting different seasons in raw upload
-                gcs_key = f"{data_type}_{season_group_id}_{scraped_at.replace(':', '').replace('-', '').replace(' ', '_')}"
-                _upload_raw_json(payload, gcs_key)
-                
-                loaded = _append_bq_rows(bq_client, table_name, rows, scraped_at)
-                
-                if data_type not in result["types"]:
-                    result["types"][data_type] = {"ok": True, "rows": 0, "bq_loaded": 0, "source_urls": []}
-                    
-                result["types"][data_type]["rows"] += len(rows)
-                result["types"][data_type]["bq_loaded"] += loaded
+                    }
+                )
+                type_result = result["types"].setdefault(
+                    data_type,
+                    {"ok": True, "rows": 0, "bq_loaded": 0, "source_urls": []},
+                )
+                type_result["rows"] += len(rows)
                 if source_url:
-                    result["types"][data_type]["source_urls"].append(source_url)
-                    
-            except Exception as e:
-                logging.exception("Failed scrape type=%s season=%s", data_type, season_group_id)
-                if data_type not in result["types"]:
-                    result["types"][data_type] = {"ok": False, "error": str(e)}
+                    type_result["source_urls"].append(source_url)
 
-    status_code = 200 if any(v.get("ok") for v in result["types"].values()) else 500
-    return json.dumps(result, ensure_ascii=False), status_code, {"Content-Type": "application/json"}
+        season_has_games = {}
+        for batch in fetched_batches:
+            if batch["data_type"] == "standings":
+                season_has_games[batch["season_group_id"]] = any(
+                    int(row.get("games_played") or 0) > 0 for row in batch["rows"]
+                )
+
+        for batch in fetched_batches:
+            data_type = batch["data_type"]
+            season_group_id = batch["season_group_id"]
+            allow_preseason_empty = (
+                data_type in {"player_stats", "goalie_stats"}
+                and not season_has_games.get(season_group_id, False)
+            )
+            checks = validate_rows(
+                batch["rows"],
+                required_fields=batch["required_fields"],
+                key_fields=batch["key_fields"],
+                empty_severity="WARNING" if allow_preseason_empty else "ERROR",
+            )
+            run_logger.record_checks(
+                run_id=run_id,
+                pipeline_name=PIPELINE_NAME,
+                entity_name=data_type,
+                season_group_id=int(season_group_id),
+                checks=checks,
+            )
+            batch_ok = checks_passed(checks)
+            result["types"][data_type]["ok"] = (
+                result["types"][data_type]["ok"] and batch_ok
+            )
+            if not batch_ok:
+                failed_steps += 1
+
+        if failed_steps:
+            result["status"] = "failed_quality_gate"
+            run_logger.finish_run(
+                run_id=run_id,
+                status="FAILED_QUALITY",
+                fetched_rows=fetched_rows,
+                loaded_rows=0,
+                failed_steps=failed_steps,
+                metadata={"types": result["types"]},
+                error_message="En eller flera snapshots underkändes före publicering.",
+            )
+            return json.dumps(result, ensure_ascii=False), 500, {"Content-Type": "application/json"}
+
+        for batch in fetched_batches:
+            data_type = batch["data_type"]
+            season_group_id = batch["season_group_id"]
+            payload = {
+                "meta": {
+                    "run_id": run_id,
+                    "source": SOURCE,
+                    "type": data_type,
+                    "team_id": SWEHOCKEY_TEAM_ID,
+                    "season_group_id": int(season_group_id),
+                    "source_url": batch["source_url"],
+                    "scraped_at": scraped_at,
+                },
+                "rows": batch["rows"],
+            }
+            _upload_raw_json(
+                payload,
+                run_id=run_id,
+                season_group_id=season_group_id,
+                data_type=data_type,
+                scraped_at=scraped_at,
+            )
+            loaded = _append_bq_rows(
+                bq_client,
+                batch["table_name"],
+                batch["rows"],
+                scraped_at=scraped_at,
+                run_id=run_id,
+                source_url=batch["source_url"],
+            )
+            loaded_rows += loaded
+            result["types"][data_type]["bq_loaded"] += loaded
+
+        result["status"] = "ok"
+        run_logger.finish_run(
+            run_id=run_id,
+            status="SUCCESS",
+            fetched_rows=fetched_rows,
+            loaded_rows=loaded_rows,
+            failed_steps=0,
+            metadata={"types": result["types"]},
+        )
+        return json.dumps(result, ensure_ascii=False), 200, {"Content-Type": "application/json"}
+    except Exception as exc:
+        logging.exception("Swehockey ingestion failed run_id=%s", run_id)
+        result["status"] = "failed"
+        result["error"] = str(exc)
+        try:
+            run_logger.finish_run(
+                run_id=run_id,
+                status="FAILED",
+                fetched_rows=fetched_rows,
+                loaded_rows=loaded_rows,
+                failed_steps=max(failed_steps, 1),
+                metadata={"types": result["types"]},
+                error_message=str(exc),
+            )
+        except Exception:
+            logging.exception("Failed to finalize ingestion run_id=%s", run_id)
+        return json.dumps(result, ensure_ascii=False), 500, {"Content-Type": "application/json"}

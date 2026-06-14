@@ -72,6 +72,13 @@ Mål:
 - säkerställa att `raw_sports.*`, `raw_roster.*`, `raw_financials.*`, `raw_content.*` fylls stabilt
 - härda schedulerflöden och felhantering
 
+Levererat 2026-06-14:
+- append-only `raw_ops.ingestion_runs`
+- `raw_ops.data_quality_runs`
+- `run_id` och källspårning för Swehockey
+- kvalitetsgrind före publicering
+- dbt-filter för godkända ingestion-runs
+
 Leverabler:
 - verifierad körkedja med återstartbarhet
 - tydlig freshness per källa och endpoint
@@ -116,9 +123,9 @@ Leverabler:
 
 ## Nästa konkreta backlog
 
-1. Gör aktiv säsong deterministisk per liga och ta bort globalt `LIMIT 1`.
+1. Driftsätt den nya Swehockey-funktionen och kör ett schemalagt smoketest.
 2. Verifiera historisk datatäckning och slutför saknade backfill-körningar.
-3. Inför `raw_ops.ingestion_runs`, `data_quality_runs` och automatiska kontroller.
+3. Lägg volymavvikelse, freshness-larm och domänspecifika kvalitetskontroller.
 4. Uppdatera kontrakttester till nuvarande analytics-schema och rensa
    diagnostik-/engångsskript från produktionsroten.
 5. Kör och verifiera dbt-modeller mot skarpa råkällor.

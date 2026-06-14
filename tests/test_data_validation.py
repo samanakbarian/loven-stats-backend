@@ -11,12 +11,21 @@ def bq_client():
     return bigquery.Client(project=GCP_PROJECT)
 
 def test_no_duplicate_players_in_regular_season(bq_client):
-    """Säkerställ att inga spelare ligger inne som dubbletter för en given säsong."""
+    """Säkerställ att senaste snapshoten saknar dubbletter per lag och spelare."""
     query = f"""
-    SELECT season_group_id, player_name, COUNT(*) as c
+    WITH latest AS (
+      SELECT season_group_id, MAX(scraped_at) AS scraped_at
+      FROM `{GCP_PROJECT}.{DATASET}.swehockey_player_stats`
+      WHERE season_group_id IN (14678, 18266)
+      GROUP BY season_group_id
+    )
+    SELECT stats.season_group_id, stats.team_code, stats.player_name, COUNT(*) as c
     FROM `{GCP_PROJECT}.{DATASET}.swehockey_player_stats`
-    WHERE season_group_id IN (14678, 18266)
-    GROUP BY season_group_id, player_name
+    AS stats
+    INNER JOIN latest
+      ON stats.season_group_id = latest.season_group_id
+      AND stats.scraped_at = latest.scraped_at
+    GROUP BY stats.season_group_id, stats.team_code, stats.player_name
     HAVING c > 1
     """
     results = list(bq_client.query(query))
@@ -36,9 +45,11 @@ def test_schedule_data_not_garbled(bq_client):
 def test_myles_powell_goals_ha_2324(bq_client):
     """Validera exakt mål-antal för Myles Powell i grundserien 23/24 (season 14678)."""
     query = f"""
-    SELECT goals 
+    SELECT goals
     FROM `{GCP_PROJECT}.{DATASET}.swehockey_player_stats`
-    WHERE season_group_id = 14678 AND player_name LIKE '%Powell%'
+    WHERE season_group_id = 14678
+      AND player_name LIKE '%Powell%'
+    QUALIFY scraped_at = MAX(scraped_at) OVER ()
     """
     results = list(bq_client.query(query))
     assert len(results) == 1, "Förväntade exakt 1 rad för Myles Powell."
@@ -52,9 +63,14 @@ def test_season_config_mapping(bq_client):
     query = f"""
     SELECT season_key, regular_season_id 
     FROM `{GCP_PROJECT}.{DATASET}.swehockey_seasons`
-    WHERE season_key IN ('ha_2324', 'ha_2526')
+    WHERE season_key IN ('ha_2324', 'shl_2425', 'ha_2425', 'shl_2526', 'ha_2526', 'shl_2627', 'ha_2627')
     """
     results = {row['season_key']: row['regular_season_id'] for row in bq_client.query(query)}
     
     assert results.get('ha_2324') == 14678, "ha_2324 har fel regular_season_id!"
+    assert results.get('shl_2425') == 15977, "shl_2425 har fel regular_season_id!"
+    assert results.get('ha_2425') == 15986, "ha_2425 har fel regular_season_id!"
+    assert results.get('shl_2526') == 18263, "shl_2526 har fel regular_season_id!"
     assert results.get('ha_2526') == 18266, "ha_2526 har fel regular_season_id!"
+    assert results.get('shl_2627') == 20961, "shl_2627 har fel regular_season_id!"
+    assert results.get('ha_2627') == 20962, "ha_2627 har fel regular_season_id!"

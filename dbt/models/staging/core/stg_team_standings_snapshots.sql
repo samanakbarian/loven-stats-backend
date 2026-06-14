@@ -15,6 +15,7 @@ select
   cast(form_last_5 as string) as form_last_5,
   cast(points_per_game as numeric) as points_per_game,
   cast(source_system as string) as source_system,
+  cast(null as string) as source_run_id,
   cast(source_record_id as string) as source_record_id,
   cast(ingested_at as timestamp) as ingested_at
 from {{ source('raw_sports', 'team_standings_snapshots') }}

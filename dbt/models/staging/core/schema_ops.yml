@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: raw_ops
+    description: "Kör- och kvalitetsmetadata för ingestion och modelljobb."
+    database: "{{ env_var('DBT_BIGQUERY_PROJECT', target.project) }}"
+    schema: raw_ops
+    tables:
+      - name: ingestion_runs
+        columns:
+          - name: event_id
+            tests: [not_null, unique]
+          - name: run_id
+            tests: [not_null]
+          - name: pipeline_name
+            tests: [not_null]
+          - name: status
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ['RUNNING', 'SUCCESS', 'FAILED', 'FAILED_QUALITY']
+      - name: data_quality_runs
+        columns:
+          - name: quality_run_id
+            tests: [not_null, unique]
+          - name: run_id
+            tests: [not_null]
+          - name: passed
+            tests: [not_null]

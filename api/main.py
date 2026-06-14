@@ -91,7 +91,15 @@ def lookup_season(season_key=None):
             bigquery.ScalarQueryParameter("key", "STRING", season_key)
         ])
     else:
-        sql = f"SELECT * FROM `{proj}.raw_sports.swehockey_seasons` WHERE is_active = TRUE LIMIT 1"
+        sql = f"""
+        SELECT *
+        FROM `{proj}.raw_sports.swehockey_seasons`
+        WHERE is_active = TRUE
+        ORDER BY CASE WHEN league = 'SHL' THEN 0 ELSE 1 END,
+                 start_date DESC,
+                 season_key
+        LIMIT 1
+        """
         job_config = None
     
     rows = list(bq.query(sql, job_config=job_config).result())
@@ -113,7 +121,13 @@ def lookup_season(season_key=None):
 def get_seasons():
     bq = bigquery.Client(project=BQ_PROJECT_ID or None)
     rows = [dict(r.items()) for r in bq.query(
-        f"SELECT * FROM `{bq.project}.raw_sports.swehockey_seasons` ORDER BY start_date DESC"
+        f"""
+        SELECT *
+        FROM `{bq.project}.raw_sports.swehockey_seasons`
+        ORDER BY start_date DESC,
+                 CASE WHEN league = 'SHL' THEN 0 ELSE 1 END,
+                 season_key
+        """
     ).result()]
     active = next((r["season_key"] for r in rows if r.get("is_active")), None)
     return {

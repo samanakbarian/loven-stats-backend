@@ -13,6 +13,56 @@ sources:
       - name: goalie_game_stats
       - name: shot_features
       - name: attendance
+      - name: swehockey_player_stats
+        loaded_at_field: scraped_at
+        freshness:
+          warn_after: {count: 3, period: hour}
+          error_after: {count: 12, period: hour}
+        columns:
+          - name: player_name
+            tests: [not_null]
+          - name: season_group_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+      - name: swehockey_goalie_stats
+        loaded_at_field: scraped_at
+        freshness:
+          warn_after: {count: 3, period: hour}
+          error_after: {count: 12, period: hour}
+        columns:
+          - name: goalie_name
+            tests: [not_null]
+          - name: season_group_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+      - name: swehockey_standings
+        loaded_at_field: scraped_at
+        freshness:
+          warn_after: {count: 3, period: hour}
+          error_after: {count: 12, period: hour}
+        columns:
+          - name: season_group_id
+            tests: [not_null]
+          - name: team_name
+            tests: [not_null]
+          - name: rank
+            tests: [not_null]
+      - name: swehockey_schedule
+        loaded_at_field: scraped_at
+        freshness:
+          warn_after: {count: 3, period: hour}
+          error_after: {count: 12, period: hour}
+        columns:
+          - name: season_group_id
+            tests: [not_null]
+          - name: match_date
+            tests: [not_null]
+          - name: home_team
+            tests: [not_null]
+          - name: away_team
+            tests: [not_null]
 
   - name: raw_roster
     description: "Källnära råtabeller för roster/truppstatus."

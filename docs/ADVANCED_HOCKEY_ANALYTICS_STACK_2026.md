@@ -19,9 +19,9 @@ vad som är implementerat, delvis infört respektive planerat.
 
 - Swehockey-ingestionen stödjer flera aktiva `season_group_id`, separata
   regular season/playoff-körningar och append-laddning till BigQuery.
-- Fem säsonger finns registrerade i `raw_sports.swehockey_seasons`, men både
-  `shl_2526` och `ha_2526` är aktiva. Aktiv säsong får därför inte väljas med
-  ett odeterministiskt `LIMIT 1`.
+- Sju säsonger finns definierade i `raw_sports.swehockey_seasons`. Både
+  `shl_2627` och `ha_2627` är aktiva för ingestion, medan API-defaulten väljer
+  SHL deterministiskt.
 - `GET /api/v1/statistics` och `GET /api/v1/analytics` väljer senaste
   `scraped_at`-snapshot och har processlokal cache.
 - Analytics v0 innehåller bland annat form, streaks, player impact,

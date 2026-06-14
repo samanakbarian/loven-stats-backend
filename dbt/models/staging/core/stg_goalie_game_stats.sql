@@ -16,6 +16,7 @@ select
   cast(pulled as bool) as pulled,
   cast(empty_net_goals_against as int64) as empty_net_goals_against,
   cast(source_system as string) as source_system,
+  cast(null as string) as source_run_id,
   cast(source_record_id as string) as source_record_id,
   cast(ingested_at as timestamp) as ingested_at
 from {{ source('raw_sports', 'goalie_game_stats') }}

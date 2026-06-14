@@ -25,6 +25,7 @@ select
   pulled,
   empty_net_goals_against,
   source_system,
+  source_run_id,
   source_record_id,
   ingested_at,
   current_timestamp() as dbt_loaded_at

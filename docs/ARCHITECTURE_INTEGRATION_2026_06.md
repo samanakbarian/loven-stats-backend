@@ -39,10 +39,12 @@ BigQuery innehåller verifierat följande säsongsmetadata:
 | Säsongsnyckel | Liga | Season group-id | Aktiv |
 |---|---|---:|---|
 | `ha_2324` | HA | 14678 | nej |
-| `shl_2425` | SHL | 18263 | nej |
-| `ha_2425` | HA | 18266 | nej |
-| `shl_2526` | SHL | 20961 | ja |
-| `ha_2526` | HA | 20962 | ja |
+| `shl_2425` | SHL | 15977 | nej |
+| `ha_2425` | HA | 15986 | nej |
+| `shl_2526` | SHL | 18263 | nej |
+| `ha_2526` | HA | 18266 | nej |
+| `shl_2627` | SHL | 20961 | ja |
+| `ha_2627` | HA | 20962 | ja |
 
 Det finns även ett manuellt historikscript för att ladda spelar- och
 målvaktsdata för SHL/HA 2024/25.
@@ -193,7 +195,7 @@ Status: delvis implementerad.
 
 Levererat:
 
-- fem säsongsmetadata-rader
+- sju verifierade säsongsmetadata-rader
 - multi-season scraper
 - historisk 2024/25-load för spelare/målvakter
 - latest-snapshot-läsning
@@ -286,16 +288,16 @@ Kvar:
 
 ### Två aktiva säsonger
 
-Både `shl_2526` och `ha_2526` är markerade `is_active=true`.
-`lookup_season()` använder `LIMIT 1` utan en deterministisk produkttyp eller
-liga. Produktions-API:t returnerar för närvarande `shl_2526` som global
-`active`, medan Preseason-vyn explicit frågar efter `ha_2526`.
+Både `shl_2627` och `ha_2627` är markerade `is_active=true`.
+`lookup_season()` väljer efter integrationen SHL deterministiskt när ingen
+säsong anges. Preseason-vyn kan fortsatt fråga explicit efter `ha_2526` för
+Björklövens senaste HockeyAllsvenska grundserie.
 
 Åtgärd:
 
-- ersätt global `is_active` med exempelvis `is_current_by_league`
-- eller kräv `league/use_case` i default lookup
-- säkerställ att exakt en default-säsong finns per produktkontrakt
+- ersätt på sikt global `is_active` med exempelvis `is_current_by_league`
+- kräv `league/use_case` där produktkontraktet inte har en naturlig SHL-default
+- verifiera säsongskartan automatiskt mot Swehockeys säsongsväljare
 
 ### Modellkod i request-path
 
