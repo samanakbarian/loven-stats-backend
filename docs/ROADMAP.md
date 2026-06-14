@@ -123,12 +123,12 @@ Leverabler:
 
 ## Nästa konkreta backlog
 
-1. Driftsätt den nya Swehockey-funktionen och kör ett schemalagt smoketest.
+1. Kör dbt i CI/dbt Cloud efter godkänd Swehockey-ingestion.
 2. Verifiera historisk datatäckning och slutför saknade backfill-körningar.
 3. Lägg volymavvikelse, freshness-larm och domänspecifika kvalitetskontroller.
 4. Uppdatera kontrakttester till nuvarande analytics-schema och rensa
    diagnostik-/engångsskript från produktionsroten.
-5. Kör och verifiera dbt-modeller mot skarpa råkällor.
+5. Inför samma `run_id`- och kvalitetskontrakt i historisk backfill.
 6. Migrera latest-snapshot och prioriterade endpoints till `serving_*`.
 7. Konsolidera `GET /api/v1/current-state` och `GET /api/v1/lovenlaget`.
 8. Extrahera SHL projection v0 till ett versionerat modelljobb och modellregister.

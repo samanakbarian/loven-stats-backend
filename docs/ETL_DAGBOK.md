@@ -79,3 +79,20 @@ publiceras.
 3. Lägg deploy-/smoketest för Cloud Function.
 4. Kör dbt i CI eller dbt Cloud efter godkänd ingestion.
 5. Migrera statistics till en serving-vy baserad på godkända runs.
+
+### Produktionsdeploy
+
+- Driftsatte Cloud Function Gen2-revision
+  `swehockey-stats-scraper-00011-hot` i `europe-west1`.
+- Verifierade miljövariabler för projekt, bucket, ops-dataset, region och
+  fallback-säsong.
+- Direkt produktionsanrop skapade run
+  `57cdb2cb-18ae-4418-8f61-32d66341a67f` med `SUCCESS`, 756 laddade rader och
+  0 fel.
+- Manuellt scheduler-anrop skapade run
+  `f8cd16d5-70a1-4bdc-866d-53b56fa82467` med `SUCCESS`, 756 laddade rader och
+  0 fel.
+- Cloud Run-loggar visar HTTP 200 för båda anropen.
+- Schedulerstatus är tom/grön efter det manuella anropet; tidigare `code 14`
+  är borta.
+- Kvar: köra dbt i CI/dbt Cloud och lägga larm på stale eller fastnade runs.

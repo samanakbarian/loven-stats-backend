@@ -16,13 +16,17 @@ Datatyper:
 - tabellställning
 - matchschema
 
-Scrapern kör defensivt per datatyp (try/except per del), så fel i en del blockerar inte övriga.
+Scrapern hämtar först samtliga datatyper, kör kvalitetskontroller och publicerar
+sedan endast om hela den kritiska kvalitetsgrinden passerar.
 
 ## GCS raw output
 
 Path:
 
-- `raw/web_scrapers/shl_stats/<YYYYMMDD_HHMMSS>_<typ>.json`
+- `raw/web_scrapers/swehockey/<datum>/<run_id>/<season_group_id>/<typ>.json`
+
+Objekten är immutable per körning och innehåller `run_id`, källa, käll-URL,
+säsongsgrupp och `scraped_at`.
 
 ## BigQuery raw tables
 
@@ -41,8 +45,15 @@ Write mode:
 
 Metadata per rad:
 
+- `run_id`
 - `scraped_at` (TIMESTAMP)
 - `source = "swehockey"`
+- `source_url`
+
+Kör- och kvalitetsmetadata lagras i:
+
+- `raw_ops.ingestion_runs`
+- `raw_ops.data_quality_runs`
 
 ## Deploy (Cloud Functions Gen2)
 
@@ -75,13 +86,16 @@ gcloud scheduler jobs create http swehockey-stats-scraper-job \
 
 Staging:
 
+- `stg_successful_ingestion_runs`
 - `stg_swehockey_player_stats`
 - `stg_swehockey_goalie_stats`
 - `stg_swehockey_standings`
+- `stg_swehockey_schedule`
 
 Source + freshness/tests:
 
-- `models/staging/core/schema_swehockey.yml`
+- `models/staging/core/_core_sources.yml`
+- `models/staging/core/schema_ops.yml`
 
 Freshness:
 
@@ -94,14 +108,16 @@ Facts integration:
 - `stg_swehockey_goalie_stats` -> `fact_goalie_game_stats`
 - `stg_swehockey_standings` -> `fact_team_standings_snapshot`
 
-## Driftstatus 2026-05-17
+## Driftstatus 2026-06-14
 
-- Deployad i `europe-west1`
+- Deployad Gen2-revision: `swehockey-stats-scraper-00011-hot`
+- Region: `europe-west1`
 - Scheduler-jobb aktivt: `swehockey-stats-scraper-job`
-- Manuell verifiering körd:
-  - spelare: 75 rader per körning
-  - målvakter: 45 rader per körning
-  - tabell: 70 rader per körning
-  - schema: 59 rader per körning
-
-Not: Swehockey-sidorna är inte stabila för team-specifika URL:er i alla säsongsgrupper. Scrapern använder därför robust fallback mot ligatabeller och filtrerar på team-tokens när möjligt.
+- Direkt produktionsanrop: HTTP 200, 756 laddade rader, 0 fel.
+- Manuellt scheduler-anrop: HTTP 200, 756 laddade rader, 0 fel.
+- Aktiva ingestion-grupper:
+  - SHL 2026/27: `20961`
+  - HockeyAllsvenskan 2026/27: `20962`
+- Spelar- och målvaktsstatistik är ännu tom före säsongsstart och loggas därför
+  som `WARNING`, inte som blockerande fel.
+- Tabell och schema passerar kritiska kontroller.
