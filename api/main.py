@@ -927,7 +927,7 @@ def get_onice(season: str = None, refresh: bool = False):
         # inte star dar skulle annars bli ett namnlost nummer i tabellen.
         for r in bq.query(
             f"""
-            SELECT a.player_name, a.jersey_number, a.position
+            SELECT a.player_name, a.jersey_number, a.position, a.games_played
             FROM `{bq.project}.raw_sports.swehockey_player_stats` a
             INNER JOIN (
                 SELECT MAX(scraped_at) AS max_s
@@ -936,6 +936,10 @@ def get_onice(season: str = None, refresh: bool = False):
             ) b ON a.scraped_at = b.max_s
             WHERE a.season_group_id = {regular_id}
               AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+            -- Tva spelare kan bara samma nummer under en sasong: Lundin och
+            -- malvakten Salasca Naas har bada 33. Den som spelat flest matcher
+            -- far numret, annars skrev en inhoppare over ordinarien.
+            ORDER BY a.games_played DESC
             """
         ).result():
             d = dict(r.items())
@@ -951,12 +955,14 @@ def get_onice(season: str = None, refresh: bool = False):
         # luckorna — annars blev nummer 77 en namnlos rad.
         for r in bq.query(
             f"""
-            SELECT DISTINCT e.player_number, e.player_name
+            SELECT e.player_number, e.player_name, COUNT(*) AS n
             FROM `{bq.project}.raw_sports.swehockey_game_events` e
             WHERE e.season_group_id IN ({season_ids})
               AND e.player_number IS NOT NULL
               AND e.player_name IS NOT NULL
               AND (LOWER(e.team_code) LIKE '%ifb%' OR LOWER(e.team_code) LIKE '%rkl%')
+            GROUP BY e.player_number, e.player_name
+            ORDER BY n DESC
             """
         ).result():
             d = dict(r.items())
@@ -1015,7 +1021,7 @@ def get_onice(season: str = None, refresh: bool = False):
         official: dict[int, int] = {}
         for r in bq.query(
             f"""
-            SELECT a.jersey_number, a.plus_minus
+            SELECT a.jersey_number, a.plus_minus, a.games_played
             FROM `{bq.project}.raw_sports.swehockey_player_stats` a
             INNER JOIN (
                 SELECT MAX(scraped_at) AS max_s
@@ -1024,11 +1030,15 @@ def get_onice(season: str = None, refresh: bool = False):
             ) b ON a.scraped_at = b.max_s
             WHERE a.season_group_id = {regular_id}
               AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+            -- Samma nummerkrock som ovan: Lundins +25 skrevs over av
+            -- reservmalvaktens 0 eftersom bada bar 33.
+            ORDER BY a.games_played DESC
             """
         ).result():
             d = dict(r.items())
-            if d.get("jersey_number") is not None:
-                official[int(d["jersey_number"])] = int(d.get("plus_minus") or 0)
+            num = d.get("jersey_number")
+            if num is not None and int(num) not in official:
+                official[int(num)] = int(d.get("plus_minus") or 0)
 
         players = []
         for num, slot in stats.items():
