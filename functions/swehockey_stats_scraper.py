@@ -313,7 +313,8 @@ def _extract_schedule_rows(html: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for tr in table.select("tr"):
         cells = tr.select("th,td")
-        if len(cells) < 8:
+        # Grundserien har atta kolumner, slutspelet sju.
+        if len(cells) < 7:
             continue
         texts = [_clean(c.get_text(" ", strip=True)) for c in cells]
 
@@ -426,6 +427,14 @@ def _fetch_roster(season_group_id: str) -> tuple[list[dict[str, Any]], str | Non
 
 
 def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Spelschema for grundserie och slutspel.
+
+    De tva sidorna har olika kolumnuppsattning: grundserien har atta kolumner
+    med separat tidskolumn, slutspelet sju dar forsta cellen ar omgang. Kolumnen
+    med motet hittas darfor pa innehall — cellen som innehaller " - " mellan tva
+    lagnamn — och ovriga falt las relativt den, eftersom ordningen efter motet
+    ar densamma i bada layouterna.
+    """
     url = f"{BASE_URL}/ScheduleAndResults/Schedule/{season_group_id}"
     html = _fetch_html(url)
     if not html:
@@ -435,33 +444,62 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
     if not rows:
         return [], None
 
+    # "IF Bjorkloven - IK Oskarshamn Kvartsfinal 1" -> bortalaget utan rundnamn
+    stage_re = re.compile(
+        r"\s+((?:\u00c5ttondels|Kvarts|Semi|Kval|Slut)?final(?:\s*\d+)?)\s*$",
+        re.IGNORECASE,
+    )
+
     out: list[dict[str, Any]] = []
     current_date = ""
     for row in rows:
         cells = row["cells"]
 
-        # Datumet står bara på dagens första match; efterföljande rader ärver det.
-        date_match = re.search(r"\d{4}-\d{2}-\d{2}", cells[0])
-        if date_match:
-            current_date = date_match.group(0)
-        elif len(cells) > 1:
-            alt = re.search(r"\d{4}-\d{2}-\d{2}", cells[1])
-            if alt:
-                current_date = alt.group(0)
+        # Datumet star bara pa dagens forsta match; efterfoljande rader arver det.
+        for c in cells[:3]:
+            m = re.search(r"\d{4}-\d{2}-\d{2}", c)
+            if m:
+                current_date = m.group(0)
+                break
         if not current_date:
             continue
 
-        game_str = cells[3]
-        if " - " not in game_str:
+        gi = next(
+            (
+                i
+                for i, c in enumerate(cells)
+                if " - " in c and re.search(r"[A-Za-z\u00c5\u00c4\u00d6\u00e5\u00e4\u00f6]", c)
+            ),
+            None,
+        )
+        if gi is None:
             continue
-        home_team, away_team = game_str.split(" - ", 1)
+
+        home_team, away_team = cells[gi].split(" - ", 1)
         home_team = _clean(home_team)
-        away_team = _clean(away_team)
+        stage_match = stage_re.search(away_team)
+        stage = _clean(stage_match.group(1)) if stage_match else None
+        away_team = _clean(stage_re.sub("", away_team))
         if not home_team or not away_team or len(home_team) > 100 or len(away_team) > 100:
             continue
 
-        result_str = _clean(cells[4])
-        spectators_raw = _clean(cells[6]).replace(" ", "")
+        def cell(offset: int) -> str:
+            idx = gi + offset
+            return _clean(cells[idx]) if idx < len(cells) else ""
+
+        result_str = cell(1)
+        periods = cell(2)
+        spectators_raw = cell(3).replace(" ", "").replace("\u00a0", "")
+        venue = cell(4)
+
+        # Tiden star i en egen cell i grundserien och tillsammans med datumet
+        # i slutspelet.
+        time_str = ""
+        for c in cells[:gi]:
+            m = re.search(r"\b(\d{1,2}:\d{2})\b", c)
+            if m:
+                time_str = m.group(1)
+                break
 
         out.append(
             {
@@ -469,21 +507,21 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
                 "team_id": SWEHOCKEY_TEAM_ID,
                 "game_id": row["game_id"],
                 "match_date": current_date,
-                "match_time": _clean(cells[2]),
+                "match_time": time_str,
                 "home_team": home_team,
                 "away_team": away_team,
                 "result": result_str,
                 "status": result_str,
-                "period_results": _clean(cells[5]) or None,
+                "period_results": periods if periods.startswith("(") else None,
                 "spectators": _safe_int(spectators_raw) if spectators_raw.isdigit() else None,
-                "venue": _clean(cells[7]) or None,
+                "venue": venue or None,
+                "stage": stage,
             }
         )
 
     if not out:
         return [], None
 
-    # Deduplicera på game_id när det finns, annars på datum och lag.
     unique: dict[str, dict[str, Any]] = {}
     for r in out:
         key = str(r["game_id"]) if r.get("game_id") else f"{r['match_date']}_{r['home_team']}_{r['away_team']}"
@@ -589,7 +627,12 @@ def _append_bq_rows(
         item["source_url"] = source_url
         enriched.append(item)
 
-    job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+    # Nya falt tillkommer nar en parser borjar plocka mer ur kallan. Utan
+    # ALLOW_FIELD_ADDITION avvisar BigQuery hela laddningen med "no such field".
+    job_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
+    )
     job = client.load_table_from_json(enriched, table_id, job_config=job_config)
     job.result()
     logging.info("Loaded %d rows into %s", len(enriched), table_id)
@@ -698,7 +741,7 @@ def run_swehockey_stats_scraper(request):
             # slutspelsgrupper har ingen PlayersByTeam-sida alls, och Swehockey
             # visar bara lag vars klubb hunnit registrera sin trupp.
             allow_preseason_empty = (
-                data_type == "roster"
+                data_type in {"roster", "standings"}
                 or (
                     data_type in {"player_stats", "goalie_stats"}
                     and not season_has_games.get(season_group_id, False)
