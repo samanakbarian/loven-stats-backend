@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+
+import eliteprospects
 import requests
 import unicodedata
 from fastapi import FastAPI, Query
@@ -565,6 +567,13 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
                 }
             )
 
+        # Direktlank till varje spelares EP-sida. Uppslaget cachas bade i
+        # minnet och i BigQuery, sa det kostar nagot enstaka anrop per sasong.
+        for name, link in eliteprospects.links_for(players, bq=bq).items():
+            for pl in players:
+                if pl["name"] == name:
+                    pl["eliteprospects"] = link
+
         scraped = max((str(r.get("scraped_at")) for r in rows if r.get("scraped_at")), default=None)
 
         return {
@@ -660,6 +669,11 @@ def get_players(season: str = None, refresh: bool = False):
                 }
             )
 
+        for name, link in eliteprospects.links_for(players, bq=bq).items():
+            for pl in players:
+                if pl["name"] == name:
+                    pl["eliteprospects"] = link
+
         return {
             "status": "ok",
             "season": active["name"],
@@ -705,17 +719,45 @@ def get_player(name: str, season: str = None, refresh: bool = False):
         if not me:
             return {"status": "not_found", "name": name, "error": "Spelaren finns inte i truppens statistik."}
 
+        season_ids = ",".join(
+            str(sid) for sid in {regular_id, active.get("playoff")} if sid
+        )
+
+        # Bada tabellerna ar append-only: varje skorning lagger till en ny
+        # uppsattning rader. Utan att forst valja den senaste korningen per
+        # match multipliceras varje mal med antalet skorningar, och en spelares
+        # poangkurva vaxer for varje gang scrapern kors.
         events = [
             dict(r.items())
             for r in bq.query(
                 f"""
-                SELECT e.game_id, e.time, e.period, e.player_name,
-                       e.assist1_name, e.assist2_name, e.is_power_play,
+                WITH sched AS (
+                    SELECT a.game_id, a.match_date, a.home_team, a.away_team, a.result
+                    FROM `{bq.project}.raw_sports.swehockey_schedule` a
+                    INNER JOIN (
+                        SELECT game_id, MAX(scraped_at) AS max_s
+                        FROM `{bq.project}.raw_sports.swehockey_schedule`
+                        WHERE season_group_id IN ({season_ids}) AND game_id IS NOT NULL
+                        GROUP BY game_id
+                    ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
+                    WHERE a.season_group_id IN ({season_ids}) AND a.game_id IS NOT NULL
+                ),
+                ev AS (
+                    SELECT e.*
+                    FROM `{bq.project}.raw_sports.swehockey_game_events` e
+                    INNER JOIN (
+                        SELECT game_id, MAX(scraped_at) AS max_s
+                        FROM `{bq.project}.raw_sports.swehockey_game_events`
+                        GROUP BY game_id
+                    ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
+                    WHERE e.event_type = 'goal'
+                )
+                SELECT ev.game_id, ev.time, ev.period, ev.player_name,
+                       ev.assist1_name, ev.assist2_name,
                        s.match_date, s.home_team, s.away_team, s.result
-                FROM `{bq.project}.raw_sports.swehockey_game_events` e
-                LEFT JOIN `{bq.project}.raw_sports.swehockey_schedule` s
-                  ON e.game_id = s.game_id
-                WHERE e.event_type = 'goal'
+                -- INNER JOIN mot det sasongsfiltrerade schemat haller
+                -- kurvan inom vald sasong.
+                FROM ev INNER JOIN sched s ON ev.game_id = s.game_id
                 ORDER BY s.match_date
                 """
             ).result()
