@@ -27,7 +27,28 @@ fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$1"; exit 1; }
 command -v gcloud >/dev/null || fail "gcloud saknas. Kör från Cloud Shell."
 gcloud config set project "$PROJECT_ID" --quiet >/dev/null
 
-say "Projekt: $PROJECT_ID · Region: $REGION · Mål: $TARGET"
+# Cloud Shell tappar ibland vilket konto som är aktivt när sessionen startas
+# om. Inloggningen finns oftast kvar — bara markeringen av vilket konto som
+# gäller är borta. Att sätta tillbaka den här sparar en runda, i stället för
+# att felet dyker upp först flera minuter in i en deploy.
+ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1)
+if [[ -z "$ACCOUNT" ]]; then
+  KNOWN=$(gcloud auth list --format='value(account)' 2>/dev/null | head -1)
+  if [[ -n "$KNOWN" ]]; then
+    say "Ingen aktiv inloggning — återställer $KNOWN"
+    gcloud config set account "$KNOWN" --quiet >/dev/null
+    ACCOUNT="$KNOWN"
+  fi
+fi
+if [[ -z "$ACCOUNT" ]]; then
+  fail "Cloud Shell har ingen inloggning kvar. Kör:
+
+  gcloud auth login --no-launch-browser
+
+och sedan samma kommando igen."
+fi
+
+say "Projekt: $PROJECT_ID · Region: $REGION · Mål: $TARGET · Konto: $ACCOUNT"
 
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   say "Deployar API:t till Cloud Run"
