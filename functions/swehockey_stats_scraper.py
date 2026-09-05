@@ -773,13 +773,28 @@ def _ensure_columns(client: bigquery.Client, table_id: str, rows: list[dict[str,
     many errors". Med kolumnerna pa plats i forvag och ett explicit schema
     behovs ingen gissning.
 
-    Returnerar tabellens schema, eller None om tabellen inte finns an — da
-    skapar laddningen den sjalv.
+    Returnerar ett schema att ladda med. Nar tabellen inte finns byggs det ur
+    raderna i stallet for att lamnas at BigQuerys autodetektering: den gissar
+    typerna ur just den satsen, och en strang som "05:07" kan da bli en
+    TIME-kolumn. Gissningen sitter kvar for all framtid, sa den ar inte vard
+    att ta nar vi redan vet vad falten ar.
     """
     try:
         table = client.get_table(table_id)
     except NotFound:
-        return None
+        fields: dict[str, str] = {}
+        for row in rows:
+            for key, value in row.items():
+                if value is None or key in fields:
+                    continue
+                fields[key] = _bq_type_for(value)
+        if not fields:
+            return None
+        # Harstamningsfalten ar tidsstamplar i ovriga tabeller och ska vara det
+        # har ocksa, sa dedupliceringen pa MAX(scraped_at) beter sig likadant.
+        fields["scraped_at"] = "TIMESTAMP"
+        logging.info("Skapar %s med %s kolumner", table_id, len(fields))
+        return [bigquery.SchemaField(name, kind) for name, kind in sorted(fields.items())]
 
     existing = {f.name for f in table.schema}
     missing: dict[str, str] = {}
