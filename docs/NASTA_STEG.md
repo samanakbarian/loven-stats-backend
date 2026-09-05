@@ -4,7 +4,7 @@ Uppdaterad 2026-09-05.
 
 ## Var vi står
 
-Frontend är live. Backend har en deploy som väntar.
+Frontend och backend är båda live. Inget väntar på deploy.
 
 Allt är pushat: `slutspel` på `main` (Netlify bygger automatiskt),
 `loven-stats-backend` på `master` (deployas manuellt).
