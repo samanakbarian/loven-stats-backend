@@ -596,6 +596,51 @@ def _ensure_dataset(client: bigquery.Client, dataset_id: str):
     client.create_dataset(ds_ref, exists_ok=True)
 
 
+def _bq_type_for(value: Any) -> str:
+    if isinstance(value, bool):
+        return "BOOL"
+    if isinstance(value, int):
+        return "INT64"
+    if isinstance(value, float):
+        return "FLOAT64"
+    return "STRING"
+
+
+def _ensure_columns(client: bigquery.Client, table_id: str, rows: list[dict[str, Any]]):
+    """Lagg till kolumner som finns i raderna men inte i tabellen.
+
+    Laddningen anvande tidigare autodetektering av schema. Det fungerar tills en
+    parser borjar plocka ett nytt falt: BigQuery gissar da om typerna utifran
+    just den satsen och avvisar hela laddningen med "JSON table encountered too
+    many errors". Med kolumnerna pa plats i forvag och ett explicit schema
+    behovs ingen gissning.
+
+    Returnerar tabellens schema, eller None om tabellen inte finns an — da
+    skapar laddningen den sjalv.
+    """
+    try:
+        table = client.get_table(table_id)
+    except NotFound:
+        return None
+
+    existing = {f.name for f in table.schema}
+    missing: dict[str, str] = {}
+    for row in rows:
+        for key, value in row.items():
+            if key in existing or key in missing or value is None:
+                continue
+            missing[key] = _bq_type_for(value)
+
+    if missing:
+        logging.info("Utokar %s med %s", table_id, ", ".join(sorted(missing)))
+        table.schema = list(table.schema) + [
+            bigquery.SchemaField(name, kind) for name, kind in missing.items()
+        ]
+        table = client.update_table(table, ["schema"])
+
+    return table.schema
+
+
 def _append_bq_rows(
     client: bigquery.Client,
     table_name: str,
@@ -609,15 +654,6 @@ def _append_bq_rows(
     if not rows:
         return 0
 
-    # ensure_lineage_columns hamtar tabellen och kastar NotFound om den inte
-    # finns. En ny datatyp har ingen tabell forsta gangen, och eftersom
-    # laddningen sker i en gemensam loop avbrot det aven ovriga datatyper.
-    # load_table_from_json skapar tabellen sjalv, med lineage-kolumnerna
-    # harledda ur raderna, sa den forsta korningen behover inget forarbete.
-    try:
-        ensure_lineage_columns(client, table_id)
-    except NotFound:
-        logging.info("Tabellen %s finns inte an och skapas av laddningen", table_id)
     enriched = []
     for row in rows:
         item = dict(row)
@@ -627,14 +663,39 @@ def _append_bq_rows(
         item["source_url"] = source_url
         enriched.append(item)
 
-    # Nya falt tillkommer nar en parser borjar plocka mer ur kallan. Utan
-    # ALLOW_FIELD_ADDITION avvisar BigQuery hela laddningen med "no such field".
+    # ensure_lineage_columns kastar NotFound nar tabellen inte finns an. En ny
+    # datatyp har ingen tabell forsta gangen, och laddningen skapar den sjalv.
+    try:
+        ensure_lineage_columns(client, table_id)
+    except NotFound:
+        logging.info("Tabellen %s finns inte an och skapas av laddningen", table_id)
+
+    schema = _ensure_columns(client, table_id, enriched)
+
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
         schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
+    if schema:
+        # Explicit schema i stallet for autodetektering: falt mappas pa namn och
+        # typerna kommer fran tabellen, inte fran den har satsen.
+        job_config.schema = schema
+
     job = client.load_table_from_json(enriched, table_id, job_config=job_config)
-    job.result()
+    try:
+        job.result()
+    except Exception as exc:
+        # Toppnivafelet sager bara "too many errors". Radfelen bakom ar det som
+        # faktiskt pekar ut vilket falt som inte gick att lasa.
+        details = []
+        for err in (job.errors or [])[:3]:
+            logging.error("BigQuery-fel for %s: %s", table_name, err)
+            msg = err.get("message") if isinstance(err, dict) else str(err)
+            if msg:
+                details.append(msg)
+        if details:
+            raise RuntimeError(f"{exc} | {' | '.join(details)}") from exc
+        raise
     logging.info("Loaded %d rows into %s", len(enriched), table_id)
     return len(enriched)
 
@@ -820,7 +881,7 @@ def run_swehockey_stats_scraper(request):
                     "Kunde inte ladda %s for sasong %s", data_type, season_group_id
                 )
                 result["types"][data_type]["ok"] = False
-                result["types"][data_type]["error"] = str(load_err)[:200]
+                result["types"][data_type]["error"] = str(load_err)[:400]
                 failed_steps += 1
                 loaded = 0
             loaded_rows += loaded
