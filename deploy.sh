@@ -27,10 +27,14 @@ fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$1"; exit 1; }
 command -v gcloud >/dev/null || fail "gcloud saknas. Kör från Cloud Shell."
 gcloud config set project "$PROJECT_ID" --quiet >/dev/null
 
-# Cloud Shell tappar ibland vilket konto som är aktivt när sessionen startas
-# om. Inloggningen finns oftast kvar — bara markeringen av vilket konto som
-# gäller är borta. Att sätta tillbaka den här sparar en runda, i stället för
-# att felet dyker upp först flera minuter in i en deploy.
+# Cloud Shell tappar ibland vilket konto som är markerat som aktivt när
+# sessionen startas om, och gcloud faller da pa "no active account selected".
+# Finns det ett kant konto satts det tillbaka har.
+#
+# En tom `gcloud auth list` betyder daremot inte att inloggningen ar borta:
+# Cloud Shell autentiserar via sin egen kanal och svarar sjalv "you are
+# already authenticated" om man forsoker logga in. Darfor varnar vi bara och
+# later kommandot sjalvt avgora — annars stoppas en deploy som hade gatt bra.
 ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1)
 if [[ -z "$ACCOUNT" ]]; then
   KNOWN=$(gcloud auth list --format='value(account)' 2>/dev/null | head -1)
@@ -40,15 +44,19 @@ if [[ -z "$ACCOUNT" ]]; then
     ACCOUNT="$KNOWN"
   fi
 fi
-if [[ -z "$ACCOUNT" ]]; then
-  fail "Cloud Shell har ingen inloggning kvar. Kör:
 
-  gcloud auth login --no-launch-browser
+say "Projekt: $PROJECT_ID · Region: $REGION · Mål: $TARGET · Konto: ${ACCOUNT:-okänt}"
 
-och sedan samma kommando igen."
+# Nar gcloud inte kommer at nagon inloggning ar felet detsamma oavsett
+# kommando, och det dyker upp forst efter att bygget har startat. Den har
+# raden kostar en sekund och sager direkt vad som galler.
+if ! gcloud projects describe "$PROJECT_ID" --format='value(projectId)' >/dev/null 2>&1; then
+  fail "gcloud kommer inte åt projektet. Vanligast är att Cloud Shell tappat
+sin inloggning när sessionen startades om. Starta om Cloud Shell (menyn uppe
+till höger → Restart) och kör samma kommando igen. Hjälper inte det:
+
+  gcloud auth login"
 fi
-
-say "Projekt: $PROJECT_ID · Region: $REGION · Mål: $TARGET · Konto: $ACCOUNT"
 
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   say "Deployar API:t till Cloud Run"
