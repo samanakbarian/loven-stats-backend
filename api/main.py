@@ -87,7 +87,13 @@ def cached_ok(cache):
             # vilket ar en evighet direkt efter en scraperkorning: modulerna
             # rakans om, men API:t fortsatter servera de gamla nollorna.
             force = bool(kwargs.pop("refresh", False))
-            key = hashkey(*args, **kwargs)
+            # Funktionens namn maste inga i nyckeln. Flera endpoints delar
+            # samma cache och anropas med samma argument — get_standings,
+            # get_statistics och get_players tar alla bara `season` — sa utan
+            # namnet far de identisk nyckel och skriver over varandra. Den som
+            # kordes forst serverades sedan for alla tre, och /api/v1/standings
+            # kunde svara med spelarlistan.
+            key = hashkey(fn.__qualname__, *args, **kwargs)
             if not force:
                 try:
                     return cache[key]
@@ -2551,7 +2557,10 @@ def load_recent_silly_snapshots(limit=5):
     return snapshots
 
 @app.get("/api/silly-season")
-@cached(cache=silly_cache)
+# Bada silly-endpointsen tar noll argument och delade cache. Med `@cached`
+# blir nyckeln hashkey() for bagge, sa de returnerade varandras svar.
+# cached_ok tar med funktionsnamnet i nyckeln.
+@cached_ok(cache=silly_cache)
 def get_silly_season():
     """
     HÃ¤mtar senaste scraper-datan frÃ¥n GCS och mergar med baseline.
@@ -2629,7 +2638,7 @@ def get_silly_season():
     return baseline
 
 @app.get("/api/silly-season/ops")
-@cached(cache=silly_cache)
+@cached_ok(cache=silly_cache)
 def get_silly_ops():
     """
     Intern driftvy fÃ¶r silly-pipeline.

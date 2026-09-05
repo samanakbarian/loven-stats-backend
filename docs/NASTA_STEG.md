@@ -118,21 +118,22 @@ använder därför `?force_refresh=true`.
 
 ## Kvarstående, oberoende av deployen
 
-1. **Rotera Sportradar-nyckeln.** Den låg hårdkodad i `functions/main.py`
-   och är borta ur koden, men finns kvar i git-historiken. Nyckeln måste
-   bytas hos Sportradar — att ta bort raden räcker inte.
-
-2. **Gör händelse-scrapern produktionsklar.**
+1. **Gör händelse-scrapern produktionsklar.**
    `slutspel/scrapers/swehockey/upload_game_events.py` droppar fortfarande
    tabellen vid varje körning. Den ska appenda som de andra, med
    avduplicering på senaste `scraped_at`.
 
-3. **Två spelare saknar EP-länk** i HA 25/26 — Theocharidis och Cairns.
+2. **Två spelare saknar EP-länk** i HA 25/26 — Theocharidis och Cairns.
    EP stavar deras namn annorlunda. Matchningen kräver att efternamn,
    förnamn och position stämmer innan den länkar direkt, och lämnar hellre
    en söklänk än en länk till fel spelare. Går att rätta för hand genom att
    lägga en rad i `raw_sports.eliteprospects_links` — senaste raden per
    `name_key` vinner.
+
+### Sportradar-nyckeln: avskriven
+
+Nyckeln som låg hårdkodad i `functions/main.py` var en gammal trial-nyckel
+utan värde. Den är borta ur koden och behöver inte roteras.
 
 ## Nästa gång
 
