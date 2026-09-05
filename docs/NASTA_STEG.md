@@ -138,6 +138,14 @@ X-flödet ger tweets igen. Värdena skrivs till en temporärfil och aldrig till
 terminalen. Variabler som hämtas ur Secret Manager kan inte återställas den
 vägen och listas separat.
 
+**Kört 2026-09-05.** Återställde tolv variabler från revision
+`loven-stats-api-00093-b7q`, däribland `X_BEARER_TOKEN` och `GEMINI_API_KEY`.
+X-flödet ger 30 inlägg igen.
+
+Svaret cachas en timme i en GCS-blobb, så direkt efter en återställning
+serveras fortfarande felet som skrevs medan tokenet saknades. Kontrollen
+använder därför `?force_refresh=true`.
+
 ## Kvarstående, oberoende av deployen
 
 1. **Rotera Sportradar-nyckeln.** Den låg hårdkodad i `functions/main.py`

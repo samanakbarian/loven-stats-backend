@@ -126,7 +126,10 @@ print(' '.join(e['name'] for e in env if e.get('value') is None))
   fi
   say "Återställt. Kontrollerar X-flödet"
   URL=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)')
-  curl -sS --max-time 90 "${URL}/api/v1/x-feed" 2>/dev/null | python3 -c "
+  # force_refresh kringgar den cachade blobben. Utan den serveras svaret som
+  # skrevs medan tokenet saknades, och en lyckad aterstallning ser ut att ha
+  # misslyckats i en timme till.
+  curl -sS --max-time 120 "${URL}/api/v1/x-feed?force_refresh=true" 2>/dev/null | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
