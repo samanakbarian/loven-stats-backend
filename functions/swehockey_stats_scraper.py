@@ -8,6 +8,7 @@ from typing import Any
 import functions_framework
 import requests
 from bs4 import BeautifulSoup
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud import storage
 
@@ -567,9 +568,18 @@ def _append_bq_rows(
     source_url: str | None,
 ):
     table_id = f"{client.project}.{BQ_DATASET}.{table_name}"
-    ensure_lineage_columns(client, table_id)
     if not rows:
         return 0
+
+    # ensure_lineage_columns hamtar tabellen och kastar NotFound om den inte
+    # finns. En ny datatyp har ingen tabell forsta gangen, och eftersom
+    # laddningen sker i en gemensam loop avbrot det aven ovriga datatyper.
+    # load_table_from_json skapar tabellen sjalv, med lineage-kolumnerna
+    # harledda ur raderna, sa den forsta korningen behover inget forarbete.
+    try:
+        ensure_lineage_columns(client, table_id)
+    except NotFound:
+        logging.info("Tabellen %s finns inte an och skapas av laddningen", table_id)
     enriched = []
     for row in rows:
         item = dict(row)
@@ -718,31 +728,46 @@ def run_swehockey_stats_scraper(request):
                 },
                 "rows": batch["rows"],
             }
-            _upload_raw_json(
-                payload,
-                run_id=run_id,
-                season_group_id=season_group_id,
-                data_type=data_type,
-                scraped_at=scraped_at,
-            )
-            loaded = _append_bq_rows(
-                bq_client,
-                batch["table_name"],
-                batch["rows"],
-                scraped_at=scraped_at,
-                run_id=run_id,
-                source_url=batch["source_url"],
-            )
+            # En felande datatyp far inte hindra ovriga fran att publiceras.
+            # Batcharna laddas i en gemensam loop, sa ett obehandlat fel i en
+            # av dem lamnade tidigare resten oladdade — och eftersom roster
+            # ligger sist blev halva schemat kvar i luften.
+            try:
+                _upload_raw_json(
+                    payload,
+                    run_id=run_id,
+                    season_group_id=season_group_id,
+                    data_type=data_type,
+                    scraped_at=scraped_at,
+                )
+                loaded = _append_bq_rows(
+                    bq_client,
+                    batch["table_name"],
+                    batch["rows"],
+                    scraped_at=scraped_at,
+                    run_id=run_id,
+                    source_url=batch["source_url"],
+                )
+            except Exception as load_err:
+                logging.exception(
+                    "Kunde inte ladda %s for sasong %s", data_type, season_group_id
+                )
+                result["types"][data_type]["ok"] = False
+                result["types"][data_type]["error"] = str(load_err)[:200]
+                failed_steps += 1
+                loaded = 0
             loaded_rows += loaded
             result["types"][data_type]["bq_loaded"] += loaded
 
-        result["status"] = "ok"
+        # Sag ifran nar bara delar av koringen gick igenom, i stallet for att
+        # rapportera ok och lata en tom tabell se ut som ett tomt resultat.
+        result["status"] = "ok" if not failed_steps else "partial"
         run_logger.finish_run(
             run_id=run_id,
-            status="SUCCESS",
+            status="SUCCESS" if not failed_steps else "PARTIAL",
             fetched_rows=fetched_rows,
             loaded_rows=loaded_rows,
-            failed_steps=0,
+            failed_steps=failed_steps,
             metadata={"types": result["types"]},
         )
         return json.dumps(result, ensure_ascii=False), 200, {"Content-Type": "application/json"}
