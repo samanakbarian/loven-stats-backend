@@ -51,17 +51,42 @@ if [[ "$TARGET" == "all" || "$TARGET" == "scraper" ]]; then
   # Utan en körning är de nya tabellerna tomma och endpointsen svarar
   # utan innehåll, vilket lätt förväxlas med ett fel.
   say "Kör scrapern så game_id och trupplistan fylls (tar ~1 min)"
-  gcloud scheduler jobs run swehockey-stats-scraper-job --location="$REGION" --quiet \
-    || echo "  (schemalagt jobb saknas — hoppar över, scrapern körs vid nästa schemalagda tillfälle)"
+  FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/swehockey-stats-scraper"
+  # Anropa funktionen direkt i stället för via schemaläggaren: då syns
+  # resultatet här, inklusive hur många rader varje datatyp laddade.
+  OUT=$(curl -sS --max-time 320 "$FN_URL" 2>/dev/null || echo '{}')
+  printf '%s' "$OUT" | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print('  kunde inte tolka svaret'); raise SystemExit
+print('  status:', d.get('status','?'))
+for k,v in (d.get('types') or {}).items():
+    mark='ok ' if v.get('ok') else 'FEL'
+    print(f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\")
+" || true
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   URL=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)')
   say "Kontrollerar $URL"
+  # API:t svarar 200 aven nar det misslyckats internt, med {"status":"error"}
+  # i kroppen. Kontrollera darfor innehallet, inte bara HTTP-koden.
+  PROBLEM=0
   for ep in /api/v1/health /api/v1/standings /api/v1/roster; do
-    CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "${URL}${ep}" || echo 000)
-    printf '  %-22s HTTP %s\n' "$ep" "$CODE"
+    BODY=$(curl -sS --max-time 90 "${URL}${ep}" 2>/dev/null || echo '{}')
+    CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "${URL}${ep}" 2>/dev/null || echo 000)
+    if [[ "$BODY" == *'"status": "error"'* || "$BODY" == *'"status":"error"'* ]]; then
+      REASON=$(printf '%s' "$BODY" | sed -n 's/.*"error": *"\([^"]\{0,110\}\).*/\1/p')
+      printf '  %-22s HTTP %s  \033[1;31mFEL\033[0m %s\n' "$ep" "$CODE" "$REASON"
+      PROBLEM=1
+    elif [[ "$CODE" != "200" ]]; then
+      printf '  %-22s HTTP %s  \033[1;31mmisslyckades\033[0m\n' "$ep" "$CODE"
+      PROBLEM=1
+    else
+      printf '  %-22s HTTP %s  ok\n' "$ep" "$CODE"
+    fi
   done
+  if [[ "$PROBLEM" == "1" ]]; then fail "Minst en endpoint svarar inte som den ska."; fi
 fi
 
 say "Klart"

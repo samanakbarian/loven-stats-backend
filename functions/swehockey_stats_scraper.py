@@ -659,9 +659,16 @@ def run_swehockey_stats_scraper(request):
         for batch in fetched_batches:
             data_type = batch["data_type"]
             season_group_id = batch["season_group_id"]
+            # Tomma snapshots ar vantade i vissa lagen och far inte falla hela
+            # koringen. Utover statistik fore seriestart galler det trupplistan:
+            # slutspelsgrupper har ingen PlayersByTeam-sida alls, och Swehockey
+            # visar bara lag vars klubb hunnit registrera sin trupp.
             allow_preseason_empty = (
-                data_type in {"player_stats", "goalie_stats"}
-                and not season_has_games.get(season_group_id, False)
+                data_type == "roster"
+                or (
+                    data_type in {"player_stats", "goalie_stats"}
+                    and not season_has_games.get(season_group_id, False)
+                )
             )
             checks = validate_rows(
                 batch["rows"],
