@@ -415,6 +415,138 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
 
 
 
+@app.get("/api/v1/roster")
+@cached(cache=stats_cache)
+def get_roster(season: str = None, team: str = "björklöven"):
+    """Truppen med Swehockey som sanningskalla.
+
+    Trupplistan lag tidigare bara i SILLY_SEASON_BASELINE, en handunderhallen
+    dict som slutade uppdateras 2026-06-13 och darmed missade sommarens
+    varvningar. Swehockeys PlayersByTeam listar hela den registrerade truppen
+    med trojnummer sa fort klubben anmalt den, och skrapas nu veckovis.
+
+    Kontraktsuppgifterna (status, kontraktslangd, alder) finns bara i den
+    manuella listan och laggs pa som berikning dar namnen matchar. Saknas de
+    visas spelaren anda — truppen blir aldrig fel bara for att kontraktsdatan
+    slapar efter.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        season_ids = [sid for sid in [active["regular"], active.get("playoff")] if sid]
+        if not season_ids:
+            return {"status": "error", "error": "Sasongen saknar id.", "players": []}
+
+        ids_csv = ",".join(str(s) for s in season_ids)
+        rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.*
+                FROM `{bq.project}.raw_sports.swehockey_roster` a
+                INNER JOIN (
+                    SELECT season_group_id, MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_roster`
+                    WHERE season_group_id IN ({ids_csv})
+                    GROUP BY season_group_id
+                ) b
+                  ON a.season_group_id = b.season_group_id
+                 AND a.scraped_at = b.max_s
+                WHERE a.season_group_id IN ({ids_csv})
+                  AND LOWER(a.team_name) LIKE @team
+                ORDER BY a.jersey_number
+                """,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("team", "STRING", f"%{team.lower()}%")
+                    ]
+                ),
+            ).result()
+        ]
+
+        def _key(name: str) -> str:
+            raw = str(name or "").strip().lower()
+            if "," in raw:
+                last, first = [p.strip() for p in raw.split(",", 1)]
+                raw = f"{first} {last}"
+            n = unicodedata.normalize("NFKD", raw)
+            n = "".join(ch for ch in n if not unicodedata.combining(ch))
+            return re.sub(r"[^a-z ]", "", n).strip()
+
+        def _display(name: str) -> str:
+            if "," in str(name or ""):
+                last, first = [p.strip() for p in str(name).split(",", 1)]
+                return f"{first} {last}"
+            return str(name or "").strip()
+
+        def _surname_initial(name: str) -> str:
+            """Efternamn + forsta bokstaven i fornamnet.
+
+            Reservnyckel nar exakt namnmatchning missar. Stavningen skiljer sig
+            mellan kallorna — "Chris DiDomenico" mot "Didomenico, Christopher",
+            "Lucas" mot "Lukas" — men efternamn plus initial ar unikt nog inom
+            en trupp pa 25 och ger inga felmatchningar i praktiken.
+            """
+            parts = _key(name).split()
+            if len(parts) < 2:
+                return ""
+            return f"{parts[-1]}|{parts[0][:1]}"
+
+        contracts = {}
+        contracts_loose = {}
+        for p in SILLY_SEASON_BASELINE.get("roster", []):
+            name = p.get("name", "")
+            contracts[_key(name)] = p
+            loose = _surname_initial(name)
+            if loose:
+                # Krockar lamnas utanfor hellre an att gissa fel.
+                contracts_loose[loose] = None if loose in contracts_loose else p
+
+        players = []
+        for r in rows:
+            raw_name = r.get("player_name", "")
+            c = contracts.get(_key(raw_name))
+            if c is None:
+                c = contracts_loose.get(_surname_initial(raw_name))
+            players.append(
+                {
+                    "name": _display(r.get("player_name")),
+                    "jersey_number": r.get("jersey_number"),
+                    "position": r.get("position"),
+                    "games_played": r.get("games_played", 0),
+                    "goals": r.get("goals", 0),
+                    "assists": r.get("assists", 0),
+                    "points": r.get("points", 0),
+                    "pim": r.get("pim", 0),
+                    "plus_minus": r.get("plus_minus", 0),
+                    # Berikning; None nar kontraktsdatan inte kanner spelaren.
+                    "status": (c or {}).get("status"),
+                    "contract_until": (c or {}).get("contractUntil"),
+                    "age": (c or {}).get("age"),
+                    "note": (c or {}).get("note"),
+                    "has_contract_info": bool(c),
+                }
+            )
+
+        scraped = max((str(r.get("scraped_at")) for r in rows if r.get("scraped_at")), default=None)
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "team": rows[0]["team_name"] if rows else None,
+            "count": len(players),
+            "source": "swehockey",
+            "roster_scraped_at": scraped,
+            "contract_data_updated": SILLY_SEASON_BASELINE.get("last_manual_update"),
+            "contract_matches": sum(1 for p in players if p["has_contract_info"]),
+            "players": players,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/roster")
+        return {"status": "error", "error": str(e), "players": []}
+
+
 @app.get("/api/v1/match/{game_id}")
 @cached(cache=stats_cache)
 def get_match(game_id: int):

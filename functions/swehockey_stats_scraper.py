@@ -332,6 +332,98 @@ def _extract_schedule_rows(html: str) -> list[dict[str, Any]]:
     return out
 
 
+def _collapse_repeated(text: str) -> str:
+    """Swehockey upprepar lagnamnet i varje rubrikcell.
+
+    "IF Bjorkloven IF Bjorkloven IF Bjorkloven IF Bjorkloven" -> "IF Bjorkloven".
+    Hittar kortaste ordsekvens som upprepad bygger hela strangen.
+    """
+    words = text.split()
+    n = len(words)
+    if n < 2:
+        return text.strip()
+    for size in range(1, n // 2 + 1):
+        if n % size:
+            continue
+        unit = words[:size]
+        if all(words[i:i + size] == unit for i in range(0, n, size)):
+            return " ".join(unit)
+    return text.strip()
+
+
+def _fetch_roster(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Hela den registrerade truppen per lag.
+
+    Kompletterar swehockey_player_stats, som bara innehaller spelare som
+    faktiskt spelat. PlayersByTeam listar hela truppen sa fort klubben
+    registrerat den, med trojnummer och position — vilket gor den till ratt
+    kalla for en trupplista fore och under sasongen.
+
+    Sidan innehaller alla lag i serien: en rubriktabell (tblBorderNoPad) med
+    lagnamnet foljd av en innehallstabell (tblContent) med spelarna.
+    """
+    url = f"{BASE_URL}/Teams/Info/PlayersByTeam/{season_group_id}"
+    html = _fetch_html(url)
+    if not html:
+        return [], None
+
+    soup = BeautifulSoup(html, "lxml")
+    tables = soup.select("table")
+    out: list[dict[str, Any]] = []
+
+    for i, table in enumerate(tables):
+        if "tblBorderNoPad" not in (table.get("class") or []):
+            continue
+        header_cell = table.select_one("td,th")
+        raw_header = _clean(header_cell.get_text(" ", strip=True)) if header_cell else ""
+        raw_header = re.sub(r"\s*\[Top\].*$", "", raw_header).strip()
+        team_name = _collapse_repeated(raw_header)
+        if not team_name:
+            continue
+        # Varje lag har tva block: utespelare och en separat malvaktstabell.
+        # Malvakterna finns redan i lagets huvudtabell med Pos=GK, sa
+        # malvaktsblocket ar en dubblett och inte ett lag.
+        if team_name.lower().startswith(("goalkeeping", "goaltending", "malvakt")):
+            continue
+
+        content = tables[i + 1] if i + 1 < len(tables) else None
+        if content is None or "tblContent" not in (content.get("class") or []):
+            continue
+
+        for tr in content.select("tr"):
+            cells = [_clean(c.get_text(" ", strip=True)) for c in tr.select("td,th")]
+            # Spelarrader har minst Rk, No, Name, Pos plus statistikkolumner.
+            if len(cells) < 8:
+                continue
+            number_raw, name, position = cells[1], cells[2], cells[3]
+            if not name or "," not in name:
+                continue
+            if name.lower() in ("name", "namn"):
+                continue
+
+            out.append(
+                {
+                    "season_group_id": int(season_group_id),
+                    "team_name": team_name,
+                    "player_name": name,
+                    "jersey_number": _safe_int(number_raw) if number_raw.isdigit() else None,
+                    "position": position,
+                    "games_played": _safe_int(cells[4]),
+                    "goals": _safe_int(cells[5]),
+                    "assists": _safe_int(cells[6]),
+                    "points": _safe_int(cells[7]),
+                    "pim": _safe_int(cells[8]) if len(cells) > 8 else 0,
+                    "plus_minus": _safe_int(cells[11]) if len(cells) > 11 else 0,
+                }
+            )
+
+    if not out:
+        return [], None
+
+    unique = {f"{r['season_group_id']}_{r['team_name']}_{r['player_name']}": r for r in out}
+    return list(unique.values()), url
+
+
 def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
     url = f"{BASE_URL}/ScheduleAndResults/Schedule/{season_group_id}"
     html = _fetch_html(url)
@@ -427,6 +519,13 @@ def _scrape_jobs():
             "table_name": "swehockey_schedule",
             "required_fields": ("season_group_id", "match_date", "home_team", "away_team"),
             "key_fields": ("season_group_id", "match_date", "home_team", "away_team"),
+        },
+        {
+            "data_type": "roster",
+            "fetcher": _fetch_roster,
+            "table_name": "swehockey_roster",
+            "required_fields": ("season_group_id", "team_name", "player_name"),
+            "key_fields": ("season_group_id", "team_name", "player_name"),
         },
     ]
 
