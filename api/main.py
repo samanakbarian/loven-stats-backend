@@ -130,8 +130,48 @@ def get_seasons():
         """
     ).result()]
     active = next((r["season_key"] for r in rows if r.get("is_active")), None)
+
+    # Flera sasonger finns bara som jamforelsedata for prognosmodellen och
+    # innehaller inga Bjorkloven-matcher alls. Utan den har flaggan hamnar de
+    # i frontendens sasongsvaljare och ser ut som valbara alternativ.
+    team_seasons: set = set()
+    try:
+        season_ids = {}
+        for r in rows:
+            for sid in (r.get("regular_season_id"), r.get("playoff_id")):
+                if sid:
+                    season_ids[int(sid)] = r["season_key"]
+        if season_ids:
+            ids_csv = ",".join(str(i) for i in season_ids)
+            hits = bq.query(
+                f"""
+                SELECT DISTINCT season_group_id
+                FROM `{bq.project}.raw_sports.swehockey_schedule`
+                WHERE season_group_id IN ({ids_csv})
+                  AND (LOWER(home_team) LIKE '%rkl%ven%' OR LOWER(away_team) LIKE '%rkl%ven%')
+                """
+            ).result()
+            for h in hits:
+                key = season_ids.get(int(h["season_group_id"]))
+                if key:
+                    team_seasons.add(key)
+    except Exception:
+        logging.exception("Kunde inte avgora vilka sasonger laget deltar i")
+        team_seasons = set()
+
     return {
-        "seasons": [{"key": r["season_key"], "name": r["season_name"], "is_active": r.get("is_active", False)} for r in rows],
+        "seasons": [
+            {
+                "key": r["season_key"],
+                "name": r["season_name"],
+                "league": r.get("league"),
+                "is_active": r.get("is_active", False),
+                # None nar kontrollen inte kunde koras, sa klienten kan skilja
+                # "vet inte" fran "laget spelar inte i denna sasong".
+                "has_team_data": (r["season_key"] in team_seasons) if team_seasons else None,
+            }
+            for r in rows
+        ],
         "active": active,
     }
 
