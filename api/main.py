@@ -584,6 +584,188 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
         return {"status": "error", "error": str(e), "players": []}
 
 
+@app.get("/api/v1/players")
+@cached_ok(cache=stats_cache)
+def get_players(season: str = None, refresh: bool = False):
+    """Lagets utespelare med percentil mot hela serien.
+
+    Percentilen kraver hela ligans fordelning — over 700 spelare — och den
+    berakningen hor hemma har, dar raderna redan finns i minnet, i stallet for
+    att skickas till klienten.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular_id = active["regular"]
+
+        rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.*
+                FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                    WHERE season_group_id = {regular_id}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {regular_id}
+                """
+            ).result()
+        ]
+
+        # Spelare med nagon enstaka match ger brus i fordelningen.
+        MIN_GP = 10
+        pool = [r for r in rows if int(r.get("games_played") or 0) >= MIN_GP]
+
+        def pct(field: str, value: float, higher_is_better: bool = True) -> int:
+            vals = [float(r.get(field) or 0) for r in pool]
+            if not vals:
+                return 0
+            below = sum(1 for v in vals if (v < value if higher_is_better else v > value))
+            return round(below / len(vals) * 100)
+
+        def is_bjk(code: str) -> bool:
+            return "ifb" in str(code or "").lower() or "rkl" in str(code or "").lower()
+
+        players = []
+        for r in sorted(rows, key=lambda x: int(x.get("points") or 0), reverse=True):
+            if not is_bjk(r.get("team_code")):
+                continue
+            gp = int(r.get("games_played") or 0)
+            pts = int(r.get("points") or 0)
+            players.append(
+                {
+                    "name": r.get("player_name"),
+                    "jersey_number": r.get("jersey_number"),
+                    "position": r.get("position"),
+                    "games_played": gp,
+                    "goals": int(r.get("goals") or 0),
+                    "assists": int(r.get("assists") or 0),
+                    "points": pts,
+                    "pim": int(r.get("pim") or 0),
+                    "plus_minus": int(r.get("plus_minus") or 0),
+                    "points_per_game": round(pts / gp, 2) if gp else 0,
+                    # Percentil mot alla i serien med minst MIN_GP matcher.
+                    "percentiles": None
+                    if gp < MIN_GP
+                    else {
+                        "points": pct("points", pts),
+                        "goals": pct("goals", int(r.get("goals") or 0)),
+                        "assists": pct("assists", int(r.get("assists") or 0)),
+                        "plus_minus": pct("plus_minus", int(r.get("plus_minus") or 0)),
+                        # Fa utvisningsminuter ar battre, sa skalan vands.
+                        "pim": pct("pim", int(r.get("pim") or 0), higher_is_better=False),
+                    },
+                }
+            )
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "league_players": len(rows),
+            "percentile_pool": len(pool),
+            "min_games_for_percentile": MIN_GP,
+            "count": len(players),
+            "players": players,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/players")
+        return {"status": "error", "error": str(e), "players": []}
+
+
+@app.get("/api/v1/player/{name}")
+@cached_ok(cache=stats_cache)
+def get_player(name: str, season: str = None, refresh: bool = False):
+    """En spelares sasong: totaler, percentil och poang match for match.
+
+    Swehockey publicerar ingen matchvis spelarstatistik, men malhandelserna
+    bar malskytt och bada assisten. Poangforloppet harleds darfor ur
+    swehockey_game_events, sammanslaget med schemat for datum och motstandare.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular_id = active["regular"]
+
+        def _key(n: str) -> str:
+            raw = str(n or "").strip().lower()
+            if "," in raw:
+                last, first = [p.strip() for p in raw.split(",", 1)]
+                raw = f"{first} {last}"
+            x = unicodedata.normalize("NFKD", raw)
+            x = "".join(c for c in x if not unicodedata.combining(c))
+            return re.sub(r"[^a-z ]", "", x).strip()
+
+        wanted = _key(name)
+
+        season_stats = get_players(season=season)
+        me = next((p for p in season_stats.get("players", []) if _key(p["name"]) == wanted), None)
+        if not me:
+            return {"status": "not_found", "name": name, "error": "Spelaren finns inte i truppens statistik."}
+
+        events = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT e.game_id, e.time, e.period, e.player_name,
+                       e.assist1_name, e.assist2_name, e.is_power_play,
+                       s.match_date, s.home_team, s.away_team, s.result
+                FROM `{bq.project}.raw_sports.swehockey_game_events` e
+                LEFT JOIN `{bq.project}.raw_sports.swehockey_schedule` s
+                  ON e.game_id = s.game_id
+                WHERE e.event_type = 'goal'
+                ORDER BY s.match_date
+                """
+            ).result()
+        ]
+
+        # En rad per match dar spelaren gjort mal eller assist.
+        per_game: dict[str, dict] = {}
+        for e in events:
+            scorer = _key(e.get("player_name"))
+            a1, a2 = _key(e.get("assist1_name")), _key(e.get("assist2_name"))
+            if wanted not in (scorer, a1, a2):
+                continue
+            gid = str(e.get("game_id"))
+            slot = per_game.setdefault(
+                gid,
+                {
+                    "game_id": e.get("game_id"),
+                    "date": str(e.get("match_date") or ""),
+                    "home_team": e.get("home_team"),
+                    "away_team": e.get("away_team"),
+                    "goals": 0,
+                    "assists": 0,
+                },
+            )
+            if wanted == scorer:
+                slot["goals"] += 1
+            else:
+                slot["assists"] += 1
+
+        log = sorted(per_game.values(), key=lambda g: g["date"])
+        running = 0
+        for g in log:
+            g["points"] = g["goals"] + g["assists"]
+            running += g["points"]
+            g["cumulative_points"] = running
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "player": me,
+            "games_with_points": len(log),
+            "points_from_events": running,
+            "game_log": log,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/player/%s", name)
+        return {"status": "error", "name": name, "error": str(e)}
+
+
 @app.get("/api/v1/match/{game_id}")
 @cached_ok(cache=stats_cache)
 def get_match(game_id: int):
