@@ -890,6 +890,10 @@ def get_onice(season: str = None, refresh: bool = False):
         ]
 
         # Trojnummer -> namn. Truppen har hela laget, aven spelare utan poang.
+        # Namn och tabellsiffror hamtas ur grundserien. Slutspelsgruppen har
+        # egna, mycket lagre plus/minus-varden, och kom de med skrevs
+        # grundseriens siffror over — Marcus Nilssons +30 blev +0.
+        regular_id = active["regular"]
         roster = [
             dict(r.items())
             for r in bq.query(
@@ -899,9 +903,9 @@ def get_onice(season: str = None, refresh: bool = False):
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
                     FROM `{bq.project}.raw_sports.swehockey_roster`
-                    WHERE season_group_id IN ({season_ids})
+                    WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
-                WHERE a.season_group_id IN ({season_ids})
+                WHERE a.season_group_id = {regular_id}
                 """
             ).result()
         ]
@@ -928,9 +932,9 @@ def get_onice(season: str = None, refresh: bool = False):
             INNER JOIN (
                 SELECT MAX(scraped_at) AS max_s
                 FROM `{bq.project}.raw_sports.swehockey_player_stats`
-                WHERE season_group_id IN ({season_ids})
+                WHERE season_group_id = {regular_id}
             ) b ON a.scraped_at = b.max_s
-            WHERE a.season_group_id IN ({season_ids})
+            WHERE a.season_group_id = {regular_id}
               AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
             """
         ).result():
@@ -941,6 +945,22 @@ def get_onice(season: str = None, refresh: bool = False):
             by_number.setdefault(
                 int(num), {"name": d.get("player_name"), "position": d.get("position")}
             )
+
+        # En spelare som bytt trojnummer under sasongen star i truppen bara
+        # under sitt nya. Handelserna bar bade nummer och namn, sa de fyller
+        # luckorna — annars blev nummer 77 en namnlos rad.
+        for r in bq.query(
+            f"""
+            SELECT DISTINCT e.player_number, e.player_name
+            FROM `{bq.project}.raw_sports.swehockey_game_events` e
+            WHERE e.season_group_id IN ({season_ids})
+              AND e.player_number IS NOT NULL
+              AND e.player_name IS NOT NULL
+              AND (LOWER(e.team_code) LIKE '%ifb%' OR LOWER(e.team_code) LIKE '%rkl%')
+            """
+        ).result():
+            d = dict(r.items())
+            by_number.setdefault(int(d["player_number"]), {"name": d.get("player_name"), "position": None})
 
         def _nums(value) -> list[int]:
             return [int(n) for n in re.findall(r"\d{1,2}", str(value or ""))]
@@ -1000,9 +1020,9 @@ def get_onice(season: str = None, refresh: bool = False):
             INNER JOIN (
                 SELECT MAX(scraped_at) AS max_s
                 FROM `{bq.project}.raw_sports.swehockey_player_stats`
-                WHERE season_group_id IN ({season_ids})
+                WHERE season_group_id = {regular_id}
             ) b ON a.scraped_at = b.max_s
-            WHERE a.season_group_id IN ({season_ids})
+            WHERE a.season_group_id = {regular_id}
               AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
             """
         ).result():
@@ -1019,7 +1039,7 @@ def get_onice(season: str = None, refresh: bool = False):
             players.append(
                 {
                     "jersey_number": num,
-                    "name": info.get("name"),
+                    "name": info.get("name") or f"#{num}",
                     "position": position or None,
                     "is_goalie": position.upper().startswith("G"),
                     **slot,
