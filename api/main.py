@@ -246,6 +246,12 @@ def clean_person(name) -> str:
     return text.strip().rstrip(",").strip()
 
 
+def _is_ours(team_code) -> bool:
+    """Bjorklovens lagkod i Swehockeys handelser ar IFB."""
+    low = str(team_code or "").lower()
+    return "ifb" in low or "rkl" in low or "kloven" in low or "klöven" in low
+
+
 def clean_penalty_type(detail) -> str:
     """'Crosschecking(10:07 - 12:07)' -> 'Crosschecking'.
 
@@ -1156,6 +1162,46 @@ def get_match(game_id: int):
             except Exception:
                 return 0.0
 
+        # Trojnummer -> namn for laget, sa on-ice-listorna gar att lasa.
+        # Handelserna bar bara nummer; utan uppslaget star det "6, 19, 28".
+        squad: dict[str, dict] = {}
+        season_gid = sched.get("season_group_id") or next(
+            (e.get("season_group_id") for e in events if e.get("season_group_id")), None
+        )
+        if season_gid:
+            try:
+                for r in bq.query(
+                    f"""
+                    SELECT a.player_name, a.jersey_number, a.position, a.games_played
+                    FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+                    INNER JOIN (
+                        SELECT MAX(scraped_at) AS max_s
+                        FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                        WHERE season_group_id = {int(season_gid)}
+                    ) b ON a.scraped_at = b.max_s
+                    WHERE a.season_group_id = {int(season_gid)}
+                      AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+                    -- Flest matcher vinner numret nar tva spelare delat det.
+                    ORDER BY a.games_played DESC
+                    """
+                ).result():
+                    d = dict(r.items())
+                    num = d.get("jersey_number")
+                    if num is None:
+                        continue
+                    squad.setdefault(
+                        str(int(num)),
+                        {"name": clean_person(d.get("player_name")), "position": d.get("position")},
+                    )
+            except Exception:
+                logging.warning("Kunde inte lasa truppen for match %s", game_id, exc_info=True)
+
+        # Spelare som bytt nummer under sasongen fangas av handelserna sjalva.
+        for e in events:
+            num, name = e.get("player_number"), clean_person(e.get("player_name"))
+            if num is not None and name and _is_ours(e.get("team_code")):
+                squad.setdefault(str(int(num)), {"name": name, "position": None})
+
         home = sched.get("home_team") or next((e.get("home_team") for e in events if e.get("home_team")), "")
         away = sched.get("away_team") or next((e.get("away_team") for e in events if e.get("away_team")), "")
 
@@ -1217,6 +1263,9 @@ def get_match(game_id: int):
             "venue": sched.get("venue"),
             "spectators": sched.get("spectators"),
             "team_codes": codes,
+            # Lagets trojnummer -> namn, sa on-ice-listorna gar att lasa som
+            # namn i stallet for siffror.
+            "squad": squad,
             "counts": {
                 "events": len(events),
                 "goals": len(goals),
