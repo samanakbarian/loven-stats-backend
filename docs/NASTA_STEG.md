@@ -1,141 +1,102 @@
 # Nästa steg
 
-Handoff efter sessionen 2026-09-05. Allt nedan är pushat; inget arbete
-ligger okommittat.
+Uppdaterad 2026-09-05.
 
-## Läget
+## Var vi står
 
-| | Status |
-|---|---|
-| Frontend (`slutspel`, gren `main`) | **Deployad och live** på viskauppigen.netlify.app |
-| Backend (`loven-stats-backend`, gren `master`) | Pushad men **inte deployad** |
+Frontend är live. Backend har en deploy som väntar.
 
-Frontend auto-deployar via Netlify vid push till `main`. Backend gör det
-inte än — se punkt 1.
+Allt är pushat: `slutspel` på `main` (Netlify bygger automatiskt),
+`loven-stats-backend` på `master` (deployas manuellt).
 
-## 1. Deploya backend — blockerar allt annat
+### Klart och ute
 
-Fyra saker väntar i `master` och syns inte i appen förrän API:t deployats:
+- **Statistiken ombyggd till tre ytor** — Laget, Spelare, Utveckling. De
+  gamla fem underflikarna är borta, inklusive dubbletten av Matcher och den
+  nästlade analysmodulen.
+- **Spelarprofiler** på `/statistik/spelare/:namn` med percentil mot serien,
+  poängkurva och matcherna med poäng, där varje match länkar till
+  matchrapporten.
+- **Huvudbundlen 697 kB → 295 kB** (206 → 90 kB gzippat). Recharts används
+  bara av analysmodulen och Ekonomi, som nu laddas lazy.
+- **Diagrammen** i `frontend_v2/src/components/charts/` är handritad SVG mot
+  temats tokens — inget diagrambibliotek i huvudvägen.
 
-- `GET /api/v1/match/{game_id}` — driver matchrapporten, som i dag alltid
-  visar fel eftersom endpointen inte finns
-- `GET /api/v1/standings` — utan den döljer Matcher-sidan tabellen helt
-- `has_team_data` i `/api/v1/seasons` — utan den listar säsongsväljaren
-  sju säsonger i stället för fyra
-- `game_id` i schemascrapern — **rotorsaken** till att all
-  händelsebaserad analys returnerar nollor
+### Klart men inte deployat
 
-### Om att deploya härifrån
+Kräver `bash deploy.sh api` i Cloud Shell:
 
-gcloud CLI **går** att installera i sessionen — nedladdningen är
-verifierad (86 MB, HTTP 200). Men det löser inte problemet:
+- `/api/v1/players` — truppens utespelare med percentil mot hela serien.
+- `/api/v1/player/{namn}` — en spelares säsong, poäng match för match.
+- **Direktlänkar till EliteProspects.** `api/eliteprospects.py` slår upp
+  spelarens EP-id via deras autocomplete och bygger `/player/{id}/{slug}`.
+  Cachas ett dygn i minnet och persisteras i
+  `raw_sports.eliteprospects_links`. Utfall mot skarp data: 25/25 för
+  truppen 26/27, 31/33 för HA 25/26.
 
-1. **Behörighet saknas, inte verktyg.** Ingen ADC, ingen nyckelfil, ingen
-   metadataserver. `CLOUDSDK_AUTH_ACCESS_TOKEN=proxy-injected` är en
-   platshållare från sandlådan.
-2. **Containern är flyktig.** Den återtas efter inaktivitet, så all
-   installation och inloggning måste göras om varje session.
+Frontend klarar sig utan dem: spelarytan faller tillbaka på poängligan från
+`/api/v1/statistics` när `/api/v1/players` svarar 404. Det är verifierat.
 
-Det finns ändå en fungerande väg om du vill deploya från sessionen:
+## Blockering: Cloud Shell har tappat sin gcloud-inloggning
 
-```bash
-# i sessionen
-curl -sSL https://sdk.cloud.google.com | bash && exec -l $SHELL
-gcloud auth login --no-launch-browser
-```
+`gcloud auth list` är tom i en ny session. `gcloud config set project`
+fungerar ändå, eftersom det bara är lokal konfiguration — därför syns felet
+först när en deploy startar.
 
-Det skriver ut en URL och väntar på en kod. Du öppnar URL:en, godkänner,
-klistrar tillbaka koden. Då kan vi köra deploy-kommandona direkt.
-Nackdelen är att det autentiserar som *dig*, med dina fulla rättigheter,
-och måste göras om varje gång.
+Att logga in från telefonen är svårt: sessionen startas om medan man är inne
+på verifieringslänken, och då är prompten borta.
 
-### Rekommenderat i stället: GitHub Actions
+### Att prova, i tur och ordning
 
-`.github/workflows/deploy.yml` finns redan och deployar både API och
-scraper vid push till `master`. Den behöver en engångsuppsättning —
-fyra `gcloud`-steg plus två GitHub-secrets, allt i `docs/DEPLOY.md`.
+1. **tmux**, så att prompten överlever att appen lämnas:
 
-Efter det deployar backend automatiskt, precis som frontend, och frågan
-om credentials i sessionen försvinner permanent.
+   ```
+   tmux new -s d
+   gcloud auth login --no-launch-browser
+   ```
 
-## 2. Rotera Sportradar-nyckeln
+   Gå ut, öppna länken, kopiera koden. Tillbaka i Cloud Shell:
+   `tmux attach -t d`, klistra in koden.
 
-`functions/main.py:15` hade en API-nyckel hårdkodad som default-värde.
-Borttagen ur koden, men **kvar i git-historiken**. Måste roteras hos
-Sportradar. Se avsnittet längst ned i `docs/DEPLOY.md`.
+2. **Från en dator** — `shell.cloud.google.com`, logga in en gång, kör
+   deployen. Enklast om en dator finns till hands.
 
-Överväg att avregistrera den i stället: Sportradar-flödet används inte av
-appen — koden pekar på `trial`-endpointen, är hårdkodad till HA 25/26 och
-skriver till GCS i stället för BigQuery.
+3. **Full hemkatalog** kan vara grundorsaken. Cloud Shells hemkatalog
+   ligger kvar mellan sessioner, och är den full går gcloud-konfigurationen
+   sönder permanent — då hjälper varken omstart eller inloggning förrän det
+   är rensat:
 
-## 3. Verifiera matchrapporten mot skarp data
+   ```
+   cd ~/lsb && git log --oneline -1 && gcloud auth list && df -h ~ | tail -1
+   ```
 
-Frontend är testad mot en fixtur byggd ur en riktig Swehockey-matchsida
-(Mora–Björklöven 1–2 efter straffar). Men **SQL:en i
-`/api/v1/match/{game_id}` är oprövad** — den kunde inte köras utan
-BigQuery-åtkomst.
+### Permanent lösning, om vi vill bli av med problemet
 
-Direkt efter deploy:
+Sätt upp en **Cloud Build-trigger** så att en push till `master` deployar
+backend automatiskt, precis som Netlify gör med frontend. Kräver att
+behörigheter klickas igenom en gång i Google Cloud Console — men efter det
+behöver Cloud Shell aldrig röras igen. Inte påbörjat; vänta på besked.
 
-```bash
-curl -sS "$API/api/v1/match/1005615" | head -c 400
-```
+## Kvarstående, oberoende av deployen
 
-Notera att `game_id` är null för SHL 26/27 tills matcherna spelats —
-Swehockey länkar till matchhändelserna först då. Testa därför mot en
-spelad HA-match.
+1. **Rotera Sportradar-nyckeln.** Den låg hårdkodad i `functions/main.py`
+   och är borta ur koden, men finns kvar i git-historiken. Nyckeln måste
+   bytas hos Sportradar — att ta bort raden räcker inte.
 
-## 4. Produktionssätt eventscrapern
+2. **Gör händelse-scrapern produktionsklar.**
+   `slutspel/scrapers/swehockey/upload_game_events.py` droppar fortfarande
+   tabellen vid varje körning. Den ska appenda som de andra, med
+   avduplicering på senaste `scraped_at`.
 
-`slutspel/scrapers/swehockey/upload_game_events.py` är ett handkört
-skript som gör `delete_table()` följt av `create_table()` — den droppar
-och återskapar hela eventtabellen vid varje körning, utan schemaläggning.
-Den kommer inte att uppdatera sig själv under säsongen.
+3. **Två spelare saknar EP-länk** i HA 25/26 — Theocharidis och Cairns.
+   EP stavar deras namn annorlunda. Matchningen kräver att efternamn,
+   förnamn och position stämmer innan den länkar direkt, och lämnar hellre
+   en söklänk än en länk till fel spelare. Går att rätta för hand genom att
+   lägga en rad i `raw_sports.eliteprospects_links` — senaste raden per
+   `name_key` vinner.
 
-Behöver bli en schemalagd Cloud Function som appendar, i samma mönster
-som `swehockey-stats-scraper`. Utan den fylls matchrapporten aldrig på
-automatiskt.
+## Nästa gång
 
-## 5. Kvar i planen
-
-Planen: https://claude.ai/code/artifact/f6f14075-0dcf-445e-8b95-7385b9104604
-
-Byggt hittills: sanering, layoutfix, säsongshantering, fem flikar,
-Matcher-sidan, Nyheter, matchrapporten, egenhostade typsnitt.
-
-Inte påbörjat, från featurekatalogen i planens avsnitt 01:
-
-- Spelarprofiler med formkurva och rullande snitt
-- Ligapercentiler per spelare
-- Elo och rullande form som egna vyer under Statistik
-- Head-to-head inför nästa motståndare
-- Säsongsjämförelse HA 25/26 → SHL 26/27
-
-Notera också att analytics-endpointen redan beräknar ett tjugotal moduler
-(`elo_history`, `pythagorean`, `chemistry`, `first_goal_impact`,
-`game_state`) som ligger begravda bakom analysfliken. Flera av punkterna
-ovan är därför mest frontend-arbete.
-
-## Testrigg
-
-Chromium når inte externa värdar genom sessionens proxy, bara curl gör
-det. Lösningen som användes:
-
-```bash
-# brygga som vidarebefordrar API-anrop via curl
-node bridge.mjs                      # lyssnar på 127.0.0.1:8787
-cd frontend_v2
-VITE_API_URL=http://127.0.0.1:8787 npm run build
-npx serve -s dist -l 4173            # kör från frontend_v2/, annars 404
-```
-
-Sedan Playwright mot `127.0.0.1:4173` med
-`proxy: { server: HTTPS_PROXY, bypass: '127.0.0.1,localhost' }`.
-Utan bypass går även localhost genom proxyn och ger 405.
-
-## Premiär
-
-SHL 26/27 startar **19 september 2026**. Björklövens första match är
-borta mot Djurgården. Från och med då börjar `game_id` fyllas för spelade
-matcher, och matchrapporten får riktig data — förutsatt att punkt 1 och 4
-är gjorda.
+Börja med att få igenom `bash deploy.sh api`. Därefter är
+spelarprofilerna och EP-länkarna live, och nästa naturliga steg är att välja
+mellan Cloud Build-triggern och punkt 1–2 ovan.
