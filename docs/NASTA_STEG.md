@@ -22,60 +22,30 @@ Allt är pushat: `slutspel` på `main` (Netlify bygger automatiskt),
 - **Diagrammen** i `frontend_v2/src/components/charts/` är handritad SVG mot
   temats tokens — inget diagrambibliotek i huvudvägen.
 
-### Klart men inte deployat
+### Klart och deployat 2026-09-05
 
-Kräver `bash deploy.sh api` i Cloud Shell:
+Revision `loven-stats-api-00099-jz4`. Verifierat mot skarpt API:
 
-- `/api/v1/players` — truppens utespelare med percentil mot hela serien.
-- `/api/v1/player/{namn}` — en spelares säsong, poäng match för match.
-- **Direktlänkar till EliteProspects.** `api/eliteprospects.py` slår upp
-  spelarens EP-id via deras autocomplete och bygger `/player/{id}/{slug}`.
-  Cachas ett dygn i minnet och persisteras i
-  `raw_sports.eliteprospects_links`. Utfall mot skarp data: 25/25 för
-  truppen 26/27, 31/33 för HA 25/26.
+- `/api/v1/players` — 33 spelare, percentil mot 395 av seriens 509 spelare.
+- `/api/v1/player/{namn}` — Ottosson: 41 poäng ur målhändelserna mot 41 i
+  tabellen. Att de stämmer exakt visar att båda buggarna är borta: utan
+  avdupliceringen hade händelserna räknats flera gånger, och utan
+  namnrensningen hade assist med påklistrat `Pos` fallit bort.
+- **EliteProspects-direktlänkar** — 25/25 i truppen, 31/33 i HA 25/26.
+  `api/eliteprospects.py` slår upp spelarens EP-id via deras autocomplete och
+  bygger `/player/{id}/{slug}`. Cachas ett dygn i minnet och persisteras i
+  `raw_sports.eliteprospects_links`.
+- **Rensade namn** i matchrapporten — `Olofsson, Jacob` i stället för
+  `Olofsson, JacobPos`, `Crosschecking` i stället för
+  `Crosschecking(10:07 - 12:07)`.
 
-Frontend klarar sig utan dem: spelarytan faller tillbaka på poängligan från
-`/api/v1/statistics` när `/api/v1/players` svarar 404. Det är verifierat.
+### Matchrapporterna
 
-## Blockering: Cloud Shell har tappat sin gcloud-inloggning
-
-`gcloud auth list` är tom i en ny session. `gcloud config set project`
-fungerar ändå, eftersom det bara är lokal konfiguration — därför syns felet
-först när en deploy startar.
-
-Att logga in från telefonen är svårt: sessionen startas om medan man är inne
-på verifieringslänken, och då är prompten borta.
-
-### Att prova, i tur och ordning
-
-1. **tmux**, så att prompten överlever att appen lämnas:
-
-   ```
-   tmux new -s d
-   gcloud auth login --no-launch-browser
-   ```
-
-   Gå ut, öppna länken, kopiera koden. Tillbaka i Cloud Shell:
-   `tmux attach -t d`, klistra in koden.
-
-2. **Från en dator** — `shell.cloud.google.com`, logga in en gång, kör
-   deployen. Enklast om en dator finns till hands.
-
-3. **Full hemkatalog** kan vara grundorsaken. Cloud Shells hemkatalog
-   ligger kvar mellan sessioner, och är den full går gcloud-konfigurationen
-   sönder permanent — då hjälper varken omstart eller inloggning förrän det
-   är rensat:
-
-   ```
-   cd ~/lsb && git log --oneline -1 && gcloud auth list && df -h ~ | tail -1
-   ```
-
-### Permanent lösning, om vi vill bli av med problemet
-
-Sätt upp en **Cloud Build-trigger** så att en push till `master` deployar
-backend automatiskt, precis som Netlify gör med frontend. Kräver att
-behörigheter klickas igenom en gång i Google Cloud Console — men efter det
-behöver Cloud Shell aldrig röras igen. Inte påbörjat; vänta på besked.
+Matcher-fliken var låst till den aktiva säsongen, och eftersom SHL 26/27 inte
+börjat fanns det inte en enda nåbar matchrapport i appen. Fliken har nu
+säsongsväljare, och de 52 rapporterna från HA 25/26 går att öppna. Rapporten
+har fått avsnitten **Matchbild** (tid i ledning, oavgjort, underläge, största
+ledning) och **Specialteam** (powerplay, boxplay, utvisningsminuter).
 
 ## Fyndet: spelarna på isen finns redan i källan
 
