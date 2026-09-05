@@ -169,3 +169,36 @@ Swehockey länkar inte matcherna från slutspelssidan, och varken `Overview`,
 `GameCenter` eller `Live` för samma säsongsgrupp har `/Game/Events/`-länkar.
 Grundserien har 364 länkar, slutspelet noll. Slutspelsmatcher får därför
 varken matchrapport eller händelser.
+
+
+## Slutplaceringsmodellen: hur intervallen kalibrerades
+
+`/api/v1/projection` räknar Elo ur spelade matcher och simulerar resten. Poäng
+enligt svensk praxis: 3 för vinst i ordinarie tid, 2 efter förlängning, 1 för
+förlust efter förlängning. Hur ofta matcher går till förlängning hämtas ur
+säsongens egna matcher, inte antas.
+
+En simulering som behandlar Elo som exakt känd ger **för smala intervall**.
+Backtest mot HA 25/26 vid fyra tidpunkter, med facit inom p10–p90 (ett
+80-procentsintervall ska träffa ≈11,2 av 14 lag):
+
+| ratingosäkerhet σ | efter 91 | 182 | 260 | 320 | snitt |
+|---|---|---|---|---|---|
+| 0 (ingen) | 9 | 11 | 9 | 10 | 9,8 |
+| 25 | 9 | 12 | 9 | 10 | 10,0 |
+| 40 | 9 | 13 | 11 | 10 | 10,8 |
+| **55** | 9 | 13 | 12 | 11 | **11,2** |
+| 70 | 11 | 13 | 12 | 11 | 11,8 |
+
+σ = 55 träffar målet. Varje simulering drar därför en egen Elo per lag ur en
+normalfördelning kring skattningen.
+
+Kalibreringen bygger på en säsong, 56 observationer. Den bör göras om när fler
+säsonger finns i datalagret — höj inte σ på känsla.
+
+### Före seriestart säger modellen ingenting
+
+Utan spelade matcher delar alla lag rating 1500, och siffrorna beskriver bara
+spelschemat. Svaret bär ett `reliability`-fält: `none` utan spelade matcher,
+`low` under fyra omgångar, annars `ok`. Frontend ska säga det rakt ut i
+stället för att visa en prognos som ser mer sannolik ut än den är.

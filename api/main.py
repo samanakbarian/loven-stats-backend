@@ -3,6 +3,7 @@ import json
 import logging
 
 import eliteprospects
+import random
 import requests
 import unicodedata
 from fastapi import FastAPI, Query
@@ -866,6 +867,201 @@ def get_player(name: str, season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/player/%s", name)
         return {"status": "error", "name": name, "error": str(e)}
+
+
+@app.get("/api/v1/projection")
+@cached_ok(cache=analytics_cache)
+def get_projection(season: str = None, sims: int = 5000, refresh: bool = False):
+    """Slutplacering simulerad match for match over det som aterstar.
+
+    Elo raknas ur spelade matcher, och de matcher som inte spelats simuleras
+    med utfallssannolikheter ur ratingskillnaden. Varje simulering ger en hel
+    sluttabell; over manga simuleringar blir andelen av dem dar laget hamnar
+    pa en viss plats sannolikheten for den placeringen.
+
+    Poangen foljer svensk praxis: tre for vinst i ordinarie tid, tva for vinst
+    efter forlangning, ett for forlust efter forlangning. Hur ofta en match gar
+    till forlangning hamtas ur sasongens egna matcher i stallet for att antas.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular_id = active["regular"]
+
+        schedule = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.home_team, a.away_team, a.result, a.period_results, a.match_date
+                FROM `{bq.project}.raw_sports.swehockey_schedule` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_schedule`
+                    WHERE season_group_id = {regular_id}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {regular_id}
+                ORDER BY a.match_date
+                """
+            ).result()
+        ]
+        standings = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.team_name, a.points, a.games_played, a.rank
+                FROM `{bq.project}.raw_sports.swehockey_standings` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_standings`
+                    WHERE season_group_id = {regular_id}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {regular_id}
+                """
+            ).result()
+        ]
+        if not standings or not schedule:
+            return {"status": "not_found", "error": "Tabell eller spelschema saknas.", "teams": []}
+
+        K, HFA = 20, 40
+        elo = {str(s.get("team_name")): 1500.0 for s in standings}
+        remaining: list[tuple[str, str]] = []
+        ot_games = played = 0
+
+        for g in schedule:
+            home, away = str(g.get("home_team") or ""), str(g.get("away_team") or "")
+            if not home or not away:
+                continue
+            elo.setdefault(home, 1500.0)
+            elo.setdefault(away, 1500.0)
+
+            m = re.match(r"(\d+)\s*-\s*(\d+)", str(g.get("result") or "").strip())
+            if not m:
+                remaining.append((home, away))
+                continue
+
+            played += 1
+            hg, ag = int(m.group(1)), int(m.group(2))
+            is_ot = len(parse_period_results(g.get("period_results", ""))) > 3
+            ot_games += 1 if is_ot else 0
+
+            if hg > ag:
+                s_home = 1.0 if not is_ot else 0.65
+            elif hg < ag:
+                s_home = 0.0 if not is_ot else 0.35
+            else:
+                s_home = 0.5
+            e_home = 1 / (1 + 10 ** ((elo[away] - (elo[home] + HFA)) / 400))
+            elo[home] += K * (s_home - e_home)
+            elo[away] += K * ((1 - s_home) - (1 - e_home))
+
+        # Hur ofta matcher gar till forlangning hamtas ur sasongen sjalv;
+        # utan spelade matcher far ett normalvarde duga.
+        ot_rate = (ot_games / played) if played >= 20 else 0.20
+
+        base = {str(s.get("team_name")): int(s.get("points") or 0) for s in standings}
+        teams = sorted(base)
+        idx = {t: i for i, t in enumerate(teams)}
+
+        games = [(idx[h], idx[a]) for h, a in remaining if h in idx and a in idx]
+
+        # Arbetet vaxer med bade simuleringar och kvarvarande matcher. Taket
+        # haller svarstiden nere nar en hel sasong aterstar, utan att strypa
+        # precisionen i slutet nar det bara ar nagra matcher kvar.
+        n = max(200, min(int(sims or 5000), 20000))
+        if games:
+            n = max(1500, min(n, 1_500_000 // len(games)))
+
+        # Ratingen ar skattad, inte kand, och en simulering som latsas annat
+        # ger for smala intervall. En dragning per lag och simulering later
+        # osakerheten sla igenom. Sigma ar kalibrerat mot HA 25/26 vid fyra
+        # tidpunkter: utan den hamnade 9,8 av 14 slutresultat inom p10-p90,
+        # med sigma 55 blir det 11,2 — vilket ar vad ett attioprocentigt
+        # intervall ska ge. Se docs/SWEHOCKEY_STATS_SCRAPER.md.
+        RATING_SIGMA = 55.0
+
+        start = [base.get(t, 0) for t in teams]
+        elo_base = [elo.get(t, 1500.0) for t in teams]
+        rank_counts = [[0] * len(teams) for _ in teams]
+        totals = [[] for _ in teams]
+        rnd = random.Random(20260919)
+
+        for _ in range(n):
+            drawn = [e + rnd.gauss(0, RATING_SIGMA) for e in elo_base]
+            pts = start[:]
+            for hi, ai in games:
+                p_home = 1 / (1 + 10 ** ((drawn[ai] - (drawn[hi] + HFA)) / 400))
+                if rnd.random() < ot_rate:
+                    # Forlangning: vinnaren far tva poang, forloraren ett.
+                    if rnd.random() < p_home:
+                        pts[hi] += 2
+                        pts[ai] += 1
+                    else:
+                        pts[ai] += 2
+                        pts[hi] += 1
+                elif rnd.random() < p_home:
+                    pts[hi] += 3
+                else:
+                    pts[ai] += 3
+
+            order = sorted(range(len(teams)), key=lambda i: -pts[i])
+            for place, i in enumerate(order, 1):
+                rank_counts[i][place - 1] += 1
+                totals[i].append(pts[i])
+
+        def _pct(v: int) -> float:
+            return round(v / n * 100, 1)
+
+        def _quantile(values: list[int], q: float) -> int:
+            ordered = sorted(values)
+            return ordered[min(len(ordered) - 1, int(q * len(ordered)))]
+
+        out = []
+        for t in teams:
+            i = idx[t]
+            counts = rank_counts[i]
+            vals = totals[i]
+            expected = sum((place + 1) * c for place, c in enumerate(counts)) / n
+            out.append(
+                {
+                    "team": t,
+                    "is_bjk": bool(BJK_HOME.search(t)),
+                    "elo": round(elo.get(t, 1500)),
+                    "current_points": base.get(t, 0),
+                    "expected_points": round(sum(vals) / n, 1),
+                    "points_p10": _quantile(vals, 0.10),
+                    "points_p50": _quantile(vals, 0.50),
+                    "points_p90": _quantile(vals, 0.90),
+                    "expected_rank": round(expected, 1),
+                    "rank_p10": _quantile([r for r in range(1, len(teams) + 1) for _ in range(counts[r - 1])], 0.10),
+                    "rank_p90": _quantile([r for r in range(1, len(teams) + 1) for _ in range(counts[r - 1])], 0.90),
+                    "top6_pct": _pct(sum(counts[:6])),
+                    "top10_pct": _pct(sum(counts[:10])),
+                    "bottom2_pct": _pct(sum(counts[-2:])),
+                    "win_league_pct": _pct(counts[0]),
+                    "rank_distribution": [_pct(c) for c in counts],
+                }
+            )
+        out.sort(key=lambda x: x["expected_rank"])
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "teams_in_league": len(teams),
+            "games_played": played,
+            "games_remaining": len(games),
+            "simulations": n,
+            "rating_sigma": RATING_SIGMA,
+            "ot_rate_pct": round(ot_rate * 100, 1),
+            # Innan sasongen borjat delar alla lag rating, och siffrorna sager
+            # da bara nagot om spelschemat. Sag det i stallet for att lata dem
+            # se ut som en prognos.
+            "reliability": "none" if played == 0 else "low" if played < len(teams) * 4 else "ok",
+            "teams": out,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/projection")
+        return {"status": "error", "error": str(e), "teams": []}
 
 
 @app.get("/api/v1/shots")
