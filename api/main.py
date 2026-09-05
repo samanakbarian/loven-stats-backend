@@ -850,6 +850,163 @@ def get_player(name: str, season: str = None, refresh: bool = False):
         return {"status": "error", "name": name, "error": str(e)}
 
 
+@app.get("/api/v1/onice")
+@cached_ok(cache=stats_cache)
+def get_onice(season: str = None, refresh: bool = False):
+    """Vem som star pa isen nar mal gors och slapps in.
+
+    Swehockeys handelsesida listar bada lagens spelare vid varje mal, och
+    scrapern lagger dem i on_ice_for och on_ice_against som trojnummer. Det ar
+    ratt underlag for ett plus/minus vi raknar sjalva — till skillnad fran
+    tabellens, som inte gar att bryta ner.
+
+    Vi redovisar bade alla situationer och enbart lika styrka. Powerplaymal
+    snedvrider annars bilden: den som spelar mycket i overtal far ett hogt tal
+    utan att det sager nagot om spelet fem mot fem.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        season_ids = ",".join(str(sid) for sid in {active["regular"], active.get("playoff")} if sid)
+
+        # Handelsetabellen ar append-only: valj senaste skorningen per match.
+        goals = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT e.game_id, e.team_code, e.score_state, e.on_ice_for, e.on_ice_against
+                FROM `{bq.project}.raw_sports.swehockey_game_events` e
+                INNER JOIN (
+                    SELECT game_id, MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_game_events`
+                    WHERE season_group_id IN ({season_ids})
+                    GROUP BY game_id
+                ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
+                WHERE e.event_type = 'goal'
+                  AND e.season_group_id IN ({season_ids})
+                  AND (e.on_ice_for IS NOT NULL OR e.on_ice_against IS NOT NULL)
+                """
+            ).result()
+        ]
+
+        # Trojnummer -> namn. Truppen har hela laget, aven spelare utan poang.
+        roster = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.player_name, a.jersey_number, a.position, a.team_name
+                FROM `{bq.project}.raw_sports.swehockey_roster` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_roster`
+                    WHERE season_group_id IN ({season_ids})
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id IN ({season_ids})
+                """
+            ).result()
+        ]
+
+        def _ours(value: str) -> bool:
+            low = str(value or "").lower()
+            return "ifb" in low or "rkl" in low or "kloven" in low or "klöven" in low
+
+        by_number: dict[int, dict] = {}
+        for r in roster:
+            if not _ours(r.get("team_name")):
+                continue
+            num = r.get("jersey_number")
+            if num is None:
+                continue
+            by_number.setdefault(int(num), {"name": r.get("player_name"), "position": r.get("position")})
+
+        def _nums(value) -> list[int]:
+            return [int(n) for n in re.findall(r"\d{1,2}", str(value or ""))]
+
+        stats: dict[int, dict] = {}
+        pairs: dict[tuple[int, int], int] = {}
+        games = set()
+        team_gf = team_ga = 0
+
+        for g in goals:
+            games.add(g.get("game_id"))
+            scored_by_us = _ours(g.get("team_code"))
+            # Pos ar det gorande lagets spelare, Neg det slappande lagets.
+            ours = _nums(g.get("on_ice_for") if scored_by_us else g.get("on_ice_against"))
+            if not ours:
+                continue
+            state = str(g.get("score_state") or "").upper()
+            even = "(EQ)" in state
+            if scored_by_us:
+                team_gf += 1
+            else:
+                team_ga += 1
+
+            for num in ours:
+                slot = stats.setdefault(
+                    num, {"gf_on": 0, "ga_on": 0, "gf_on_ev": 0, "ga_on_ev": 0}
+                )
+                if scored_by_us:
+                    slot["gf_on"] += 1
+                    slot["gf_on_ev"] += 1 if even else 0
+                else:
+                    slot["ga_on"] += 1
+                    slot["ga_on_ev"] += 1 if even else 0
+
+            if scored_by_us:
+                for i, a in enumerate(sorted(ours)):
+                    for b in sorted(ours)[i + 1 :]:
+                        pairs[(a, b)] = pairs.get((a, b), 0) + 1
+
+        players = []
+        for num, slot in stats.items():
+            info = by_number.get(num) or {}
+            # Malvakter star pa isen vid nastan varje mal och hor inte hemma i
+            # ett plus/minus for utespelare.
+            position = str(info.get("position") or "")
+            players.append(
+                {
+                    "jersey_number": num,
+                    "name": info.get("name"),
+                    "position": position or None,
+                    "is_goalie": position.upper().startswith("G"),
+                    **slot,
+                    "diff": slot["gf_on"] - slot["ga_on"],
+                    "diff_ev": slot["gf_on_ev"] - slot["ga_on_ev"],
+                    # Andel av lagets mal som spelaren var med pa.
+                    "gf_share_pct": round(slot["gf_on"] / team_gf * 100, 1) if team_gf else 0,
+                }
+            )
+        players.sort(key=lambda p: (p["diff_ev"], p["diff"]), reverse=True)
+
+        top_pairs = [
+            {
+                "numbers": [a, b],
+                "names": [
+                    (by_number.get(a) or {}).get("name"),
+                    (by_number.get(b) or {}).get("name"),
+                ],
+                "goals_for": n,
+            }
+            for (a, b), n in sorted(pairs.items(), key=lambda kv: kv[1], reverse=True)[:12]
+            if a in by_number and b in by_number
+        ]
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "games_with_events": len(games),
+            "team_goals_for": team_gf,
+            "team_goals_against": team_ga,
+            "count": len(players),
+            "players": players,
+            "top_pairs": top_pairs,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/onice")
+        return {"status": "error", "error": str(e), "players": []}
+
+
 @app.get("/api/v1/match/{game_id}")
 @cached_ok(cache=stats_cache)
 def get_match(game_id: int):
