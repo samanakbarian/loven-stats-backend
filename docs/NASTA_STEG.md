@@ -47,83 +47,65 @@ säsongsväljare, och de 52 rapporterna från HA 25/26 går att öppna. Rapporte
 har fått avsnitten **Matchbild** (tid i ledning, oavgjort, underläge, största
 ledning) och **Specialteam** (powerplay, boxplay, utvisningsminuter).
 
-## Fyndet: spelarna på isen finns redan i källan
+## Spelarna på isen: hämtas nu
 
-Målcellen på Swehockeys händelsesida ser ut så här:
+Målcellen på Swehockeys händelsesida bär `Pos. Part.` och `Neg. Part.` — alla
+spelare på isen för respektive lag vid varje mål. Det låg oanvänt.
 
-```
-71. Possler, Gustav  (1)  10. Nilsson, Marcus  26. Ottosson, Axel
-Pos. Part.: 10 , 26 , 31 , 33 , 64 , 71
-Neg. Part.: 16 , 26 , 29 , 31 , 54 , 59
-```
+Händelseskrapningen är flyttad från `slutspel/scrapers/swehockey/upload_game_events.py`
+(som läste lokala JSON-filer från en engångsskrapning och droppade tabellen
+vid varje körning) in i Cloud Function-scrapern, som datatypen `game_events`.
+Parsern ligger i `functions/game_events_parser.py` och är fri från nätverk och
+BigQuery, så den går att testa mot sparade sidor.
 
-`Pos. Part.` och `Neg. Part.` är **alla sex spelarna på isen** för respektive
-lag vid varje mål. Scrapern kastar bort dem idag. Med dem går det att räkna
-per match och över säsongen:
+Vad som nu hämtas per match:
+
+- mål med målskytt, båda assisterande och deras tröjnummer
+- **spelarna på isen**, `on_ice_for` och `on_ice_against` som tröjnummer
+- utvisningar med typ och minuter
+- målvaktsbyten och timeouter
+- period ur sidans rubrikrader, så förlängning och straffar blir rätt
+  i stället för gissade ur klockan
+
+Två buggar rättade på vägen:
+
+1. **Teckenkodningen.** Händelsesidan skickar `Content-Type: text/html` utan
+   teckenuppsättning. HTTP:s standardvärde är då ISO-8859-1, men innehållet är
+   utf-8 — så varje svensk bokstav blev mojibake: `Tellström` skrevs
+   `TellstrÃ¶m`, och utvisningstypen `Okänd` blev `OkÃ¤nd` i analysmodulen.
+   Schema- och truppsidorna deklarerar utf-8 och var därför oskadda.
+2. **Hopklistrade namn.** Cellernas inre taggar strippades utan mellanrum.
+   Parsern använder nu separator, så `Possler, GustavPos` är borta vid källan.
+   API:ts `clean_person` städar äldre rader och kan tas bort när allt är
+   omskrapat.
+
+Händelsesidan hämtas en match i taget, cirka en sekund styck, och bara för
+lagets egna matcher — ett femtiotal per säsong. En schemalagd körning tar de
+tjugo senaste (`SWEHOCKEY_EVENTS_LIMIT`), en backfill tar alla via
+`?events_limit=all`, vilket `bash deploy.sh backfill` gör.
+
+### Känd lucka: slutspelet saknar match-id
+
+Swehockey länkar inte matcherna från slutspelssidan. `Overview`, `GameCenter`
+och `Live` för samma säsongsgrupp har inte heller några `/Game/Events/`-länkar.
+Grundserien har 364 länkar, slutspelet noll.
+
+Alla 13 slutspelsmatcher i HA 25/26 saknar därför `game_id` och får varken
+matchrapport eller händelser — inklusive finalserien. Det går inte att lösa
+utan att gissa id:n, vilket vore fel sätt. Om ett annat sidflöde hittas är det
+bara `_extract_schedule_rows` som behöver ändras.
+
+### Nästa steg på det här
+
+Datat finns snart i `raw_sports.swehockey_game_events`. Kvar att bygga:
 
 - on-ice för och emot per spelare, alltså ett riktigt plus/minus
 - vilka kombinationer som producerar mål
 - vilka som är på isen när det släpps in
 
-Det är den enskilt största datakällan vi har oanvänd, och precis det som
-efterfrågats som "djupgående analys per match".
-
-Samma hopklistring är orsaken till namnbuggen: taggarna strippas utan
-mellanrum, så sista assisten blir `Possler, GustavPos`. API:t rensar det vid
-utläsning sedan 2026-09-05 (`clean_person` i `api/main.py`), men källan bör
-sluta skapa problemet.
-
-### Vad som krävs
-
-`slutspel/scrapers/swehockey/upload_game_events.py` behöver skrivas om. Den
-ska ändå göras om — den droppar tabellen vid varje körning. Samla ihop:
-
-1. Appenda i stället för att droppa, med avduplicering på senaste
-   `scraped_at` per `game_id`, som de andra tabellerna.
-2. Sluta klistra ihop celltexten; separera taggar med mellanslag före
-   parsningen.
-3. Fånga `Pos. Part.` och `Neg. Part.` som två nya kolumner med tröjnummer.
-4. Kör om alla matcher i HA 25/26 så historiken får fälten.
-
-Först därefter kan API och frontend bygga på det.
-
-## X-flödet: miljövariabler raderade av deploy.sh
-
-`deploy.sh` använde `--set-env-vars`, som sätter *hela* uppsättningen
-miljövariabler på Cloud Run och tar bort allt som inte står i kommandot.
-Första körningen raderade därmed `X_BEARER_TOKEN` med flera, och `/api/v1/x-feed`
-svarar sedan dess `"error": "missing_token"` med noll tweets.
-
-Skriptet använder nu `--update-env-vars`, som lägger till utan att radera. De
-variabler som redan försvunnit hämtas tillbaka från en äldre Cloud
-Run-revision:
-
-```
-cd ~/lsb && git pull -q && bash deploy.sh restore-env
-```
-
-Den letar igenom de 40 senaste revisionerna efter en med `X_BEARER_TOKEN`,
-kopierar dess variabler till den nuvarande och kontrollerar sedan att
-X-flödet ger tweets igen. Värdena skrivs till en temporärfil och aldrig till
-terminalen. Variabler som hämtas ur Secret Manager kan inte återställas den
-vägen och listas separat.
-
-**Kört 2026-09-05.** Återställde tolv variabler från revision
-`loven-stats-api-00093-b7q`, däribland `X_BEARER_TOKEN` och `GEMINI_API_KEY`.
-X-flödet ger 30 inlägg igen.
-
-Svaret cachas en timme i en GCS-blobb, så direkt efter en återställning
-serveras fortfarande felet som skrevs medan tokenet saknades. Kontrollen
-använder därför `?force_refresh=true`.
-
 ## Kvarstående, oberoende av deployen
 
-1. **Gör händelse-scrapern produktionsklar.**
-   `slutspel/scrapers/swehockey/upload_game_events.py` droppar fortfarande
-   tabellen vid varje körning. Den ska appenda som de andra, med
-   avduplicering på senaste `scraped_at`.
-
-2. **Två spelare saknar EP-länk** i HA 25/26 — Theocharidis och Cairns.
+1. **Två spelare saknar EP-länk** i HA 25/26 — Theocharidis och Cairns.
    EP stavar deras namn annorlunda. Matchningen kräver att efternamn,
    förnamn och position stämmer innan den länkar direkt, och lämnar hellre
    en söklänk än en länk till fel spelare. Går att rätta för hand genom att
@@ -137,6 +119,16 @@ utan värde. Den är borta ur koden och behöver inte roteras.
 
 ## Nästa gång
 
-Börja med att få igenom `bash deploy.sh api`. Därefter är
-spelarprofilerna och EP-länkarna live, och nästa naturliga steg är att välja
-mellan Cloud Build-triggern och punkt 1–2 ovan.
+Kör i tur och ordning:
+
+```
+cd ~/lsb && git pull -q && bash deploy.sh scraper && bash deploy.sh backfill
+```
+
+Första kommandot lägger ut den nya händelseskrapningen, det andra hämtar hem
+hela HA 25/26 med spelarna på isen. Backfillen tar ett par minuter eftersom
+händelsesidan hämtas en match i taget.
+
+Därefter finns on-ice-datat i BigQuery och nästa steg är att bygga vidare på
+det — plus/minus, kombinationer och vilka som är på isen vid insläppta mål —
+samt att slipa statistiksidan.

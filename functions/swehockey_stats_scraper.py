@@ -27,6 +27,11 @@ except ImportError:
         validate_rows,
     )
 
+try:
+    from game_events_parser import parse_events
+except ImportError:
+    from functions.game_events_parser import parse_events
+
 logging.basicConfig(level=logging.INFO)
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "granskaren-d51a1")
@@ -38,6 +43,11 @@ BQ_DATASET = "raw_sports"
 SOURCE = "swehockey"
 PIPELINE_NAME = "swehockey_stats"
 TEAM_TOKENS = [t.strip().lower() for t in os.environ.get("SWEHOCKEY_TEAM_TOKENS", "björklöven,bjorkloven,löven,bjo").split(",") if t.strip()]
+# Handelsesidan hamtas en match i taget, cirka en sekund styck. Bara lagets
+# egna matcher ar intressanta, sa en hel sasong ar ~52 anrop. Gransen finns
+# for att en schemalagd korning ska rymmas med god marginal; en backfill
+# hojer den med ?events_limit=all.
+EVENTS_LIMIT_DEFAULT = int(os.environ.get("SWEHOCKEY_EVENTS_LIMIT", "20"))
 
 
 def _now():
@@ -79,6 +89,13 @@ def _fetch_html(url: str) -> str | None:
     try:
         r = requests.get(url, headers=headers, timeout=25)
         r.raise_for_status()
+        # Handelsesidan skickar "Content-Type: text/html" utan teckenupp-
+        # sattning. HTTP:s standardvarde ar da ISO-8859-1, men innehallet ar
+        # utf-8 — och varje svensk bokstav blev mojibake: "Tellstrom" skrevs
+        # "TellstrÃ¶m" och utvisningstypen "Okand" blev "OkÃ¤nd". Schema- och
+        # truppsidorna deklarerar utf-8 och paverkas inte.
+        if "charset" not in (r.headers.get("Content-Type") or "").lower():
+            r.encoding = r.apparent_encoding or "utf-8"
         return r.text
     except Exception as e:
         logging.error("Fetch failed for %s: %s", url, e)
@@ -529,6 +546,61 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
     return list(unique.values()), url
 
 
+
+def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Handelser match for match: mal, utvisningar och spelarna pa isen.
+
+    Handelsesidan finns bara per match, sa den maste hamtas en i taget. Vi
+    begransar oss till lagets egna matcher — ovriga lags handelser anvands
+    inte — vilket gor en hel sasong till ett femtiotal anrop.
+
+    Nyast forst, sa att en korning med lag grans anda halls aktuell. Aldre
+    matcher ligger redan i tabellen och lases dedupliceradt pa senaste
+    scraped_at, sa en ny korning behover inte na dem igen.
+
+    Slutspelet saknar matchlankar hos Swehockey och far darfor inga
+    handelser; se docs/SWEHOCKEY_STATS_SCRAPER.md.
+    """
+    schedule, _ = _fetch_schedule(season_group_id)
+    if not schedule:
+        return [], None
+
+    ours = [
+        g
+        for g in schedule
+        if g.get("game_id")
+        and _contains_team_token([str(g.get("home_team", "")), str(g.get("away_team", ""))])
+        # Utan resultat ar matchen inte spelad och har inga handelser.
+        and str(g.get("result") or "").strip()
+    ]
+    ours.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
+
+    cap = len(ours) if limit is None else max(0, limit)
+    out: list[dict[str, Any]] = []
+    failures = 0
+    for game in ours[:cap]:
+        gid = int(game["game_id"])
+        html = _fetch_html(f"{BASE_URL}/Game/Events/{gid}")
+        if not html:
+            failures += 1
+            continue
+        try:
+            rows = parse_events(html, gid)
+        except Exception:
+            logging.exception("Kunde inte tolka handelser for match %s", gid)
+            failures += 1
+            continue
+        for r in rows:
+            r["season_group_id"] = int(season_group_id)
+            r["match_date"] = game.get("match_date")
+            r["source"] = SOURCE
+        out.extend(rows)
+
+    if failures:
+        logging.warning("Handelser saknas for %s av %s matcher", failures, min(cap, len(ours)))
+    return out, f"{BASE_URL}/Game/Events/"
+
+
 def _scrape_jobs():
     return [
         {
@@ -558,6 +630,13 @@ def _scrape_jobs():
             "table_name": "swehockey_schedule",
             "required_fields": ("season_group_id", "match_date", "home_team", "away_team"),
             "key_fields": ("season_group_id", "match_date", "home_team", "away_team"),
+        },
+        {
+            "data_type": "game_events",
+            "fetcher": _fetch_game_events,
+            "table_name": "swehockey_game_events",
+            "required_fields": ("game_id", "event_type", "time"),
+            "key_fields": ("game_id", "event_index"),
         },
         {
             "data_type": "roster",
@@ -717,6 +796,19 @@ def run_swehockey_stats_scraper(request):
     except Exception:
         requested = ""
 
+    # Handelsesidan hamtas per match och ar det enda som skalar med antalet
+    # matcher. ?events_limit=all tar hela sasongen — anvands vid backfill —
+    # medan en schemalagd korning nojer sig med de senaste.
+    events_limit: int | None = EVENTS_LIMIT_DEFAULT
+    try:
+        raw_limit = (request.args.get("events_limit") or "").strip().lower()
+    except Exception:
+        raw_limit = ""
+    if raw_limit in ("all", "alla"):
+        events_limit = None
+    elif raw_limit.isdigit():
+        events_limit = int(raw_limit)
+
     active_season_ids: list[str] = []
 
     if requested:
@@ -769,7 +861,10 @@ def run_swehockey_stats_scraper(request):
         for season_group_id in active_season_ids:
             for job in _scrape_jobs():
                 data_type = job["data_type"]
-                rows, source_url = job["fetcher"](season_group_id)
+                if data_type == "game_events":
+                    rows, source_url = job["fetcher"](season_group_id, events_limit)
+                else:
+                    rows, source_url = job["fetcher"](season_group_id)
                 fetched_rows += len(rows)
                 fetched_batches.append(
                     {
@@ -802,7 +897,9 @@ def run_swehockey_stats_scraper(request):
             # slutspelsgrupper har ingen PlayersByTeam-sida alls, och Swehockey
             # visar bara lag vars klubb hunnit registrera sin trupp.
             allow_preseason_empty = (
-                data_type in {"roster", "standings"}
+                # game_events ar tomt for slutspelsgrupper, som saknar
+                # matchlankar hos Swehockey, och fore seriestart.
+                data_type in {"roster", "standings", "game_events"}
                 or (
                     data_type in {"player_stats", "goalie_stats"}
                     and not season_has_games.get(season_group_id, False)

@@ -13,6 +13,8 @@
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
 # fält som lagts till i efterhand — game_id, periodresultat, publik, trupp.
 # Säsongerna anges med BACKFILL_SEASONS, som standard HA 25/26 med slutspel.
+# Backfill hämtar även matchhändelser för säsongens alla matcher, inklusive
+# spelarna på isen vid varje mål.
 #
 set -euo pipefail
 
@@ -187,7 +189,10 @@ fi
 if [[ "$TARGET" == "backfill" ]]; then
   say "Backfill av säsonger: $BACKFILL_SEASONS"
   FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/swehockey-stats-scraper"
-  OUT=$(curl -sS --max-time 480 "${FN_URL}?seasons=${BACKFILL_SEASONS}" 2>/dev/null || echo '{}')
+  # events_limit=all hamtar handelser for sasongens alla matcher. En vanlig
+  # korning nojer sig med de senaste, eftersom handelsesidan maste hamtas en
+  # match i taget och tar ungefar en sekund styck.
+  OUT=$(curl -sS --max-time 540 "${FN_URL}?seasons=${BACKFILL_SEASONS}&events_limit=all" 2>/dev/null || echo '{}')
   printf '%s' "$OUT" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
