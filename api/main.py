@@ -136,6 +136,49 @@ def get_seasons():
     }
 
 
+@app.get("/api/v1/standings")
+@cached(cache=stats_cache)
+def get_standings(season: str = None):
+    """Hela serietabellen for vald sasong.
+
+    Tabellen fanns tidigare bara inbakad i /api/v1/statistics, och da enbart
+    som lagets egen rad. Frontend behover alla lag for att kunna visa en
+    tabell alls.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular_id = active["regular"]
+
+        rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.*
+                FROM `{bq.project}.raw_sports.swehockey_standings` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_standings`
+                    WHERE season_group_id = {regular_id}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {regular_id}
+                ORDER BY a.rank
+                """
+            ).result()
+        ]
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "count": len(rows),
+            "standings": rows,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/standings")
+        return {"status": "error", "error": str(e), "standings": []}
+
+
 @app.get("/api/v1/statistics")
 @cached(cache=stats_cache)
 def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven")):

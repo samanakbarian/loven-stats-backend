@@ -284,65 +284,118 @@ def _fetch_standings(season_group_id: str) -> tuple[list[dict[str, Any]], str | 
     return [], None
 
 
+def _extract_schedule_rows(html: str) -> list[dict[str, Any]]:
+    """Plocka ut matchrader ur Swehockeys spelschema.
+
+    Den generella _extract_table_rows() strippar all HTML och tappar därmed
+    länken <a href=".../Game/Events/{id}">, som är enda stället matchens id
+    finns. Utan game_id kan schedule inte kopplas till swehockey_game_events,
+    och analytics hämtar då aldrig några matchhändelser alls.
+
+    Radens celler (8 st när det är en match):
+      [0] datum, men bara på dagens första match — annars tid
+      [1] datum + tid, bara när [0] är ett datum
+      [2] tid
+      [3] "Hemmalag - Bortalag"
+      [4] resultat, t.ex. "3 - 1" (tomt för ospelad match)
+      [5] periodresultat, t.ex. "(0-0, 1-1, 2-0)"
+      [6] publik
+      [7] arena
+    """
+    soup = BeautifulSoup(html, "lxml")
+    # tblContent är den faktiska matchtabellen; table.table matchar en yttre
+    # wrapper som bara har en egen rad.
+    table = soup.select_one("table.tblContent") or soup.select_one("table.table") or soup.select_one("table")
+    if not table:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for tr in table.select("tr"):
+        cells = tr.select("th,td")
+        if len(cells) < 8:
+            continue
+        texts = [_clean(c.get_text(" ", strip=True)) for c in cells]
+
+        link = tr.select_one('a[href*="/Game/Events/"]')
+        game_id = None
+        if link:
+            m = re.search(r"/Game/Events/(\d+)", link.get("href", ""))
+            if m:
+                game_id = int(m.group(1))
+
+        out.append(
+            {
+                "cells": texts,
+                "game_id": game_id,
+            }
+        )
+    return out
+
+
 def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
-    urls = [
-        f"{BASE_URL}/ScheduleAndResults/Schedule/{season_group_id}",
-    ]
-    for url in urls:
-        html = _fetch_html(url)
-        if not html:
-            continue
-        rows = _extract_table_rows(html)
-        if len(rows) < 2:
-            continue
-        out = []
-        current_date = ""
-        for r in rows:
-            if len(r) < 3:
-                continue
-                
-            date_match = re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[0]))
-            if date_match:
-                current_date = date_match.group(0)
-            elif re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[1] if len(r) > 1 else "")):
-                current_date = re.search(r"\d{4}-\d{2}-\d{2}", _clean(r[1])).group(0)
+    url = f"{BASE_URL}/ScheduleAndResults/Schedule/{season_group_id}"
+    html = _fetch_html(url)
+    if not html:
+        return [], None
 
-            game_str = ""
-            result_str = ""
-            for i, col in enumerate(r):
-                c = _clean(col)
-                if " - " in c and len(c) > 7:
-                    if re.search(r"[a-zA-ZÅÄÖåäö]", c):
-                        game_str = c
-                        if i + 1 < len(r):
-                            result_str = _clean(r[i+1])
-                        break
-            
-            if not game_str or " - " not in game_str:
-                continue
-                
-            home_team, away_team = game_str.split(" - ", 1)
-            home_team = _clean(home_team)
-            away_team = _clean(away_team)
-            if not home_team or not away_team or len(home_team) > 100 or len(away_team) > 100:
-                continue
+    rows = _extract_schedule_rows(html)
+    if not rows:
+        return [], None
 
-            out.append(
-                {
-                    "season_group_id": int(season_group_id),
-                    "team_id": SWEHOCKEY_TEAM_ID,
-                    "match_date": current_date,
-                    "home_team": home_team,
-                    "away_team": away_team,
-                    "result": result_str,
-                    "status": result_str,
-                }
-            )
-        if out:
-            # Deduplicate by match_date, home_team, away_team
-            unique_out = {f"{r['match_date']}_{r['home_team']}_{r['away_team']}": r for r in out}
-            return list(unique_out.values()), url
-    return [], None
+    out: list[dict[str, Any]] = []
+    current_date = ""
+    for row in rows:
+        cells = row["cells"]
+
+        # Datumet står bara på dagens första match; efterföljande rader ärver det.
+        date_match = re.search(r"\d{4}-\d{2}-\d{2}", cells[0])
+        if date_match:
+            current_date = date_match.group(0)
+        elif len(cells) > 1:
+            alt = re.search(r"\d{4}-\d{2}-\d{2}", cells[1])
+            if alt:
+                current_date = alt.group(0)
+        if not current_date:
+            continue
+
+        game_str = cells[3]
+        if " - " not in game_str:
+            continue
+        home_team, away_team = game_str.split(" - ", 1)
+        home_team = _clean(home_team)
+        away_team = _clean(away_team)
+        if not home_team or not away_team or len(home_team) > 100 or len(away_team) > 100:
+            continue
+
+        result_str = _clean(cells[4])
+        spectators_raw = _clean(cells[6]).replace(" ", "")
+
+        out.append(
+            {
+                "season_group_id": int(season_group_id),
+                "team_id": SWEHOCKEY_TEAM_ID,
+                "game_id": row["game_id"],
+                "match_date": current_date,
+                "match_time": _clean(cells[2]),
+                "home_team": home_team,
+                "away_team": away_team,
+                "result": result_str,
+                "status": result_str,
+                "period_results": _clean(cells[5]) or None,
+                "spectators": _safe_int(spectators_raw) if spectators_raw.isdigit() else None,
+                "venue": _clean(cells[7]) or None,
+            }
+        )
+
+    if not out:
+        return [], None
+
+    # Deduplicera på game_id när det finns, annars på datum och lag.
+    unique: dict[str, dict[str, Any]] = {}
+    for r in out:
+        key = str(r["game_id"]) if r.get("game_id") else f"{r['match_date']}_{r['home_team']}_{r['away_team']}"
+        unique[key] = r
+    return list(unique.values()), url
 
 
 def _scrape_jobs():
