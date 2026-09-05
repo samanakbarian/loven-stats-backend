@@ -8,6 +8,7 @@
 #   bash deploy.sh api        # bara API:t
 #   bash deploy.sh scraper    # bara scrapern
 #   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
+#   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
 #
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
 # fält som lagts till i efterhand — game_id, periodresultat, publik, trupp.
@@ -58,13 +59,92 @@ till höger → Restart) och kör samma kommando igen. Hjälper inte det:
   gcloud auth login"
 fi
 
+if [[ "$TARGET" == "restore-env" ]]; then
+  # `--set-env-vars` satte hela uppsattningen och raderade allt som inte stod
+  # i kommandot — bland annat X_BEARER_TOKEN, sa X-flodet slutade ge tweets.
+  # Deployen anvander numera `--update-env-vars`, men variablerna som redan
+  # forsvunnit maste hamtas tillbaka. Cloud Run sparar tidigare revisioner,
+  # och dar ligger de kvar.
+  say "Letar efter en revision med X_BEARER_TOKEN"
+  WANT="${RESTORE_KEY:-X_BEARER_TOKEN}"
+  TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+  FOUND=""
+
+  for REV in $(gcloud run revisions list --service loven-stats-api --region "$REGION" \
+                 --format='value(metadata.name)' --sort-by='~metadata.creationTimestamp' \
+                 --limit 40 2>/dev/null); do
+    # Vardena skrivs till fil och aldrig till terminalen — en bearer-token
+    # ska inte hamna i skarmhistoriken.
+    if gcloud run revisions describe "$REV" --region "$REGION" --format=json 2>/dev/null \
+       | WANT="$WANT" OUT="$TMP/env.yaml" python3 -c "
+import json, os, sys
+d = json.load(sys.stdin)
+env = (d.get('spec', {}).get('containers') or [{}])[0].get('env') or []
+vals = {e['name']: e['value'] for e in env if e.get('value') is not None}
+if os.environ['WANT'] not in vals:
+    raise SystemExit(1)
+# JSON ar giltig YAML, sa filen duger till --env-vars-file utan PyYAML.
+with open(os.environ['OUT'], 'w') as f:
+    json.dump(vals, f, ensure_ascii=False)
+print(' '.join(sorted(vals)))
+" > "$TMP/names.txt"; then
+      FOUND="$REV"
+      break
+    fi
+  done
+
+  if [[ -z "$FOUND" ]]; then
+    fail "Ingen av de 40 senaste revisionerna har $WANT. Variabeln måste sättas
+för hand:
+
+  gcloud run services update loven-stats-api --region $REGION \\
+    --update-env-vars X_BEARER_TOKEN=DITT_TOKEN"
+  fi
+
+  say "Hittade i revision $FOUND"
+  printf '  variabler: %s\n' "$(cat "$TMP/names.txt")"
+
+  # --env-vars-file satter hela uppsattningen, precis som --set-env-vars. Den
+  # gamla revisionen kanner inte nodvandigtvis dagens variabler, sa de laggs
+  # tillbaka i ett andra steg.
+  gcloud run services update loven-stats-api --region "$REGION" \
+    --env-vars-file "$TMP/env.yaml" --quiet
+  gcloud run services update loven-stats-api --region "$REGION" \
+    --update-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" --quiet
+
+  # Variabler som pekar pa Secret Manager har inget varde i revisionen och
+  # kan inte aterstallas har. Sag till i stallet for att tiga om dem.
+  SECRETS=$(gcloud run revisions describe "$FOUND" --region "$REGION" --format=json 2>/dev/null \
+    | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+env = (d.get('spec', {}).get('containers') or [{}])[0].get('env') or []
+print(' '.join(e['name'] for e in env if e.get('value') is None))
+" 2>/dev/null || true)
+  if [[ -n "${SECRETS// /}" ]]; then
+    printf '  \033[1;33mobs\033[0m: hämtas från Secret Manager och måste sättas för hand: %s\n' "$SECRETS"
+  fi
+  say "Återställt. Kontrollerar X-flödet"
+  URL=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)')
+  curl -sS --max-time 90 "${URL}/api/v1/x-feed" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('  kunde inte tolka svaret'); raise SystemExit
+err = (d.get('meta') or {}).get('error')
+print(f\"  tweets: {d.get('count', 0)}\" + (f'  fel: {err}' if err else ''))
+" || true
+  exit 0
+fi
+
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   say "Deployar API:t till Cloud Run"
   gcloud run deploy loven-stats-api \
     --source api \
     --region "$REGION" \
     --allow-unauthenticated \
-    --set-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
+    --update-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
     --quiet
 fi
 
@@ -80,7 +160,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "scraper" ]]; then
     --allow-unauthenticated \
     --memory 1024Mi \
     --timeout 300s \
-    --set-env-vars "GCP_PROJECT=${PROJECT_ID},GCS_BUCKET=${BUCKET},SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961" \
+    --update-env-vars "GCP_PROJECT=${PROJECT_ID},GCS_BUCKET=${BUCKET},SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961" \
     --quiet
 
   # Utan en körning är de nya tabellerna tomma och endpointsen svarar

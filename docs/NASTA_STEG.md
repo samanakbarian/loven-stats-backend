@@ -117,6 +117,27 @@ ska ändå göras om — den droppar tabellen vid varje körning. Samla ihop:
 
 Först därefter kan API och frontend bygga på det.
 
+## X-flödet: miljövariabler raderade av deploy.sh
+
+`deploy.sh` använde `--set-env-vars`, som sätter *hela* uppsättningen
+miljövariabler på Cloud Run och tar bort allt som inte står i kommandot.
+Första körningen raderade därmed `X_BEARER_TOKEN` med flera, och `/api/v1/x-feed`
+svarar sedan dess `"error": "missing_token"` med noll tweets.
+
+Skriptet använder nu `--update-env-vars`, som lägger till utan att radera. De
+variabler som redan försvunnit hämtas tillbaka från en äldre Cloud
+Run-revision:
+
+```
+cd ~/lsb && git pull -q && bash deploy.sh restore-env
+```
+
+Den letar igenom de 40 senaste revisionerna efter en med `X_BEARER_TOKEN`,
+kopierar dess variabler till den nuvarande och kontrollerar sedan att
+X-flödet ger tweets igen. Värdena skrivs till en temporärfil och aldrig till
+terminalen. Variabler som hämtas ur Secret Manager kan inte återställas den
+vägen och listas separat.
+
 ## Kvarstående, oberoende av deployen
 
 1. **Rotera Sportradar-nyckeln.** Den låg hårdkodad i `functions/main.py`
