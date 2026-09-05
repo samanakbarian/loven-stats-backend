@@ -953,7 +953,9 @@ def get_goalies(season: str = None, refresh: bool = False):
             goalies.append(
                 {
                     "name": name,
-                    "jersey_number": t.get("jersey_number"),
+                    # Malvaktstabellen lamnar trojnumret tomt; matchloggen har det.
+                    "jersey_number": t.get("jersey_number")
+                    or next((r.get("goalie_number") for r in rows if r.get("goalie_number")), None),
                     "games_played": int(t.get("games_played") or 0),
                     "wins": int(t.get("wins") or 0),
                     "losses": int(t.get("losses") or 0),
