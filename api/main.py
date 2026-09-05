@@ -868,6 +868,143 @@ def get_player(name: str, season: str = None, refresh: bool = False):
         return {"status": "error", "name": name, "error": str(e)}
 
 
+@app.get("/api/v1/shots")
+@cached_ok(cache=stats_cache)
+def get_shots(season: str = None, refresh: bool = False):
+    """Skottandel och PDO, match for match och over sasongen.
+
+    Skotten star bara i matchsidans sammanfattning och finns i
+    swehockey_game_summary. Med bada lagens rader per match gar det att rakna
+    andelen av skotten, och PDO — skjutprocent plus raddningsprocent.
+
+    PDO ar det narmaste vi kommer ett turmatt. Runt 100 ar normalt; ett lag
+    som ligger klart hogre har haft mer tur an spel, och over tid dras det mot
+    100. Skottandelen sager det motsatta: den beskriver vem som styrde
+    matchen, oavsett vad pucken gjorde.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        season_ids = ",".join(str(sid) for sid in {active["regular"], active.get("playoff")} if sid)
+
+        try:
+            rows = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT a.*
+                    FROM `{bq.project}.raw_sports.swehockey_game_summary` a
+                    INNER JOIN (
+                        SELECT game_id, MAX(scraped_at) AS max_s
+                        FROM `{bq.project}.raw_sports.swehockey_game_summary`
+                        WHERE season_group_id IN ({season_ids})
+                        GROUP BY game_id
+                    ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
+                    WHERE a.season_group_id IN ({season_ids})
+                    ORDER BY a.match_date
+                    """
+                ).result()
+            ]
+        except Exception:
+            # Tabellen finns forst efter en skorning med den nya scrapern.
+            return {"status": "not_found", "error": "Skottdata saknas for sasongen.", "game_log": []}
+
+        # Bada lagens rader hor ihop per match.
+        per_game: dict[int, dict] = {}
+        for r in rows:
+            per_game.setdefault(int(r["game_id"]), {})["home" if r.get("is_home") else "away"] = r
+
+        def _pct(part: float, whole: float) -> float | None:
+            return round(part / whole * 100, 2) if whole else None
+
+        log = []
+        for gid, sides in per_game.items():
+            us_home = BJK_HOME.search(str((sides.get("home") or {}).get("team_name") or ""))
+            us = sides.get("home") if us_home else sides.get("away")
+            them = sides.get("away") if us_home else sides.get("home")
+            if not us or not them:
+                continue
+            sf = int(us.get("shots") or 0)
+            sa = int(them.get("shots") or 0)
+            # Malen gar att harleda: motstandarens malvakt raddade en del av
+            # vara skott, resten blev mal.
+            gf = sf - int(them.get("saves") or 0)
+            ga = sa - int(us.get("saves") or 0)
+            log.append(
+                {
+                    "game_id": gid,
+                    "date": str(us.get("match_date") or ""),
+                    "is_home": bool(us_home),
+                    "opponent": them.get("team_name"),
+                    "shots_for": sf,
+                    "shots_against": sa,
+                    "shot_share_pct": _pct(sf, sf + sa),
+                    "goals_for": gf,
+                    "goals_against": ga,
+                    "shooting_pct": _to_float(us.get("shooting_pct")),
+                    "save_pct": _to_float(us.get("save_pct")),
+                    "pdo": _to_float(us.get("pdo")),
+                }
+            )
+        log.sort(key=lambda g: g["date"])
+
+        def _agg(sel: list[dict]) -> dict:
+            sf = sum(g["shots_for"] for g in sel)
+            sa = sum(g["shots_against"] for g in sel)
+            gf = sum(g["goals_for"] for g in sel)
+            ga = sum(g["goals_against"] for g in sel)
+            shooting = _pct(gf, sf)
+            saving = _pct(sa - ga, sa)
+            return {
+                "games": len(sel),
+                "shots_for": sf,
+                "shots_against": sa,
+                "shots_for_per_game": round(sf / len(sel), 1) if sel else None,
+                "shots_against_per_game": round(sa / len(sel), 1) if sel else None,
+                "shot_share_pct": _pct(sf, sf + sa),
+                "goals_for": gf,
+                "goals_against": ga,
+                "shooting_pct": shooting,
+                "save_pct": saving,
+                # Sasongens PDO raknas ur totalerna, inte som ett snitt av
+                # matchernas — en match med fa skott ska inte vaga lika tungt.
+                "pdo": round(shooting + saving, 2) if shooting is not None and saving is not None else None,
+            }
+
+        # Rullande fonster: enskilda matcher svanger for mycket for att saga
+        # nagot, det ar riktningen over tid som ar intressant.
+        WINDOW = 10
+        rolling = []
+        for i in range(len(log)):
+            window = log[max(0, i - WINDOW + 1) : i + 1]
+            agg = _agg(window)
+            rolling.append(
+                {
+                    "date": log[i]["date"],
+                    "match": i + 1,
+                    "window": len(window),
+                    "pdo": agg["pdo"],
+                    "shot_share_pct": agg["shot_share_pct"],
+                }
+            )
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "games": len(log),
+            "totals": _agg(log),
+            "home": _agg([g for g in log if g["is_home"]]),
+            "away": _agg([g for g in log if not g["is_home"]]),
+            "rolling": rolling,
+            "game_log": log,
+            "window": WINDOW,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/shots")
+        return {"status": "error", "error": str(e), "game_log": []}
+
+
 @app.get("/api/v1/goalies")
 @cached_ok(cache=stats_cache)
 def get_goalies(season: str = None, refresh: bool = False):
