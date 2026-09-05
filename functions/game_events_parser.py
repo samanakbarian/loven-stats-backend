@@ -249,3 +249,128 @@ def parse_events(html: str, game_id: int) -> list[dict[str, Any]]:
     for i, row in enumerate(out):
         row["event_index"] = i
     return out
+
+# ── Matchsammanfattning: skott, räddningar och målvakter ──────────────────
+#
+# Sidhuvudet bär en tabell med lagens skott, räddningar, utvisningsminuter och
+# powerplay, hemmalaget till vänster och bortalaget till höger. Längre ner
+# står "Goalkeeper Summary" med vilken målvakt som stod och hens
+# räddningsprocent. Inget av det finns i handelserna, och det ar enda kallan
+# till skott per match — och darmed till PDO.
+
+_PCT = re.compile(r"(\d+[.,]\d+|\d+)\s*%")
+_GOALIE = re.compile(r"^(\d{1,2})\.\s*(.+)$")
+_SAVES = re.compile(r"(\d+[.,]\d+|\d+)\s*%\s*\((\d+)\s*/\s*(\d+)\)")
+
+
+def _num(text: Any) -> float | None:
+    t = _clean(text).replace("%", "").replace(",", ".").strip()
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def _periods(text: Any) -> list[int]:
+    """'(3:10:4:2:0)' -> [3, 10, 4, 2, 0]."""
+    m = re.search(r"\(([\d:\s]+)\)", _clean(text))
+    return [int(x) for x in re.findall(r"\d+", m.group(1))] if m else []
+
+
+def _labelled_pair(cells: list[str], label: str) -> list[tuple[str, str]]:
+    """Vardet efter varje forekomst av etiketten: forst hemma, sedan borta.
+
+    Raden kan bara skrap mellan lagens halvor ("Line Up Actions Reports"), sa
+    positionen raknas fran etiketten i stallet for fran radens borjan.
+    """
+    out: list[tuple[str, str]] = []
+    for i, c in enumerate(cells):
+        if _clean(c) == label:
+            out.append((cells[i + 1] if i + 1 < len(cells) else "",
+                        cells[i + 2] if i + 2 < len(cells) else ""))
+    return out
+
+
+def parse_game_summary(html: str, game_id: int) -> dict[str, Any]:
+    """Lagens skott och rakningar, plus vilka malvakter som stod."""
+    soup = BeautifulSoup(html, "lxml")
+    header = parse_header(html)
+
+    # Hemma och borta i den ordning tabellen skriver dem.
+    sides: list[dict[str, Any]] = [
+        {"is_home": True, "team_name": header.get("home_team")},
+        {"is_home": False, "team_name": header.get("away_team")},
+    ]
+
+    for table in soup.select("table.tblContent"):
+        rows = [[_clean(c.get_text(" ", strip=True)) for c in tr.select("td,th")] for tr in table.select("tr")]
+        if not any(r and r[0] == "Shots" for r in rows):
+            continue
+        for idx, cells in enumerate(rows):
+            for label, key in (("Shots", "shots"), ("Saves", "saves"), ("PIM", "pim")):
+                for side, (value, periods) in zip(sides, _labelled_pair(cells, label)):
+                    if _num(value) is not None:
+                        side[key] = int(_num(value))
+                        side[f"{key}_by_period"] = ",".join(str(n) for n in _periods(periods)) or None
+                # Procentraden foljer direkt efter och saknar etikett.
+                if any(_clean(c) == label for c in cells) and idx + 1 < len(rows):
+                    pcts = [_num(x) for x in rows[idx + 1] if _PCT.fullmatch(_clean(x))]
+                    field = {"Shots": "shooting_pct", "Saves": "save_pct"}.get(label)
+                    if field:
+                        for side, pct in zip(sides, pcts):
+                            if pct is not None:
+                                side[field] = pct
+            for side, (pct, time_text) in zip(sides, _labelled_pair(cells, "PP")):
+                if _num(pct) is not None:
+                    side["pp_pct"] = _num(pct)
+                    side["pp_time"] = _clean(time_text).strip("()") or None
+        break
+
+    # Malvaktssammanfattningen: lagkod, nummer, namn och raddningsprocent.
+    goalies: list[dict[str, Any]] = []
+    for table in soup.select("table.tblContent"):
+        rows = [[_clean(c.get_text(" ", strip=True)) for c in tr.select("td,th")] for tr in table.select("tr")]
+        seen_header = False
+        for cells in rows:
+            joined = " ".join(cells)
+            if "Goalkeeper Summary" in joined:
+                seen_header = True
+                continue
+            if not seen_header:
+                continue
+            # Avsnittet slutar vid nasta rubrik.
+            if len(cells) == 1 and cells[0] and not _SAVES.search(cells[0]):
+                break
+            m = _SAVES.search(joined)
+            who = next((c for c in cells if _GOALIE.match(c)), "")
+            g = _GOALIE.match(who)
+            if not m or not g:
+                continue
+            saves, shots = int(m.group(2)), int(m.group(3))
+            code = next((c for c in cells if c and c.isupper() and 2 <= len(c) <= 4), None)
+            goalies.append(
+                {
+                    "game_id": game_id,
+                    "team_code": code,
+                    "goalie_number": int(g.group(1)),
+                    "goalie_name": _clean(g.group(2)).rstrip(",").strip(),
+                    "save_pct": _num(m.group(1)),
+                    "saves": saves,
+                    "shots_against": shots,
+                    "goals_against": shots - saves,
+                }
+            )
+        if goalies:
+            break
+
+    for side in sides:
+        side["game_id"] = game_id
+        side["home_team"] = header.get("home_team")
+        side["away_team"] = header.get("away_team")
+        side["spectators"] = header.get("spectators")
+        # PDO: skjutprocent plus raddningsprocent. Runt 100 ar normalt; hogre
+        # brukar betyda tur, lagre otur — over tid drar det mot 100.
+        if side.get("shooting_pct") is not None and side.get("save_pct") is not None:
+            side["pdo"] = round(side["shooting_pct"] + side["save_pct"], 2)
+
+    return {"teams": sides, "goalies": goalies}

@@ -246,6 +246,18 @@ def clean_person(name) -> str:
     return text.strip().rstrip(",").strip()
 
 
+
+BJK_HOME = re.compile(r"bj[oö]rkl[oö]ven", re.IGNORECASE)
+
+
+def _to_float(value):
+    """Swehockey blandar punkt och komma, och tomma celler ar strangar."""
+    try:
+        return round(float(str(value).replace(",", ".")), 2)
+    except (TypeError, ValueError):
+        return None
+
+
 def _is_ours(team_code) -> bool:
     """Bjorklovens lagkod i Swehockeys handelser ar IFB."""
     low = str(team_code or "").lower()
@@ -854,6 +866,137 @@ def get_player(name: str, season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/player/%s", name)
         return {"status": "error", "name": name, "error": str(e)}
+
+
+@app.get("/api/v1/goalies")
+@cached_ok(cache=stats_cache)
+def get_goalies(season: str = None, refresh: bool = False):
+    """Malvakterna: sasongstotaler, match for match och hemma mot borta.
+
+    Sasongstabellen ger totaler men inte vem som stod i vilken match. Den
+    uppgiften finns bara i matchernas sammanfattning, som scrapern lagger i
+    swehockey_game_goalies — utan den gar det varken att rita en formkurva
+    eller att se vem som stod nar det small.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular_id = active["regular"]
+        season_ids = ",".join(str(sid) for sid in {regular_id, active.get("playoff")} if sid)
+
+        totals = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.*
+                FROM `{bq.project}.raw_sports.swehockey_goalie_stats` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_goalie_stats`
+                    WHERE season_group_id = {regular_id}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {regular_id}
+                  AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+                """
+            ).result()
+        ]
+
+        try:
+            log_rows = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT a.*
+                    FROM `{bq.project}.raw_sports.swehockey_game_goalies` a
+                    INNER JOIN (
+                        SELECT game_id, MAX(scraped_at) AS max_s
+                        FROM `{bq.project}.raw_sports.swehockey_game_goalies`
+                        WHERE season_group_id IN ({season_ids})
+                        GROUP BY game_id
+                    ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
+                    WHERE a.season_group_id IN ({season_ids})
+                      AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+                    ORDER BY a.match_date
+                    """
+                ).result()
+            ]
+        except Exception:
+            # Tabellen finns forst efter en skorning med den nya scrapern.
+            log_rows = []
+
+        def _key(n) -> str:
+            return re.sub(r"[^a-z]", "", unicodedata.normalize("NFKD", str(n or "").lower()))
+
+        by_goalie: dict[str, list[dict]] = {}
+        for r in log_rows:
+            by_goalie.setdefault(_key(r.get("goalie_name")), []).append(r)
+
+        def _side(rows: list[dict], home: bool | None) -> dict:
+            sel = [
+                r for r in rows
+                if home is None or bool(BJK_HOME.search(str(r.get("home_team") or ""))) == home
+            ]
+            shots = sum(int(r.get("shots_against") or 0) for r in sel)
+            saves = sum(int(r.get("saves") or 0) for r in sel)
+            return {
+                "games": len(sel),
+                "shots_against": shots,
+                "saves": saves,
+                "goals_against": shots - saves,
+                "save_pct": round(saves / shots * 100, 2) if shots else None,
+            }
+
+        goalies = []
+        for t in sorted(totals, key=lambda x: int(x.get("games_played") or 0), reverse=True):
+            name = t.get("goalie_name")
+            rows = by_goalie.get(_key(name), [])
+            goalies.append(
+                {
+                    "name": name,
+                    "jersey_number": t.get("jersey_number"),
+                    "games_played": int(t.get("games_played") or 0),
+                    "wins": int(t.get("wins") or 0),
+                    "losses": int(t.get("losses") or 0),
+                    "shutouts": int(t.get("shutouts") or 0),
+                    "goals_against": int(t.get("goals_against") or 0),
+                    "shots_against": int(t.get("shots_against") or 0),
+                    "saves": int(t.get("saves") or 0),
+                    "save_pct": _to_float(t.get("save_pct")),
+                    "gaa": _to_float(t.get("gaa")),
+                    # Hemma och borta ur matchloggen; sasongstabellen delar inte upp det.
+                    "home": _side(rows, True),
+                    "away": _side(rows, False),
+                    "game_log": [
+                        {
+                            "game_id": r.get("game_id"),
+                            "date": str(r.get("match_date") or ""),
+                            "is_home": bool(BJK_HOME.search(str(r.get("home_team") or ""))),
+                            "opponent": (
+                                r.get("away_team")
+                                if BJK_HOME.search(str(r.get("home_team") or ""))
+                                else r.get("home_team")
+                            ),
+                            "save_pct": _to_float(r.get("save_pct")),
+                            "saves": int(r.get("saves") or 0),
+                            "shots_against": int(r.get("shots_against") or 0),
+                            "goals_against": int(r.get("goals_against") or 0),
+                        }
+                        for r in sorted(rows, key=lambda x: str(x.get("match_date") or ""))
+                    ],
+                }
+            )
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "count": len(goalies),
+            "games_with_log": len({r.get("game_id") for r in log_rows}),
+            "goalies": goalies,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/goalies")
+        return {"status": "error", "error": str(e), "goalies": []}
 
 
 @app.get("/api/v1/onice")

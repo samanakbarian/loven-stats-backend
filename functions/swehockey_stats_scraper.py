@@ -28,9 +28,9 @@ except ImportError:
     )
 
 try:
-    from game_events_parser import parse_events
+    from game_events_parser import parse_events, parse_game_summary
 except ImportError:
-    from functions.game_events_parser import parse_events
+    from functions.game_events_parser import parse_events, parse_game_summary
 
 logging.basicConfig(level=logging.INFO)
 
@@ -547,6 +547,85 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
 
 
 
+# Handelser, skott och malvakter star pa samma sida. Utan en cache skulle
+# varje match hamtas tre ganger, en gang per datatyp, och en sasong ta tre
+# gonger sa lang tid. Cachen lever bara under korningen.
+_GAME_PAGES: dict[int, str] = {}
+
+
+def _team_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]:
+    """Lagets spelade matcher med matchlank, nyast forst."""
+    schedule, _ = _fetch_schedule(season_group_id)
+    ours = [
+        g
+        for g in schedule
+        if g.get("game_id")
+        and _contains_team_token([str(g.get("home_team", "")), str(g.get("away_team", ""))])
+        and str(g.get("result") or "").strip()
+    ]
+    ours.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
+    return ours if limit is None else ours[: max(0, limit)]
+
+
+def _game_html(game_id: int) -> str | None:
+    if game_id not in _GAME_PAGES:
+        html = _fetch_html(f"{BASE_URL}/Game/Events/{game_id}")
+        if html is None:
+            return None
+        _GAME_PAGES[game_id] = html
+    return _GAME_PAGES.get(game_id)
+
+
+def _fetch_game_summary(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Skott, raddningar och PDO per lag och match.
+
+    Skott finns inte i handelserna utan bara i sidhuvudets sammanfattning, och
+    det ar enda vagen till skjutprocent, raddningsprocent och darmed PDO.
+    """
+    out: list[dict[str, Any]] = []
+    for game in _team_games(season_group_id, limit):
+        html = _game_html(int(game["game_id"]))
+        if not html:
+            continue
+        try:
+            summary = parse_game_summary(html, int(game["game_id"]))
+        except Exception:
+            logging.exception("Kunde inte tolka sammanfattning for match %s", game["game_id"])
+            continue
+        for row in summary["teams"]:
+            row["season_group_id"] = int(season_group_id)
+            row["match_date"] = game.get("match_date")
+            row["source"] = SOURCE
+            out.append(row)
+    return out, f"{BASE_URL}/Game/Events/"
+
+
+def _fetch_game_goalies(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Vilken malvakt som stod i vilken match, med raddningsprocent.
+
+    Sasongstabellen ger totaler men inte matchen. Utan den har gar det inte
+    att visa en form kurva eller vem som stod nar det small.
+    """
+    out: list[dict[str, Any]] = []
+    for game in _team_games(season_group_id, limit):
+        html = _game_html(int(game["game_id"]))
+        if not html:
+            continue
+        try:
+            summary = parse_game_summary(html, int(game["game_id"]))
+        except Exception:
+            logging.exception("Kunde inte tolka malvakter for match %s", game["game_id"])
+            continue
+        for row in summary["goalies"]:
+            row["season_group_id"] = int(season_group_id)
+            row["match_date"] = game.get("match_date")
+            row["home_team"] = summary["teams"][0].get("team_name")
+            row["away_team"] = summary["teams"][1].get("team_name")
+            row["source"] = SOURCE
+            out.append(row)
+    return out, f"{BASE_URL}/Game/Events/"
+
+
 def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
     """Handelser match for match: mal, utvisningar och spelarna pa isen.
 
@@ -561,26 +640,12 @@ def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[
     Slutspelet saknar matchlankar hos Swehockey och far darfor inga
     handelser; se docs/SWEHOCKEY_STATS_SCRAPER.md.
     """
-    schedule, _ = _fetch_schedule(season_group_id)
-    if not schedule:
-        return [], None
-
-    ours = [
-        g
-        for g in schedule
-        if g.get("game_id")
-        and _contains_team_token([str(g.get("home_team", "")), str(g.get("away_team", ""))])
-        # Utan resultat ar matchen inte spelad och har inga handelser.
-        and str(g.get("result") or "").strip()
-    ]
-    ours.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
-
-    cap = len(ours) if limit is None else max(0, limit)
+    ours = _team_games(season_group_id, limit)
     out: list[dict[str, Any]] = []
     failures = 0
-    for game in ours[:cap]:
+    for game in ours:
         gid = int(game["game_id"])
-        html = _fetch_html(f"{BASE_URL}/Game/Events/{gid}")
+        html = _game_html(gid)
         if not html:
             failures += 1
             continue
@@ -597,7 +662,7 @@ def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[
         out.extend(rows)
 
     if failures:
-        logging.warning("Handelser saknas for %s av %s matcher", failures, min(cap, len(ours)))
+        logging.warning("Handelser saknas for %s av %s matcher", failures, len(ours))
     return out, f"{BASE_URL}/Game/Events/"
 
 
@@ -637,6 +702,20 @@ def _scrape_jobs():
             "table_name": "swehockey_game_events",
             "required_fields": ("game_id", "event_type", "time"),
             "key_fields": ("game_id", "event_index"),
+        },
+        {
+            "data_type": "game_summary",
+            "fetcher": _fetch_game_summary,
+            "table_name": "swehockey_game_summary",
+            "required_fields": ("game_id", "season_group_id"),
+            "key_fields": ("game_id", "is_home"),
+        },
+        {
+            "data_type": "game_goalies",
+            "fetcher": _fetch_game_goalies,
+            "table_name": "swehockey_game_goalies",
+            "required_fields": ("game_id", "goalie_name"),
+            "key_fields": ("game_id", "goalie_number"),
         },
         {
             "data_type": "roster",
@@ -782,6 +861,7 @@ def _append_bq_rows(
 @functions_framework.http
 def run_swehockey_stats_scraper(request):
     scraped_at = _now().isoformat()
+    _GAME_PAGES.clear()
     bq_client = bigquery.Client(project=GCP_PROJECT)
     _ensure_dataset(bq_client, BQ_DATASET)
 
@@ -861,7 +941,7 @@ def run_swehockey_stats_scraper(request):
         for season_group_id in active_season_ids:
             for job in _scrape_jobs():
                 data_type = job["data_type"]
-                if data_type == "game_events":
+                if data_type in ("game_events", "game_summary", "game_goalies"):
                     rows, source_url = job["fetcher"](season_group_id, events_limit)
                 else:
                     rows, source_url = job["fetcher"](season_group_id)
@@ -899,7 +979,7 @@ def run_swehockey_stats_scraper(request):
             allow_preseason_empty = (
                 # game_events ar tomt for slutspelsgrupper, som saknar
                 # matchlankar hos Swehockey, och fore seriestart.
-                data_type in {"roster", "standings", "game_events"}
+                data_type in {"roster", "standings", "game_events", "game_summary", "game_goalies"}
                 or (
                     data_type in {"player_stats", "goalie_stats"}
                     and not season_has_games.get(season_group_id, False)
