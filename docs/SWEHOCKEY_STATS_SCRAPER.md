@@ -121,3 +121,51 @@ Facts integration:
 - Spelar- och målvaktsstatistik är ännu tom före säsongsstart och loggas därför
   som `WARNING`, inte som blockerande fel.
 - Tabell och schema passerar kritiska kontroller.
+
+## On-ice: vad `Pos. Part.` ger, och vad den inte ger
+
+Målcellen på `/Game/Events/{game_id}` bär `Pos. Part.` och `Neg. Part.` — de
+spelare som stod på isen för det görande respektive det släppande laget.
+Scrapern lägger dem i `on_ice_for` och `on_ice_against` som tröjnummer, och
+`/api/v1/onice` räknar mål för och emot per spelare ur dem.
+
+### Talen är inte tabellens plus/minus
+
+Swehockeys spelartabell har egna kolumner `+`, `-` och `+/-`. De stämmer inte
+med vad `Pos. Part.` ger. Mätt över hela HA 25/26, Björklövens 27 utespelare:
+
+| | mina summor | Swehockeys | kvot |
+|---|---|---|---|
+| `+` | 606 | 704 | 1,162 |
+| `-` | 318 | 366 | 1,151 |
+
+Avvikelsen är konsekvent åt båda hållen, ungefär 16 procent. Den beror alltså
+inte på att fel situationer räknas — plus- och minussidan skulle då dra åt
+olika håll. För enskilda spelare stämmer ena sidan ibland exakt: Cronholm har
+`-` 19 i tabellen och 19 hos oss, men `+` 50 mot våra 40.
+
+Vad som prövats utan att förklara skillnaden:
+
+- bara mål vid lika styrka
+- lika styrka plus mål i underläge (närmast, medelavvikelse 1,71 mot 2,50)
+- alla situationer, och varianter där för- och emotsidan räknas olika
+- straffslagsmål in- och exkluderade
+
+Slutsatsen är att Swehockey räknar on-ice på ett underlag vi inte ser på
+händelsesidan. **Kalibrera inte bort skillnaden med en faktor.** Talen
+redovisas i stället bredvid varandra: `gf_on`/`ga_on`/`diff` från händelserna,
+och `official_plus_minus` från tabellen.
+
+### Vad våra tal ändå ger som tabellens inte gör
+
+- uppdelning på lika styrka mot alla situationer
+- andel av lagets mål spelaren var med på
+- vilka par som oftast står på isen tillsammans när laget gör mål
+- samma nedbrytning per match
+
+### Slutspelet saknar match-id
+
+Swehockey länkar inte matcherna från slutspelssidan, och varken `Overview`,
+`GameCenter` eller `Live` för samma säsongsgrupp har `/Game/Events/`-länkar.
+Grundserien har 364 länkar, slutspelet noll. Slutspelsmatcher får därför
+varken matchrapport eller händelser.

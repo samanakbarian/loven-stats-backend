@@ -919,6 +919,29 @@ def get_onice(season: str = None, refresh: bool = False):
                 continue
             by_number.setdefault(int(num), {"name": r.get("player_name"), "position": r.get("position")})
 
+        # Truppen listar bara spelare klubben registrerat. Nagon som spelat men
+        # inte star dar skulle annars bli ett namnlost nummer i tabellen.
+        for r in bq.query(
+            f"""
+            SELECT a.player_name, a.jersey_number, a.position
+            FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+            INNER JOIN (
+                SELECT MAX(scraped_at) AS max_s
+                FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                WHERE season_group_id IN ({season_ids})
+            ) b ON a.scraped_at = b.max_s
+            WHERE a.season_group_id IN ({season_ids})
+              AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+            """
+        ).result():
+            d = dict(r.items())
+            num = d.get("jersey_number")
+            if num is None:
+                continue
+            by_number.setdefault(
+                int(num), {"name": d.get("player_name"), "position": d.get("position")}
+            )
+
         def _nums(value) -> list[int]:
             return [int(n) for n in re.findall(r"\d{1,2}", str(value or ""))]
 
@@ -935,7 +958,12 @@ def get_onice(season: str = None, refresh: bool = False):
             if not ours:
                 continue
             state = str(g.get("score_state") or "").upper()
-            even = "(EQ)" in state
+            # Plus/minus-konventionen: mal vid lika styrka och i underlage
+            # raknas, powerplaymal gor det inte — for nagotdera laget. Att bara
+            # rakna (EQ) gav backar som spelar mycket boxplay ett for lagt tal,
+            # eftersom deras mal i underlage foll bort. `score_state` beskriver
+            # det gorande lagets situation, sa regeln ar densamma at bada hall.
+            even = "(EQ)" in state or "SH" in state
             if scored_by_us:
                 team_gf += 1
             else:
@@ -953,9 +981,34 @@ def get_onice(season: str = None, refresh: bool = False):
                     slot["ga_on_ev"] += 1 if even else 0
 
             if scored_by_us:
-                for i, a in enumerate(sorted(ours)):
-                    for b in sorted(ours)[i + 1 :]:
+                # Malvakten star pa isen vid nastan varje mal och skulle annars
+                # ta over listan over vanligaste kombinationer.
+                skaters = sorted(
+                    n for n in ours
+                    if not str((by_number.get(n) or {}).get("position") or "").upper().startswith("G")
+                )
+                for i, a in enumerate(skaters):
+                    for b in skaters[i + 1 :]:
                         pairs[(a, b)] = pairs.get((a, b), 0) + 1
+
+        # Tabellens eget plus/minus, sa att bada talen kan visas sida vid sida.
+        official: dict[int, int] = {}
+        for r in bq.query(
+            f"""
+            SELECT a.jersey_number, a.plus_minus
+            FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+            INNER JOIN (
+                SELECT MAX(scraped_at) AS max_s
+                FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                WHERE season_group_id IN ({season_ids})
+            ) b ON a.scraped_at = b.max_s
+            WHERE a.season_group_id IN ({season_ids})
+              AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+            """
+        ).result():
+            d = dict(r.items())
+            if d.get("jersey_number") is not None:
+                official[int(d["jersey_number"])] = int(d.get("plus_minus") or 0)
 
         players = []
         for num, slot in stats.items():
@@ -974,6 +1027,7 @@ def get_onice(season: str = None, refresh: bool = False):
                     "diff_ev": slot["gf_on_ev"] - slot["ga_on_ev"],
                     # Andel av lagets mal som spelaren var med pa.
                     "gf_share_pct": round(slot["gf_on"] / team_gf * 100, 1) if team_gf else 0,
+                    "official_plus_minus": official.get(num),
                 }
             )
         players.sort(key=lambda p: (p["diff_ev"], p["diff"]), reverse=True)
@@ -1001,6 +1055,17 @@ def get_onice(season: str = None, refresh: bool = False):
             "count": len(players),
             "players": players,
             "top_pairs": top_pairs,
+            # Var siffra ar inte tabellens. Swehockeys egna +/- tillskriver
+            # ungefar 16 procent fler on-ice-tillfallen an deras Pos. Part.-
+            # listor ger, konsekvent at bada hallen, och skillnaden gar inte
+            # att harleda ur handelsesidan. Talen redovisas darfor bredvid
+            # varandra i stallet for att ett av dem utges for att vara det
+            # andra. Se docs/SWEHOCKEY_STATS_SCRAPER.md.
+            "note": (
+                "on_ice-talen raknas ur Swehockeys uppgift om vilka som stod pa "
+                "isen vid varje mal. De sammanfaller inte alltid med tabellens "
+                "plus/minus, som redovisas separat i official_plus_minus."
+            ),
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/onice")
