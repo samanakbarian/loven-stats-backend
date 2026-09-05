@@ -215,6 +215,41 @@ def get_seasons():
     }
 
 
+
+def clean_person(name) -> str:
+    """Rensar namn som burit med sig granntexten fran Swehockeys handelsesida.
+
+    Malcellen ser ut sa har:
+
+        71. Possler, Gustav Pos. Part.: 10, 26, ... Neg. Part.: 16, ...
+
+    Skorningen strippar taggarna utan mellanrum, sa sista assisten blir
+    "Possler, GustavPos". Det ar inte bara fult: `/api/v1/player` matchar pa
+    namn, sa en assist med paklistrat "Pos" raknas inte alls och forsvinner ur
+    spelarens poangkurva.
+
+    Ratt losning ar att skorningen slutar klistra ihop dem, men raderna som
+    redan ligger i BigQuery maste rensas nagonstans, och det ar har.
+    """
+    text = str(name or "").strip()
+    if not text:
+        return ""
+    # Bara nar markoren sitter direkt efter ett gement tecken — annars kunde
+    # ett riktigt namn kapas.
+    text = re.sub(r"(?<=[a-zaaoAAO\u00e0-\u00ff])(?:Pos|Neg)\.?(?:\s*Part\.?:?.*)?$", "", text)
+    return text.strip().rstrip(",").strip()
+
+
+def clean_penalty_type(detail) -> str:
+    """'Crosschecking(10:07 - 12:07)' -> 'Crosschecking'.
+
+    Tidsintervallet star redan som utvisningens tid och minuter.
+    """
+    text = str(detail or "").strip()
+    text = re.sub(r"\s*\(\s*\d{1,3}:\d{2}\s*-\s*\d{1,3}:\d{2}\s*\)\s*$", "", text)
+    return text.strip()
+
+
 @app.get("/api/v1/standings")
 @cached_ok(cache=stats_cache)
 def get_standings(season: str = None, refresh: bool = False):
@@ -766,8 +801,9 @@ def get_player(name: str, season: str = None, refresh: bool = False):
         # En rad per match dar spelaren gjort mal eller assist.
         per_game: dict[str, dict] = {}
         for e in events:
-            scorer = _key(e.get("player_name"))
-            a1, a2 = _key(e.get("assist1_name")), _key(e.get("assist2_name"))
+            scorer = _key(clean_person(e.get("player_name")))
+            a1 = _key(clean_person(e.get("assist1_name")))
+            a2 = _key(clean_person(e.get("assist2_name")))
             if wanted not in (scorer, a1, a2):
                 continue
             gid = str(e.get("game_id"))
@@ -875,13 +911,15 @@ def get_match(game_id: int):
         )
 
         def _shape_goal(e):
-            assists = [a for a in [e.get("assist1_name"), e.get("assist2_name")] if a]
+            assists = [
+                c for c in (clean_person(e.get("assist1_name")), clean_person(e.get("assist2_name"))) if c
+            ]
             return {
                 "time": e.get("time"),
                 "minute": round(_minute(e.get("time")), 2),
                 "period": e.get("period"),
                 "team_code": e.get("team_code"),
-                "scorer": e.get("player_name"),
+                "scorer": clean_person(e.get("player_name")),
                 "scorer_number": e.get("player_number"),
                 "assists": assists,
                 "score_state": e.get("score_state"),
@@ -895,10 +933,10 @@ def get_match(game_id: int):
                 "minute": round(_minute(e.get("time")), 2),
                 "period": e.get("period"),
                 "team_code": e.get("team_code"),
-                "player": e.get("player_name"),
+                "player": clean_person(e.get("player_name")),
                 "player_number": e.get("player_number"),
                 "minutes": e.get("penalty_minutes") or 0,
-                "type": e.get("detail"),
+                "type": clean_penalty_type(e.get("detail")),
             }
 
         # Lagkoder: identifiera vilken kod som ar hemmalaget, sa klienten kan

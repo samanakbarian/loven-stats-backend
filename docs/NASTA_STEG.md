@@ -77,6 +77,46 @@ backend automatiskt, precis som Netlify gör med frontend. Kräver att
 behörigheter klickas igenom en gång i Google Cloud Console — men efter det
 behöver Cloud Shell aldrig röras igen. Inte påbörjat; vänta på besked.
 
+## Fyndet: spelarna på isen finns redan i källan
+
+Målcellen på Swehockeys händelsesida ser ut så här:
+
+```
+71. Possler, Gustav  (1)  10. Nilsson, Marcus  26. Ottosson, Axel
+Pos. Part.: 10 , 26 , 31 , 33 , 64 , 71
+Neg. Part.: 16 , 26 , 29 , 31 , 54 , 59
+```
+
+`Pos. Part.` och `Neg. Part.` är **alla sex spelarna på isen** för respektive
+lag vid varje mål. Scrapern kastar bort dem idag. Med dem går det att räkna
+per match och över säsongen:
+
+- on-ice för och emot per spelare, alltså ett riktigt plus/minus
+- vilka kombinationer som producerar mål
+- vilka som är på isen när det släpps in
+
+Det är den enskilt största datakällan vi har oanvänd, och precis det som
+efterfrågats som "djupgående analys per match".
+
+Samma hopklistring är orsaken till namnbuggen: taggarna strippas utan
+mellanrum, så sista assisten blir `Possler, GustavPos`. API:t rensar det vid
+utläsning sedan 2026-09-05 (`clean_person` i `api/main.py`), men källan bör
+sluta skapa problemet.
+
+### Vad som krävs
+
+`slutspel/scrapers/swehockey/upload_game_events.py` behöver skrivas om. Den
+ska ändå göras om — den droppar tabellen vid varje körning. Samla ihop:
+
+1. Appenda i stället för att droppa, med avduplicering på senaste
+   `scraped_at` per `game_id`, som de andra tabellerna.
+2. Sluta klistra ihop celltexten; separera taggar med mellanslag före
+   parsningen.
+3. Fånga `Pos. Part.` och `Neg. Part.` som två nya kolumner med tröjnummer.
+4. Kör om alla matcher i HA 25/26 så historiken får fälten.
+
+Först därefter kan API och frontend bygga på det.
+
 ## Kvarstående, oberoende av deployen
 
 1. **Rotera Sportradar-nyckeln.** Den låg hårdkodad i `functions/main.py`
