@@ -9,7 +9,10 @@ from fastapi.responses import JSONResponse
 from google.cloud import storage
 from google.cloud import bigquery
 from datetime import datetime, timezone, timedelta
+import functools
+
 from cachetools import cached, TTLCache
+from cachetools.keys import hashkey
 
 import re
 from silly_season_data import SILLY_SEASON_BASELINE
@@ -64,6 +67,35 @@ X_BQ_DATASET = os.environ.get("X_BQ_DATASET", "raw_content")
 X_BQ_POSTS_TABLE = os.environ.get("X_BQ_POSTS_TABLE", "x_posts")
 X_BQ_RUNS_TABLE = os.environ.get("X_BQ_RUNS_TABLE", "x_fetch_runs")
 SWEHOCKEY_TEAM_ID = os.environ.get("SWEHOCKEY_TEAM_ID", "1139")
+
+
+def cached_ok(cache):
+    """Som @cached, men lagrar bara lyckade svar.
+
+    Endpointsen returnerar {"status": "error"} i stallet for att kasta, sa
+    @cached lagrade aven misslyckade svar. Med sex timmars TTL innebar det att
+    ett ogonblickligt fel — en tabell som annu inte hunnit skapas, en timeout
+    mot BigQuery — fastnade i sex timmar efter att orsaken var borta.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            key = hashkey(*args, **kwargs)
+            try:
+                return cache[key]
+            except KeyError:
+                pass
+            result = fn(*args, **kwargs)
+            if isinstance(result, dict) and result.get("status") in ("error", "not_found"):
+                return result
+            cache[key] = result
+            return result
+
+        return wrapper
+
+    return decorator
+
 
 @app.get("/")
 def read_root():
@@ -177,7 +209,7 @@ def get_seasons():
 
 
 @app.get("/api/v1/standings")
-@cached(cache=stats_cache)
+@cached_ok(cache=stats_cache)
 def get_standings(season: str = None):
     """Hela serietabellen for vald sasong.
 
@@ -220,7 +252,7 @@ def get_standings(season: str = None):
 
 
 @app.get("/api/v1/statistics")
-@cached(cache=stats_cache)
+@cached_ok(cache=stats_cache)
 def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven")):
     """
     Returns Swehockey snapshot from raw_sports tables.
@@ -416,7 +448,7 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
 
 
 @app.get("/api/v1/roster")
-@cached(cache=stats_cache)
+@cached_ok(cache=stats_cache)
 def get_roster(season: str = None, team: str = "björklöven"):
     """Truppen med Swehockey som sanningskalla.
 
@@ -548,7 +580,7 @@ def get_roster(season: str = None, team: str = "björklöven"):
 
 
 @app.get("/api/v1/match/{game_id}")
-@cached(cache=stats_cache)
+@cached_ok(cache=stats_cache)
 def get_match(game_id: int):
     """Alla handelser for en enskild match.
 
@@ -670,7 +702,7 @@ def get_match(game_id: int):
 
 
 @app.get("/api/v1/analytics")
-@cached(cache=analytics_cache)
+@cached_ok(cache=analytics_cache)
 def get_analytics(season: str = None):
     """
     Compute derived analytics from existing BQ data.
