@@ -715,7 +715,10 @@ def _scrape_jobs():
             "fetcher": _fetch_game_goalies,
             "table_name": "swehockey_game_goalies",
             "required_fields": ("game_id", "goalie_name"),
-            "key_fields": ("game_id", "goalie_number"),
+            # Lagkoden maste ingaa: bada malvakterna i en match kan bara samma
+            # nummer, och 31 ar ett av de vanligaste. Utan den blir nyckeln en
+            # dubblett och kvalitetsgrinden stoppar hela laddningen.
+            "key_fields": ("game_id", "team_code", "goalie_number"),
         },
         {
             "data_type": "roster",
