@@ -1106,6 +1106,9 @@ def get_onice(season: str = None, refresh: bool = False):
         # luckorna — annars blev nummer 77 en namnlos rad.
         for r in bq.query(
             f"""
+            -- Ingen avduplicering behovs har: fragan grupperar och rankar
+            -- bara namn per nummer, och flera skorningsgenerationer skalar
+            -- alla antal lika mycket. Ordningen blir densamma.
             SELECT e.player_number, e.player_name, COUNT(*) AS n
             FROM `{bq.project}.raw_sports.swehockey_game_events` e
             WHERE e.season_group_id IN ({season_ids})
@@ -1492,7 +1495,24 @@ def get_analytics(season: str = None, refresh: bool = False):
         sched_game_ids = [str(g['game_id']) for g in schedule if g.get("game_id")]
         if sched_game_ids:
             game_ids_str = ", ".join(sched_game_ids)
-            events = q(f"SELECT * FROM `{proj}.raw_sports.swehockey_game_events` WHERE game_id IN ({game_ids_str})")
+            # Handelsetabellen ar append-only: varje skorning lagger till en ny
+            # uppsattning rader. Utan att forst valja senaste korningen per
+            # match summeras alla generationer — utvisningarna tredubblades nar
+            # samma sasong hade skorats tre ganger, och samma fel drabbade
+            # specialteam och nar malen faller.
+            events = q(
+                f"""
+                SELECT e.*
+                FROM `{proj}.raw_sports.swehockey_game_events` e
+                INNER JOIN (
+                    SELECT game_id, MAX(scraped_at) AS max_s
+                    FROM `{proj}.raw_sports.swehockey_game_events`
+                    WHERE game_id IN ({game_ids_str})
+                    GROUP BY game_id
+                ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
+                WHERE e.game_id IN ({game_ids_str})
+                """
+            )
         else:
             events = []
 
