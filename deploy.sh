@@ -7,6 +7,11 @@
 #   bash deploy.sh            # allt
 #   bash deploy.sh api        # bara API:t
 #   bash deploy.sh scraper    # bara scrapern
+#   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
+#
+# Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
+# fält som lagts till i efterhand — game_id, periodresultat, publik, trupp.
+# Säsongerna anges med BACKFILL_SEASONS, som standard HA 25/26 med slutspel.
 #
 set -euo pipefail
 
@@ -14,6 +19,7 @@ PROJECT_ID="${PROJECT_ID:-granskaren-d51a1}"
 REGION="${REGION:-europe-west1}"
 BUCKET="${GCS_BUCKET:-loven-stats-raw-data-prod}"
 TARGET="${1:-all}"
+BACKFILL_SEASONS="${BACKFILL_SEASONS:-18266,19979}"
 
 say() { printf '\n\033[1;32m▸ %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$1"; exit 1; }
@@ -64,6 +70,25 @@ for k,v in (d.get('types') or {}).items():
     mark='ok ' if v.get('ok') else 'FEL'
     print(f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\")
 " || true
+fi
+
+if [[ "$TARGET" == "backfill" ]]; then
+  say "Backfill av säsonger: $BACKFILL_SEASONS"
+  FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/swehockey-stats-scraper"
+  OUT=$(curl -sS --max-time 480 "${FN_URL}?seasons=${BACKFILL_SEASONS}" 2>/dev/null || echo '{}')
+  printf '%s' "$OUT" | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print('  kunde inte tolka svaret'); raise SystemExit
+print('  status:', d.get('status','?'))
+for k,v in (d.get('types') or {}).items():
+    mark='ok ' if v.get('ok') else 'FEL'
+    line=f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\"
+    if v.get('error'): line += '  ' + str(v['error'])[:70]
+    print(line)
+" || true
+  say "Klart"
+  exit 0
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then

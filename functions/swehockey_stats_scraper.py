@@ -602,17 +602,41 @@ def run_swehockey_stats_scraper(request):
     bq_client = bigquery.Client(project=GCP_PROJECT)
     _ensure_dataset(bq_client, BQ_DATASET)
 
-    # Fetch active season IDs from BigQuery
-    active_season_ids = []
+    # Sasonger kan anges explicit for backfill:
+    #   ?seasons=18266,19979
+    # Utan parametern koras de sasonger som ar markerade aktiva. Scrapern rorde
+    # tidigare bara aktiva sasonger, sa avslutade sasonger fick aldrig falt som
+    # lagts till i efterhand — som game_id, period_results och trupplistan.
+    requested = ""
     try:
-        query = f"SELECT regular_season_id, playoff_id FROM `{bq_client.project}.{BQ_DATASET}.swehockey_seasons` WHERE is_active = TRUE"
-        for row in bq_client.query(query).result():
-            if row.get("regular_season_id"):
-                active_season_ids.append(str(row["regular_season_id"]))
-            if row.get("playoff_id"):
-                active_season_ids.append(str(row["playoff_id"]))
-    except Exception as e:
-        logging.error("Failed to fetch active seasons from BQ, falling back to env var: %s", e)
+        requested = (request.args.get("seasons") or "").strip()
+    except Exception:
+        requested = ""
+
+    active_season_ids: list[str] = []
+
+    if requested:
+        active_season_ids = [p.strip() for p in requested.split(",") if p.strip().isdigit()]
+        if not active_season_ids:
+            return (
+                json.dumps(
+                    {"status": "error", "error": "seasons maste vara kommaseparerade heltal."},
+                    ensure_ascii=False,
+                ),
+                400,
+                {"Content-Type": "application/json"},
+            )
+        logging.info("Backfill for sasonger: %s", ",".join(active_season_ids))
+    else:
+        try:
+            query = f"SELECT regular_season_id, playoff_id FROM `{bq_client.project}.{BQ_DATASET}.swehockey_seasons` WHERE is_active = TRUE"
+            for row in bq_client.query(query).result():
+                if row.get("regular_season_id"):
+                    active_season_ids.append(str(row["regular_season_id"]))
+                if row.get("playoff_id"):
+                    active_season_ids.append(str(row["playoff_id"]))
+        except Exception as e:
+            logging.error("Failed to fetch active seasons from BQ, falling back to env var: %s", e)
 
     if not active_season_ids:
         active_season_ids = [SWEHOCKEY_SEASON_GROUP_ID]
