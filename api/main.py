@@ -1088,6 +1088,10 @@ def get_match(game_id: int):
                 "score_state": e.get("score_state"),
                 "is_power_play": bool(e.get("is_power_play")),
                 "is_short_handed": bool(e.get("is_short_handed")),
+                # Trojnumren pa isen: for det gorande laget respektive det
+                # slappande. Aldre rader saknar dem tills matchen skorats om.
+                "on_ice_for": [int(n) for n in re.findall(r"\d{1,2}", str(e.get("on_ice_for") or ""))],
+                "on_ice_against": [int(n) for n in re.findall(r"\d{1,2}", str(e.get("on_ice_against") or ""))],
             }
 
         def _shape_penalty(e):
