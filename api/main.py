@@ -81,11 +81,16 @@ def cached_ok(cache):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            # refresh=1 kringgar cachen. Utan den lever ett svar i sex timmar,
+            # vilket ar en evighet direkt efter en scraperkorning: modulerna
+            # rakans om, men API:t fortsatter servera de gamla nollorna.
+            force = bool(kwargs.pop("refresh", False))
             key = hashkey(*args, **kwargs)
-            try:
-                return cache[key]
-            except KeyError:
-                pass
+            if not force:
+                try:
+                    return cache[key]
+                except KeyError:
+                    pass
             result = fn(*args, **kwargs)
             if isinstance(result, dict) and result.get("status") in ("error", "not_found"):
                 return result
@@ -210,7 +215,7 @@ def get_seasons():
 
 @app.get("/api/v1/standings")
 @cached_ok(cache=stats_cache)
-def get_standings(season: str = None):
+def get_standings(season: str = None, refresh: bool = False):
     """Hela serietabellen for vald sasong.
 
     Tabellen fanns tidigare bara inbakad i /api/v1/statistics, och da enbart
@@ -253,7 +258,7 @@ def get_standings(season: str = None):
 
 @app.get("/api/v1/statistics")
 @cached_ok(cache=stats_cache)
-def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven")):
+def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven"), refresh: bool = False):
     """
     Returns Swehockey snapshot from raw_sports tables.
     Serves both league-wide stats and BjÃ¶rklÃ¶ven-specific data.
@@ -449,7 +454,7 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
 
 @app.get("/api/v1/roster")
 @cached_ok(cache=stats_cache)
-def get_roster(season: str = None, team: str = "björklöven"):
+def get_roster(season: str = None, team: str = "björklöven", refresh: bool = False):
     """Truppen med Swehockey som sanningskalla.
 
     Trupplistan lag tidigare bara i SILLY_SEASON_BASELINE, en handunderhallen
@@ -703,7 +708,7 @@ def get_match(game_id: int):
 
 @app.get("/api/v1/analytics")
 @cached_ok(cache=analytics_cache)
-def get_analytics(season: str = None):
+def get_analytics(season: str = None, refresh: bool = False):
     """
     Compute derived analytics from existing BQ data.
     Returns 8 analysis modules for the frontend.
