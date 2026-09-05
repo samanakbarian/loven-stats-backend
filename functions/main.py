@@ -12,7 +12,9 @@ logging.basicConfig(level=logging.INFO)
 
 # Inställningar
 # I produktion hämtas dessa via miljövariabler satta via Secret Manager
-SPORTRADAR_API_KEY = os.environ.get("SPORTRADAR_API_KEY", "2g9qsmEhHWO7SJ7hBIMJnNIP8Bu9QZmxU0CH6zty")
+# Nyckeln lag tidigare hardkodad som default har och ligger darmed kvar i
+# git-historiken. Den maste roteras hos Sportradar, se docs/DEPLOY.md.
+SPORTRADAR_API_KEY = os.environ.get("SPORTRADAR_API_KEY", "")
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 # Bas-URL för Sportradar Global Ice Hockey v2 API (Trial/Developer miljö)
 BASE_URL = "https://api.sportradar.com/icehockey/trial/v2/en"

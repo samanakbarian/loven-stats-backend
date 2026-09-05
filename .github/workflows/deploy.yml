@@ -1,0 +1,92 @@
+name: Deploy backend
+
+# Deployar API och scraper till Google Cloud vid push till master.
+#
+# Autentisering sker med Workload Identity Federation: GitHub byter sin
+# OIDC-token mot en kortlivad GCP-token. Ingen servicekontonyckel finns
+# lagrad någonstans — varken i repot eller som GitHub-secret.
+#
+# Uppsättning krävs en gång, se docs/DEPLOY.md.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'api/**'
+      - 'functions/**'
+      - '.github/workflows/deploy.yml'
+  # Gör det möjligt att deploya utan kodändring, t.ex. efter en rollback.
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Vad som ska deployas'
+        required: true
+        default: 'both'
+        type: choice
+        options: [both, api, scraper]
+
+env:
+  PROJECT_ID: granskaren-d51a1
+  REGION: europe-west1
+  GCS_BUCKET: loven-stats-raw-data-prod
+
+permissions:
+  contents: read
+  id-token: write # krävs för att GitHub ska få begära en OIDC-token
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Autentisera mot Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+
+      - name: Installera gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploya API:t till Cloud Run
+        if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'api'
+        run: |
+          gcloud run deploy loven-stats-api \
+            --source api \
+            --region "$REGION" \
+            --allow-unauthenticated \
+            --set-env-vars "BQ_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET" \
+            --quiet
+
+      - name: Deploya Swehockey-scrapern
+        if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'scraper'
+        run: |
+          gcloud functions deploy swehockey-stats-scraper \
+            --gen2 \
+            --region "$REGION" \
+            --runtime python311 \
+            --source functions \
+            --entry-point run_swehockey_stats_scraper \
+            --trigger-http \
+            --allow-unauthenticated \
+            --memory 1024Mi \
+            --timeout 300s \
+            --set-env-vars "GCP_PROJECT=$PROJECT_ID,GCS_BUCKET=$GCS_BUCKET,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961" \
+            --quiet
+
+      - name: Kontrollera att API:t svarar
+        if: github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'api'
+        run: |
+          URL=$(gcloud run services describe loven-stats-api \
+            --region "$REGION" --format='value(status.url)')
+          echo "Deployad till $URL"
+          for i in 1 2 3 4 5; do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$URL/api/v1/health" || true)
+            echo "försök $i: HTTP $CODE"
+            [ "$CODE" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "API:t svarade inte 200 på /api/v1/health"
+          exit 1
