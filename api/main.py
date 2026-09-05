@@ -415,6 +415,128 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
 
 
 
+@app.get("/api/v1/match/{game_id}")
+@cached(cache=stats_cache)
+def get_match(game_id: int):
+    """Alla handelser for en enskild match.
+
+    Bygger matchrapporten: malkronologi, utvisningar och momentumkurva.
+    Kallan ar raw_sports.swehockey_game_events, som fylls fran Swehockeys
+    /Game/Events-sidor. Matchen kopplas till schedule via game_id.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+
+        events = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.*
+                FROM `{bq.project}.raw_sports.swehockey_game_events` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.raw_sports.swehockey_game_events`
+                    WHERE game_id = {int(game_id)}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.game_id = {int(game_id)}
+                """
+            ).result()
+        ]
+
+        # Schemaraden bar datum, arena, publik och periodresultat.
+        sched_rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT a.*
+                FROM `{bq.project}.raw_sports.swehockey_schedule` a
+                WHERE a.game_id = {int(game_id)}
+                ORDER BY a.scraped_at DESC
+                LIMIT 1
+                """
+            ).result()
+        ]
+        sched = sched_rows[0] if sched_rows else {}
+
+        if not events and not sched:
+            return {"status": "not_found", "game_id": game_id, "error": "Matchen finns inte i datalagret."}
+
+        def _minute(t: str) -> float:
+            """'58:25' -> 58.42. Klockan ar loptid over hela matchen."""
+            try:
+                mm, ss = str(t or "").split(":")[:2]
+                return int(mm) + int(ss) / 60.0
+            except Exception:
+                return 0.0
+
+        home = sched.get("home_team") or next((e.get("home_team") for e in events if e.get("home_team")), "")
+        away = sched.get("away_team") or next((e.get("away_team") for e in events if e.get("away_team")), "")
+
+        goals = sorted(
+            [e for e in events if (e.get("event_type") or "") == "goal"],
+            key=lambda e: _minute(e.get("time")),
+        )
+        penalties = sorted(
+            [e for e in events if (e.get("event_type") or "") == "penalty"],
+            key=lambda e: _minute(e.get("time")),
+        )
+
+        def _shape_goal(e):
+            assists = [a for a in [e.get("assist1_name"), e.get("assist2_name")] if a]
+            return {
+                "time": e.get("time"),
+                "minute": round(_minute(e.get("time")), 2),
+                "period": e.get("period"),
+                "team_code": e.get("team_code"),
+                "scorer": e.get("player_name"),
+                "scorer_number": e.get("player_number"),
+                "assists": assists,
+                "score_state": e.get("score_state"),
+                "is_power_play": bool(e.get("is_power_play")),
+                "is_short_handed": bool(e.get("is_short_handed")),
+            }
+
+        def _shape_penalty(e):
+            return {
+                "time": e.get("time"),
+                "minute": round(_minute(e.get("time")), 2),
+                "period": e.get("period"),
+                "team_code": e.get("team_code"),
+                "player": e.get("player_name"),
+                "player_number": e.get("player_number"),
+                "minutes": e.get("penalty_minutes") or 0,
+                "type": e.get("detail"),
+            }
+
+        # Lagkoder: identifiera vilken kod som ar hemmalaget, sa klienten kan
+        # placera handelserna ratt utan att gissa.
+        codes = [c for c in {e.get("team_code") for e in events} if c]
+
+        return {
+            "status": "ok",
+            "game_id": game_id,
+            "date": str(sched.get("match_date") or ""),
+            "time": sched.get("match_time"),
+            "home_team": home,
+            "away_team": away,
+            "result": sched.get("result"),
+            "period_results": sched.get("period_results"),
+            "venue": sched.get("venue"),
+            "spectators": sched.get("spectators"),
+            "team_codes": codes,
+            "counts": {
+                "events": len(events),
+                "goals": len(goals),
+                "penalties": len(penalties),
+            },
+            "goals": [_shape_goal(e) for e in goals],
+            "penalties": [_shape_penalty(e) for e in penalties],
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/match/%s", game_id)
+        return {"status": "error", "game_id": game_id, "error": str(e)}
+
+
 @app.get("/api/v1/analytics")
 @cached(cache=analytics_cache)
 def get_analytics(season: str = None):
