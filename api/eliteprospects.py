@@ -238,6 +238,13 @@ def _read_bq(bq, keys: list[str]) -> dict[str, dict]:
                 "confidence": d.get("confidence") or "probable",
                 "id": d["ep_id"],
                 "slug": d["ep_slug"],
+                # Samma form som ett farskt uppslag ger. Falten skrevs till
+                # tabellen men lastes aldrig tillbaka, sa en spelare hade
+                # namn, lag och fodelsear forsta gangen han slogs upp och
+                # tappade dem sa fort raden cachats.
+                "ep_name": d.get("ep_name"),
+                "ep_team": d.get("ep_team"),
+                "born": d.get("born"),
             }
         else:
             out[d["name_key"]] = {

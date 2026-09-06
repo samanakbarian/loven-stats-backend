@@ -410,30 +410,30 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         # BJK-specific data
         bjk_skaters_regular = sorted(
             [p for p in regular_players if _matches(str(p.get("team_code", "")))],
-            key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
-            reverse=True
+            key=lambda p: (-int(p.get("points") or 0), -int(p.get("goals") or 0),
+                           str(p.get("player_name") or "")),
         )
         bjk_skaters_playoff = sorted(
             [p for p in playoff_players if _matches(str(p.get("team_code", "")))],
-            key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
-            reverse=True
+            key=lambda p: (-int(p.get("points") or 0), -int(p.get("goals") or 0),
+                           str(p.get("player_name") or "")),
         )
         bjk_goalies_regular = sorted(
             [g for g in regular_goalies if _matches(str(g.get("team_code", "")))],
-            key=lambda g: int(g.get("games_played") or 0),
-            reverse=True
+            key=lambda g: (-int(g.get("games_played") or 0),
+                           -float(g.get("save_pct") or 0), str(g.get("goalie_name") or "")),
         )
 
         # League-wide top scorers (regular season)
         top_scorers = sorted(
             regular_players,
-            key=lambda p: (int(p.get("points") or 0), int(p.get("goals") or 0)),
-            reverse=True
+            key=lambda p: (-int(p.get("points") or 0), -int(p.get("goals") or 0),
+                           str(p.get("player_name") or "")),
         )[:25]
         top_goalies = sorted(
             regular_goalies,
-            key=lambda g: int(g.get("games_played") or 0),
-            reverse=True
+            key=lambda g: (-int(g.get("games_played") or 0),
+                           -float(g.get("save_pct") or 0), str(g.get("goalie_name") or "")),
         )[:15]
 
         # Team standing
@@ -446,7 +446,8 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
                 if _matches(str(m.get("home_team", "")))
                 or _matches(str(m.get("away_team", "")))
             ],
-            key=lambda g: str(g.get("date", "") or g.get("match_date", "")),
+            key=lambda g: (str(g.get("date", "") or g.get("match_date", "")),
+                           str(g.get("game_id") or "")),
             reverse=True,
         )
 
@@ -717,7 +718,8 @@ def get_players(season: str = None, refresh: bool = False):
             return "ifb" in str(code or "").lower() or "rkl" in str(code or "").lower()
 
         players = []
-        for r in sorted(rows, key=lambda x: int(x.get("points") or 0), reverse=True):
+        for r in sorted(rows, key=lambda x: (-int(x.get("points") or 0),
+                                            str(x.get("player_name") or ""))):
             if not is_bjk(r.get("team_code")):
                 continue
             gp = int(r.get("games_played") or 0)
@@ -1299,7 +1301,8 @@ def get_goalies(season: str = None, refresh: bool = False):
             }
 
         goalies = []
-        for t in sorted(totals, key=lambda x: int(x.get("games_played") or 0), reverse=True):
+        for t in sorted(totals, key=lambda x: (-int(x.get("games_played") or 0),
+                                              str(x.get("goalie_name") or ""))):
             name = t.get("goalie_name")
             rows = by_goalie.get(_key(name), [])
             goalies.append(
@@ -1566,7 +1569,7 @@ def get_onice(season: str = None, refresh: bool = False):
                     "official_plus_minus": official.get(num),
                 }
             )
-        players.sort(key=lambda p: (p["diff_ev"], p["diff"]), reverse=True)
+        players.sort(key=lambda p: (-p["diff_ev"], -p["diff"], str(p.get("name") or "")))
 
         top_pairs = [
             {
@@ -1577,7 +1580,7 @@ def get_onice(season: str = None, refresh: bool = False):
                 ],
                 "goals_for": n,
             }
-            for (a, b), n in sorted(pairs.items(), key=lambda kv: kv[1], reverse=True)[:12]
+            for (a, b), n in sorted(pairs.items(), key=lambda kv: (-kv[1], str(kv[0])))[:12]
             if a in by_number and b in by_number
         ]
 
@@ -2153,6 +2156,9 @@ def get_analytics(season: str = None, refresh: bool = False):
                         _to_int(p.get("assists")),
                         _to_int(p.get("games_played")),
                         str(p.get("scraped_at") or ""),
+                        # Utan namnet avgor radordningen vem som star forst
+                        # bland lika, och den ar inte garanterad.
+                        str(p.get("player_name") or ""),
                     ),
                     reverse=True,
                 )
@@ -2242,6 +2248,7 @@ def get_analytics(season: str = None, refresh: bool = False):
                     key=lambda g: (
                         float(g.get("save_pct") or 0),
                         _to_int(g.get("games_played")),
+                        str(g.get("goalie_name") or ""),
                     ),
                     reverse=True,
                 )
@@ -2340,9 +2347,9 @@ def get_analytics(season: str = None, refresh: bool = False):
             pen_by_player[name]["minutes"] += mins
             
         penalty_breakdown = {
-            "by_type": [{"type": k, "count": v} for k, v in sorted(pen_by_type.items(), key=lambda x: -x[1])[:5]],
+            "by_type": [{"type": k, "count": v} for k, v in sorted(pen_by_type.items(), key=lambda x: (-x[1], x[0]))[:5]],
             "by_period": [{"period": k, "count": v} for k, v in pen_by_period.items()],
-            "most_penalized": [{"name": k, "count": v["count"], "minutes": v["minutes"]} for k, v in sorted(pen_by_player.items(), key=lambda x: -x[1]["minutes"])[:5]],
+            "most_penalized": [{"name": k, "count": v["count"], "minutes": v["minutes"]} for k, v in sorted(pen_by_player.items(), key=lambda x: (-x[1]["minutes"], -x[1]["count"], x[0]))[:5]],
         }
 
         # â”€â”€ Modul 10: The Prediction Engine (Elo) â”€â”€
@@ -2555,7 +2562,7 @@ def get_analytics(season: str = None, refresh: bool = False):
                     chemistry[p] += 1
                     
         top_chemistry = [{"player1": p[0], "player2": p[1], "goals_created": count} 
-                         for p, count in sorted(chemistry.items(), key=lambda x: -x[1])[:5]]
+                         for p, count in sorted(chemistry.items(), key=lambda x: (-x[1], str(x[0])))[:5]]
 
         # â”€â”€ Modul 15: First Goal Impact â”€â”€
         first_goal_impact = {"scored_first": {"w":0, "l":0, "otl":0}, "conceded_first": {"w":0, "l":0, "otl":0}}

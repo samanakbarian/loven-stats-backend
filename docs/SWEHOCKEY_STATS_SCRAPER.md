@@ -501,3 +501,38 @@ Slutplaceringen hoppas över helt — den är en Monte Carlo-simulering.
 Kontrollen är själv provad: med ett manipulerat facit hittar den både en
 borttagen rad och ett ändrat värde, och pekar ut sökvägen
 (`.players[0].gf_on: 1 -> 90`).
+
+### Vad jämförelsen visade, och vad den inte var
+
+Fem endpoints skilde sig efter flytten. Ingen av dem hade ändrat data:
+
+**Omsortering.** BigQuery garanterar ingen radordning utan `ORDER BY`, och
+`core`-vyerna returnerar raderna i annan ordning än den gamla
+avdupliceringsjoinen gjorde. Listor som sorterades på ett tal utan
+sekundärnyckel hamnade därför olika bland lika värden. `top_goalies` sorteras
+på spelade matcher, och alla åtta bytta positioner var exakta oavgjorda:
+37/37, 36/36, 30/30, 25/25.
+
+**Trunkerade topplistor.** `most_penalized` visar topp fem. Malmström, Lundin
+och Dower Nilsson har alla 22 utvisningsminuter — vilka två som ryms avgjordes
+av radordningen. Samma sak med `top_goalies`, som kapas vid femton.
+
+Det är ett riktigt problem, om än litet: samma anrop kunde ge olika svar. Alla
+femton sorteringar som matar en lista har därför fått en deterministisk
+sekundärnyckel — namn sist, alltid.
+
+**EP-cachen.** En spelare hade fullständigt `eliteprospects`-objekt i facit och
+bantat efteråt. Orsaken låg utanför flytten: `_resolve_one` returnerar
+`ep_name`, `ep_team` och `born`, men `_read_bq` läste aldrig tillbaka dem. En
+spelare hade dem alltså första gången han slogs upp och tappade dem så fort
+raden cachats. `_read_bq` returnerar nu samma form.
+
+**Silly season.** `new_signals: 0 -> 1` — flödet fick en ny signal under tiden.
+Tidsberoende, tillagt i `IGNORE`.
+
+Jämförelsen skiljer numera på de två fallen: rader med `~` är samma innehåll i
+annan ordning, rader utan är verkliga skillnader. Bara de senare räknas som
+regressioner.
+
+**Efter en ändring av sorteringsordningen måste facit tas om** — den gamla
+ordningen var godtycklig, så den nya är inte jämförbar rad för rad med den.
