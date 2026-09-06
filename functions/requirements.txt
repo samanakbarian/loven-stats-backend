@@ -6,3 +6,4 @@ google-cloud-secret-manager
 beautifulsoup4
 lxml
 google-cloud-aiplatform
+pypdf

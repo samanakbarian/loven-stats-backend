@@ -30,8 +30,10 @@ except ImportError:
 
 try:
     from game_events_parser import parse_events, parse_game_summary, parse_lineups
+    from game_report_parser import parse_boxscore, parse_team_roster
 except ImportError:
     from functions.game_events_parser import parse_events, parse_game_summary, parse_lineups
+    from functions.game_report_parser import parse_boxscore, parse_team_roster
 
 logging.basicConfig(level=logging.INFO)
 
@@ -572,12 +574,14 @@ _GAME_TABLES = (
     "swehockey_game_summary",
     "swehockey_game_goalies",
     "swehockey_game_lineups",
+    "swehockey_game_boxscore",
 )
 
 # Tabeller som hamtas som en hel ogonblicksbild per sasongsgrupp. De ar
 # radmassigt tunga — schema, trupp och spelarstatistik ar 1 400 rader per
 # grupp — och skrevs om i sin helhet vid varje korning.
 _SNAPSHOT_TABLES = (
+    "swehockey_player_bio",
     "swehockey_schedule",
     "swehockey_standings",
     "swehockey_player_stats",
@@ -612,6 +616,7 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
     """Vad som redan finns i datalagret: vilka matcher, och med vilket innehall."""
     _SCRAPED_GAMES.clear()
     _GAME_HASHES.clear()
+    _REPORT_ETAGS.clear()
     ids = ",".join(str(int(s)) for s in season_ids if str(s).isdigit())
     if not ids:
         return
@@ -648,6 +653,27 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
                     _GAME_HASHES[(table, int(r["game_id"]))] = str(r["h"])
         except Exception as exc:
             logging.info("Ingen hash att jamfora mot i %s: %s", table, str(exc)[:120])
+
+    # Rapporternas ETag, sa en oforandrad PDF kan besvaras med 304 i stallet
+    # for 2 MB. Utan den ar villkorliga hamtningar meningslosa: vi skulle inte
+    # ha nagot att skicka i If-None-Match.
+    try:
+        rows = client.query(
+            f"""
+            SELECT game_id,
+                   ARRAY_AGG(source_etag ORDER BY scraped_at DESC LIMIT 1)[OFFSET(0)] AS e
+            FROM `{client.project}.{BQ_DATASET}.swehockey_game_boxscore`
+            WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL
+              AND source_etag IS NOT NULL
+            GROUP BY game_id
+            """
+        ).result()
+        for r in rows:
+            if r["e"]:
+                _REPORT_ETAGS[("MediaGameSummary", int(r["game_id"]))] = str(r["e"])
+        logging.info("%s matchrapporter har en ETag att jamfora mot", len(_REPORT_ETAGS))
+    except Exception as exc:
+        logging.info("Inga ETags att jamfora mot an: %s", str(exc)[:120])
 
     # Samma sak for ogonblicksbilderna, men en hash per sasongsgrupp.
     for table in _SNAPSHOT_TABLES:
@@ -700,6 +726,58 @@ def _unchanged(table: str, game_id: int, rows: list[dict[str, Any]]) -> bool:
     for row in rows:
         row["content_hash"] = h
     return False
+
+
+# Matchrapporterna ar PDF:er pa 1-2,6 MB. Utan villkorliga hamtningar hade en
+# match i tjugoendagarsfonstret hamtats om fyra ganger om dygnet i tre veckor —
+# 150 MB per match. Azure svarar korrekt pa If-None-Match, sa en oforandrad
+# rapport kostar ett par hundra byte i stallet.
+_REPORT_ETAGS: dict[tuple[str, int], str] = {}
+
+REPORT_URL = f"{BASE_URL}/Game/Reports/{{kind}}/{{game_id}}"
+
+
+def _fetch_report(game_id: int, kind: str) -> tuple[bytes | None, str | None]:
+    """Rapporten som PDF, eller (None, None) nar den ar oforandrad.
+
+    Returnerar ocksa (None, None) nar rapporten saknas: sasongens forsta
+    matcher har ingen, tva av femtiotva i bade SHL och HockeyAllsvenskan, och
+    Azure svarar da med en XML-felsida i stallet for en PDF.
+    """
+    url = REPORT_URL.format(kind=kind, game_id=int(game_id))
+    headers = {"User-Agent": "Mozilla/5.0"}
+    known = _REPORT_ETAGS.get((kind, int(game_id)))
+    if known:
+        headers["If-None-Match"] = known
+    try:
+        r = requests.get(url, headers=headers, timeout=60, allow_redirects=True)
+    except Exception:
+        logging.warning("Kunde inte hamta %s for match %s", kind, game_id, exc_info=True)
+        return None, None
+    if r.status_code == 304:
+        return None, known
+    if r.status_code != 200 or not r.content[:4] == b"%PDF":
+        logging.info("Ingen %s for match %s (HTTP %s)", kind, game_id, r.status_code)
+        return None, None
+    return r.content, r.headers.get("ETag")
+
+
+def _upload_raw_pdf(payload: bytes, *, game_id: int, kind: str) -> str | None:
+    """Ravaran sparas sa parsern kan forbattras utan att hamta om.
+
+    Sokvagen ar stabil per match och rapporttyp, inte per korning: PDF:en
+    hamtas bara nar den faktiskt andrats, och historiken bar de tolkade
+    raderna. Att spara varje generation hade kostat hundratals megabyte for
+    information som redan finns i tabellen.
+    """
+    try:
+        bucket = storage.Client(project=GCP_PROJECT).bucket(GCS_BUCKET)
+        name = f"raw/web_scrapers/swehockey/reports/{kind}/{int(game_id)}.pdf"
+        bucket.blob(name).upload_from_string(payload, content_type="application/pdf")
+        return f"gs://{GCS_BUCKET}/{name}"
+    except Exception:
+        logging.warning("Kunde inte spara %s for match %s", kind, game_id, exc_info=True)
+        return None
 
 
 def _team_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]:
@@ -886,6 +964,107 @@ def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[
     return out, f"{BASE_URL}/Game/Events/"
 
 
+def _fetch_game_boxscore(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Skott, tekningar och malvakternas speltid, ur matchrapporten.
+
+    Utespelarnas rader bar Swehockeys OFFICIELLA plus/minus. Det skiljer sig
+    fran vart on-ice-tal med ungefar sexton procent — se dokumentationen — och
+    de redovisas darfor bredvid varandra i stallet for att ersatta varandra.
+
+    Vilket lag en rad hor till star inte i rapporten, bara i vilken ordning
+    lagen listas. Uppstallningen avgor: spelaren finns dar med lagnamn.
+    """
+    ours = _team_games(season_group_id, limit)
+    out: list[dict[str, Any]] = []
+    unchanged = missing = 0
+
+    for game in ours:
+        gid = int(game["game_id"])
+        pdf, etag = _fetch_report(gid, "MediaGameSummary")
+        if pdf is None:
+            if etag:
+                unchanged += 1
+            else:
+                missing += 1
+            continue
+
+        source_url = _upload_raw_pdf(pdf, game_id=gid, kind="MediaGameSummary")
+        try:
+            parsed = parse_boxscore(pdf, gid)
+        except Exception:
+            logging.exception("Kunde inte tolka matchrapporten for match %s", gid)
+            continue
+
+        # Rapporten skriver rubriken "hemmalag - bortalag" och listar lagen i
+        # den ordningen, sa side 1 ar hemmalaget. Uppstallningen far avgora per
+        # spelare nar namnet finns dar; sidan ar reserven.
+        sides = {1: game.get("home_team"), 2: game.get("away_team")}
+        by_name = {
+            r.get("player_name"): r.get("team_name")
+            for r in parse_lineups(_lineup_html(gid) or "", gid)
+        }
+
+        rows = [
+            {**r, "role": "skater"} for r in parsed["skaters"]
+        ] + [
+            {
+                **r, "role": "goalie",
+                "player_number": r.pop("goalie_number"),
+                "player_name": r.pop("goalie_name"),
+            }
+            for r in parsed["goalies"]
+        ]
+        for r in rows:
+            r["season_group_id"] = int(season_group_id)
+            r["match_date"] = game.get("match_date")
+            r["team_name"] = by_name.get(r["player_name"]) or sides.get(r["team_side"])
+            r["source_etag"] = etag
+            r["report_url"] = source_url
+            r["source"] = SOURCE
+        if _unchanged("swehockey_game_boxscore", gid, rows):
+            continue
+        out.extend(rows)
+
+    if unchanged or missing:
+        logging.info(
+            "Matchrapport: %s oforandrade, %s saknas av %s matcher",
+            unchanged, missing, len(ours),
+        )
+    return out, f"{BASE_URL}/Game/Reports/MediaGameSummary/"
+
+
+def _fetch_player_bio(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Fodelsedatum, position och kaptensbindel ur trupprapporten.
+
+    Innehallet ar per lag och sasong, inte per match, sa en rapport racker.
+    Den senaste spelade matchen valjs: da ar truppen sa aktuell som mojligt
+    och overgangar under sasongen har hunnit slaa igenom.
+    """
+    games = _team_games(season_group_id, None)
+    if not games:
+        return [], None
+    for game in games[:6]:  # nyast forst; forsta matchen med rapport vinner
+        gid = int(game["game_id"])
+        pdf, _etag = _fetch_report(gid, "OfficialTeamRoster")
+        if pdf is None:
+            continue
+        _upload_raw_pdf(pdf, game_id=gid, kind="OfficialTeamRoster")
+        try:
+            rows = parse_team_roster(pdf, gid)
+        except Exception:
+            logging.exception("Kunde inte tolka trupprapporten for match %s", gid)
+            continue
+        lineup = parse_lineups(_lineup_html(gid) or "", gid)
+        by_name = {r.get("player_name"): r.get("team_name") for r in lineup}
+        for r in rows:
+            r["season_group_id"] = int(season_group_id)
+            r["team_name"] = by_name.get(r["player_name"])
+            r["source"] = SOURCE
+        return rows, f"{BASE_URL}/Game/Reports/OfficialTeamRoster/"
+    logging.info("Ingen trupprapport bland de senaste matcherna for %s", season_group_id)
+    return [], f"{BASE_URL}/Game/Reports/OfficialTeamRoster/"
+
+
 def _scrape_jobs():
     return [
         {
@@ -948,6 +1127,20 @@ def _scrape_jobs():
             # Block och kedja maste ingaa: en spelare kan sta bade i en kedja
             # och bland extraspelarna, och da ar det tva riktiga rader.
             "key_fields": ("game_id", "team_name", "block", "line_number", "player_number"),
+        },
+        {
+            "data_type": "game_boxscore",
+            "fetcher": _fetch_game_boxscore,
+            "table_name": "swehockey_game_boxscore",
+            "required_fields": ("game_id", "player_name", "role"),
+            "key_fields": ("game_id", "team_side", "role", "player_number"),
+        },
+        {
+            "data_type": "player_bio",
+            "fetcher": _fetch_player_bio,
+            "table_name": "swehockey_player_bio",
+            "required_fields": ("season_group_id", "player_name", "birthdate"),
+            "key_fields": ("season_group_id", "team_side", "player_number"),
         },
         {
             "data_type": "roster",
@@ -1395,7 +1588,8 @@ def run_swehockey_stats_scraper(request):
         for season_group_id in active_season_ids:
             for job in _scrape_jobs():
                 data_type = job["data_type"]
-                if data_type in ("game_events", "game_summary", "game_goalies", "game_lineups"):
+                if data_type in ("game_events", "game_summary", "game_goalies",
+                                 "game_lineups", "game_boxscore"):
                     rows, source_url = job["fetcher"](season_group_id, events_limit)
                 else:
                     rows, source_url = job["fetcher"](season_group_id)
@@ -1444,6 +1638,9 @@ def run_swehockey_stats_scraper(request):
                 data_type in {
                     "roster", "standings",
                     "game_events", "game_summary", "game_goalies", "game_lineups",
+                    # Rapporten saknas for sasongens forsta matcher, och en
+                    # korning dar inget andrats skriver inga rader alls.
+                    "game_boxscore", "player_bio",
                 }
                 or (
                     data_type in {"player_stats", "goalie_stats"}
