@@ -468,3 +468,36 @@ noll.
 Poängen med en avstämning är just det här — den påstår ingenting om att datat
 är rätt, den visar var två oberoende tal inte går ihop, och sedan får man
 förklara varför.
+
+## API:t läser core, inte raw_sports
+
+Alla 61 tabellreferenser i `api/main.py` pekar numera på `core`-vyerna. De
+gamla avdupliceringarna med `MAX(scraped_at)` står kvar i frågorna — de blir
+verkningslösa mot en vy som redan bara har en generation, och att ta bort dem
+hade varit en logikändring i samma steg som en flytt. Nästa gång en fråga ändå
+skrivs om kan de rensas.
+
+Ingen fråga läste historiken medvetet. Den enda som sorterade på `scraped_at`
+(matchrapportens schemarad) tog nyaste raden, alltså samma sak som vyn gör.
+
+### Så bevisades att inget ändrades
+
+`tests/api_compare.py` hämtar varje endpoint och jämför fältvis mot ett facit
+taget före ändringen:
+
+```bash
+python3 tests/api_compare.py --save tests/api_baseline   # före
+python3 tests/api_compare.py --check tests/api_baseline  # efter deploy
+```
+
+`refresh=1` kringgår API:ts sextimmarscache — utan den jämför man gamla svar
+med gamla svar och får grönt oavsett vad koden gör.
+
+Sex fält skiljer sig mellan två identiska anrop och är därför undantagna:
+`ai_coach`-texterna, som är språkmodellsgenererade, och fyra tidsstämplar. Det
+mättes genom att anropa varje endpoint två gånger i rad, inte antas.
+Slutplaceringen hoppas över helt — den är en Monte Carlo-simulering.
+
+Kontrollen är själv provad: med ett manipulerat facit hittar den både en
+borttagen rad och ett ändrat värde, och pekar ut sökvägen
+(`.players[0].gf_on: 1 -> 90`).

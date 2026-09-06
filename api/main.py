@@ -132,14 +132,14 @@ def lookup_season(season_key=None):
     bq = bigquery.Client(project=BQ_PROJECT_ID or None)
     proj = bq.project
     if season_key:
-        sql = f"SELECT * FROM `{proj}.raw_sports.swehockey_seasons` WHERE season_key = @key"
+        sql = f"SELECT * FROM `{proj}.core.season` WHERE season_key = @key"
         job_config = bigquery.QueryJobConfig(query_parameters=[
             bigquery.ScalarQueryParameter("key", "STRING", season_key)
         ])
     else:
         sql = f"""
         SELECT *
-        FROM `{proj}.raw_sports.swehockey_seasons`
+        FROM `{proj}.core.season`
         WHERE is_active = TRUE
         ORDER BY CASE WHEN league = 'SHL' THEN 0 ELSE 1 END,
                  start_date DESC,
@@ -169,7 +169,7 @@ def get_seasons():
     rows = [dict(r.items()) for r in bq.query(
         f"""
         SELECT *
-        FROM `{bq.project}.raw_sports.swehockey_seasons`
+        FROM `{bq.project}.core.season`
         ORDER BY start_date DESC,
                  CASE WHEN league = 'SHL' THEN 0 ELSE 1 END,
                  season_key
@@ -192,7 +192,7 @@ def get_seasons():
             hits = bq.query(
                 f"""
                 SELECT DISTINCT season_group_id
-                FROM `{bq.project}.raw_sports.swehockey_schedule`
+                FROM `{bq.project}.core.schedule`
                 WHERE season_group_id IN ({ids_csv})
                   AND (LOWER(home_team) LIKE '%rkl%ven%' OR LOWER(away_team) LIKE '%rkl%ven%')
                 """
@@ -265,6 +265,25 @@ def _is_ours(team_code) -> bool:
     return "ifb" in low or "rkl" in low or "kloven" in low or "klöven" in low
 
 
+def parse_period_results(pr):
+    """'(2-1, 0-1, 1-2)' -> [{period, home_gf, away_gf}].
+
+    Lag pa modulniva. Den var tidigare definierad inuti get_analytics, men
+    get_projection anvander den ocksa — och foll darfor pa NameError. Hela
+    slutplaceringsmodellen svarade
+    {"status": "error", "error": "name 'parse_period_results' is not defined"}.
+    """
+    if not pr:
+        return []
+    pr = pr.strip("() ")
+    periods = []
+    for i, part in enumerate(pr.split(","), 1):
+        m = re.match(r"\s*(\d+)\s*-\s*(\d+)", part.strip())
+        if m:
+            periods.append({"period": i, "home_gf": int(m.group(1)), "away_gf": int(m.group(2))})
+    return periods
+
+
 def clean_penalty_type(detail) -> str:
     """'Crosschecking(10:07 - 12:07)' -> 'Crosschecking'.
 
@@ -294,10 +313,10 @@ def get_standings(season: str = None, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT a.*
-                FROM `{bq.project}.raw_sports.swehockey_standings` a
+                FROM `{bq.project}.core.standings` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_standings`
+                    FROM `{bq.project}.core.standings`
                     WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.season_group_id = {regular_id}
@@ -322,7 +341,7 @@ def get_standings(season: str = None, refresh: bool = False):
 @cached_ok(cache=stats_cache)
 def get_statistics_snapshot(season: str = None, team_query: str = Query(default="ifb,bjo,bjÃ¶rklÃ¶ven,bjorkloven,if bjÃ¶rklÃ¶ven"), refresh: bool = False):
     """
-    Returns Swehockey snapshot from raw_sports tables.
+    Ogonblicksbild ur core-vyerna, som ar avduplicerade.
     Serves both league-wide stats and BjÃ¶rklÃ¶ven-specific data.
     """
     try:
@@ -356,15 +375,15 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
             return False
 
         def _query_season(table_name: str, season_ids: list[int]):
-            """Return rows from the table filtered by season_group_id."""
+            """Rader ur en core-vy, filtrerade pa sasongsgrupp."""
             if not season_ids:
                 return []
             ids_str = ",".join(str(sid) for sid in season_ids if sid)
             q = f"""
-            SELECT a.* FROM `{bq_client.project}.raw_sports.{table_name}` a
+            SELECT a.* FROM `{bq_client.project}.core.{table_name}` a
             INNER JOIN (
                 SELECT season_group_id, MAX(scraped_at) as max_scraped
-                FROM `{bq_client.project}.raw_sports.{table_name}`
+                FROM `{bq_client.project}.core.{table_name}`
                 WHERE season_group_id IN ({ids_str})
                 GROUP BY season_group_id
             ) b ON a.season_group_id = b.season_group_id AND a.scraped_at = b.max_scraped
@@ -377,10 +396,10 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         HA_PLAYOFF = active.get("playoff")
         season_ids = list(set([sid for sid in [HA_REGULAR, HA_PLAYOFF] if sid]))
 
-        all_players = _query_season("swehockey_player_stats", season_ids)
-        all_goalies = _query_season("swehockey_goalie_stats", season_ids)
-        standings = _query_season("swehockey_standings", season_ids)
-        schedule = _query_season("swehockey_schedule", season_ids)
+        all_players = _query_season("player_season_stats", season_ids)
+        all_goalies = _query_season("goalie_season_stats", season_ids)
+        standings = _query_season("standings", season_ids)
+        schedule = _query_season("schedule", season_ids)
 
         # Split players by season type
         regular_players = [p for p in all_players if p.get("season_group_id") == HA_REGULAR]
@@ -542,10 +561,10 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
             for r in bq.query(
                 f"""
                 SELECT a.*
-                FROM `{bq.project}.raw_sports.swehockey_roster` a
+                FROM `{bq.project}.core.roster` a
                 INNER JOIN (
                     SELECT season_group_id, MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_roster`
+                    FROM `{bq.project}.core.roster`
                     WHERE season_group_id IN ({ids_csv})
                     GROUP BY season_group_id
                 ) b
@@ -672,10 +691,10 @@ def get_players(season: str = None, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT a.*
-                FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+                FROM `{bq.project}.core.player_season_stats` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                    FROM `{bq.project}.core.player_season_stats`
                     WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.season_group_id = {regular_id}
@@ -793,10 +812,10 @@ def get_player(name: str, season: str = None, refresh: bool = False):
                 f"""
                 WITH sched AS (
                     SELECT a.game_id, a.match_date, a.home_team, a.away_team, a.result
-                    FROM `{bq.project}.raw_sports.swehockey_schedule` a
+                    FROM `{bq.project}.core.schedule` a
                     INNER JOIN (
                         SELECT game_id, MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.raw_sports.swehockey_schedule`
+                        FROM `{bq.project}.core.schedule`
                         WHERE season_group_id IN ({season_ids}) AND game_id IS NOT NULL
                         GROUP BY game_id
                     ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
@@ -804,10 +823,10 @@ def get_player(name: str, season: str = None, refresh: bool = False):
                 ),
                 ev AS (
                     SELECT e.*
-                    FROM `{bq.project}.raw_sports.swehockey_game_events` e
+                    FROM `{bq.project}.core.game_events` e
                     INNER JOIN (
                         SELECT game_id, MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.raw_sports.swehockey_game_events`
+                        FROM `{bq.project}.core.game_events`
                         GROUP BY game_id
                     ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
                     WHERE e.event_type = 'goal'
@@ -893,10 +912,10 @@ def get_projection(season: str = None, sims: int = 5000, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT a.home_team, a.away_team, a.result, a.period_results, a.match_date
-                FROM `{bq.project}.raw_sports.swehockey_schedule` a
+                FROM `{bq.project}.core.schedule` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_schedule`
+                    FROM `{bq.project}.core.schedule`
                     WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.season_group_id = {regular_id}
@@ -909,10 +928,10 @@ def get_projection(season: str = None, sims: int = 5000, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT a.team_name, a.points, a.games_played, a.rank
-                FROM `{bq.project}.raw_sports.swehockey_standings` a
+                FROM `{bq.project}.core.standings` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_standings`
+                    FROM `{bq.project}.core.standings`
                     WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.season_group_id = {regular_id}
@@ -1089,10 +1108,10 @@ def get_shots(season: str = None, refresh: bool = False):
                 for r in bq.query(
                     f"""
                     SELECT a.*
-                    FROM `{bq.project}.raw_sports.swehockey_game_summary` a
+                    FROM `{bq.project}.core.game_team_summary` a
                     INNER JOIN (
                         SELECT game_id, MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.raw_sports.swehockey_game_summary`
+                        FROM `{bq.project}.core.game_team_summary`
                         WHERE season_group_id IN ({season_ids})
                         GROUP BY game_id
                     ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
@@ -1222,10 +1241,10 @@ def get_goalies(season: str = None, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT a.*
-                FROM `{bq.project}.raw_sports.swehockey_goalie_stats` a
+                FROM `{bq.project}.core.goalie_season_stats` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_goalie_stats`
+                    FROM `{bq.project}.core.goalie_season_stats`
                     WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.season_group_id = {regular_id}
@@ -1240,10 +1259,10 @@ def get_goalies(season: str = None, refresh: bool = False):
                 for r in bq.query(
                     f"""
                     SELECT a.*
-                    FROM `{bq.project}.raw_sports.swehockey_game_goalies` a
+                    FROM `{bq.project}.core.game_goalies` a
                     INNER JOIN (
                         SELECT game_id, MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.raw_sports.swehockey_game_goalies`
+                        FROM `{bq.project}.core.game_goalies`
                         WHERE season_group_id IN ({season_ids})
                         GROUP BY game_id
                     ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
@@ -1359,10 +1378,10 @@ def get_onice(season: str = None, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT e.game_id, e.team_code, e.score_state, e.on_ice_for, e.on_ice_against
-                FROM `{bq.project}.raw_sports.swehockey_game_events` e
+                FROM `{bq.project}.core.game_events` e
                 INNER JOIN (
                     SELECT game_id, MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_game_events`
+                    FROM `{bq.project}.core.game_events`
                     WHERE season_group_id IN ({season_ids})
                     GROUP BY game_id
                 ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
@@ -1383,10 +1402,10 @@ def get_onice(season: str = None, refresh: bool = False):
             for r in bq.query(
                 f"""
                 SELECT a.player_name, a.jersey_number, a.position, a.team_name
-                FROM `{bq.project}.raw_sports.swehockey_roster` a
+                FROM `{bq.project}.core.roster` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_roster`
+                    FROM `{bq.project}.core.roster`
                     WHERE season_group_id = {regular_id}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.season_group_id = {regular_id}
@@ -1412,10 +1431,10 @@ def get_onice(season: str = None, refresh: bool = False):
         for r in bq.query(
             f"""
             SELECT a.player_name, a.jersey_number, a.position, a.games_played
-            FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+            FROM `{bq.project}.core.player_season_stats` a
             INNER JOIN (
                 SELECT MAX(scraped_at) AS max_s
-                FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                FROM `{bq.project}.core.player_season_stats`
                 WHERE season_group_id = {regular_id}
             ) b ON a.scraped_at = b.max_s
             WHERE a.season_group_id = {regular_id}
@@ -1443,7 +1462,7 @@ def get_onice(season: str = None, refresh: bool = False):
             -- bara namn per nummer, och flera skorningsgenerationer skalar
             -- alla antal lika mycket. Ordningen blir densamma.
             SELECT e.player_number, e.player_name, COUNT(*) AS n
-            FROM `{bq.project}.raw_sports.swehockey_game_events` e
+            FROM `{bq.project}.core.game_events` e
             WHERE e.season_group_id IN ({season_ids})
               AND e.player_number IS NOT NULL
               AND e.player_name IS NOT NULL
@@ -1509,10 +1528,10 @@ def get_onice(season: str = None, refresh: bool = False):
         for r in bq.query(
             f"""
             SELECT a.jersey_number, a.plus_minus, a.games_played
-            FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+            FROM `{bq.project}.core.player_season_stats` a
             INNER JOIN (
                 SELECT MAX(scraped_at) AS max_s
-                FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                FROM `{bq.project}.core.player_season_stats`
                 WHERE season_group_id = {regular_id}
             ) b ON a.scraped_at = b.max_s
             WHERE a.season_group_id = {regular_id}
@@ -1595,7 +1614,7 @@ def get_match(game_id: int):
     """Alla handelser for en enskild match.
 
     Bygger matchrapporten: malkronologi, utvisningar och momentumkurva.
-    Kallan ar raw_sports.swehockey_game_events, som fylls fran Swehockeys
+    Kallan ar core.game_events, som fylls fran Swehockeys
     /Game/Events-sidor. Matchen kopplas till schedule via game_id.
     """
     try:
@@ -1606,10 +1625,10 @@ def get_match(game_id: int):
             for r in bq.query(
                 f"""
                 SELECT a.*
-                FROM `{bq.project}.raw_sports.swehockey_game_events` a
+                FROM `{bq.project}.core.game_events` a
                 INNER JOIN (
                     SELECT MAX(scraped_at) AS max_s
-                    FROM `{bq.project}.raw_sports.swehockey_game_events`
+                    FROM `{bq.project}.core.game_events`
                     WHERE game_id = {int(game_id)}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.game_id = {int(game_id)}
@@ -1623,7 +1642,7 @@ def get_match(game_id: int):
             for r in bq.query(
                 f"""
                 SELECT a.*
-                FROM `{bq.project}.raw_sports.swehockey_schedule` a
+                FROM `{bq.project}.core.schedule` a
                 WHERE a.game_id = {int(game_id)}
                 ORDER BY a.scraped_at DESC
                 LIMIT 1
@@ -1654,10 +1673,10 @@ def get_match(game_id: int):
                 for r in bq.query(
                     f"""
                     SELECT a.player_name, a.jersey_number, a.position, a.games_played
-                    FROM `{bq.project}.raw_sports.swehockey_player_stats` a
+                    FROM `{bq.project}.core.player_season_stats` a
                     INNER JOIN (
                         SELECT MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.raw_sports.swehockey_player_stats`
+                        FROM `{bq.project}.core.player_season_stats`
                         WHERE season_group_id = {int(season_gid)}
                     ) b ON a.scraped_at = b.max_s
                     WHERE a.season_group_id = {int(season_gid)}
@@ -1778,26 +1797,26 @@ def get_analytics(season: str = None, refresh: bool = False):
         active = lookup_season(season)
         REGULAR_ID = active["regular"]
 
-        schedule = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_schedule` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_schedule` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID} ORDER BY a.match_date")
-        players = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_player_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
-        goalies = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_goalie_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
-        standings = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_standings` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
+        schedule = q(f"SELECT a.* FROM `{proj}.core.schedule` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.schedule` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID} ORDER BY a.match_date")
+        players = q(f"SELECT a.* FROM `{proj}.core.player_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.player_season_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
+        goalies = q(f"SELECT a.* FROM `{proj}.core.goalie_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.goalie_season_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
+        standings = q(f"SELECT a.* FROM `{proj}.core.standings` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.standings` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
 
         # Find the SHL season whose start_date is closest to the current HA season,
         # but only among seasons that actually have goalie data loaded.
         # Two-step: (1) get seasons with data, (2) pick closest to REGULAR_ID's start_date.
         shl_with_data = q(f"""
             SELECT s.regular_season_id, s.start_date
-            FROM `{proj}.raw_sports.swehockey_seasons` s
+            FROM `{proj}.core.season` s
             WHERE LOWER(s.league) = 'shl'
               AND EXISTS (
-                SELECT 1 FROM `{proj}.raw_sports.swehockey_goalie_stats` g
+                SELECT 1 FROM `{proj}.core.goalie_season_stats` g
                 WHERE g.season_group_id = s.regular_season_id
               )
             ORDER BY s.start_date DESC
         """)
         ha_start_rows = q(f"""
-            SELECT start_date FROM `{proj}.raw_sports.swehockey_seasons`
+            SELECT start_date FROM `{proj}.core.season`
             WHERE regular_season_id = {REGULAR_ID}
         """)
         ha_start = ha_start_rows[0]["start_date"] if ha_start_rows else None
@@ -1820,8 +1839,8 @@ def get_analytics(season: str = None, refresh: bool = False):
         shl_players = []
         shl_goalies = []
         if shl_regular_id:
-            shl_players = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_player_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_player_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
-            shl_goalies = q(f"SELECT a.* FROM `{proj}.raw_sports.swehockey_goalie_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_goalie_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
+            shl_players = q(f"SELECT a.* FROM `{proj}.core.player_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.player_season_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
+            shl_goalies = q(f"SELECT a.* FROM `{proj}.core.goalie_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.goalie_season_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
 
         
         # Only query events for games in the current regular season schedule to avoid loading other leagues' events
@@ -1836,10 +1855,10 @@ def get_analytics(season: str = None, refresh: bool = False):
             events = q(
                 f"""
                 SELECT e.*
-                FROM `{proj}.raw_sports.swehockey_game_events` e
+                FROM `{proj}.core.game_events` e
                 INNER JOIN (
                     SELECT game_id, MAX(scraped_at) AS max_s
-                    FROM `{proj}.raw_sports.swehockey_game_events`
+                    FROM `{proj}.core.game_events`
                     WHERE game_id IN ({game_ids_str})
                     GROUP BY game_id
                 ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
@@ -1869,18 +1888,6 @@ def get_analytics(season: str = None, refresh: bool = False):
                 is_bjk(g.get("home_team", ""))
                 or is_bjk(g.get("away_team", ""))
             )
-
-        def parse_period_results(pr):
-            """Parse '(2-1, 0-1, 1-2)' into [{period, home_gf, away_gf}]"""
-            if not pr:
-                return []
-            pr = pr.strip("() ")
-            periods = []
-            for i, part in enumerate(pr.split(","), 1):
-                m = re.match(r'\s*(\d+)\s*-\s*(\d+)', part.strip())
-                if m:
-                    periods.append({"period": i, "home_gf": int(m.group(1)), "away_gf": int(m.group(2))})
-            return periods
 
         bjk_games = [g for g in schedule if bjk_game(g)]
 
@@ -2865,8 +2872,8 @@ def get_analytics(season: str = None, refresh: bool = False):
             if shl_regular_id:
                 shl_standings = q(f"""
                     SELECT a.team_name, a.games_played, a.points, a.rank
-                    FROM `{proj}.raw_sports.swehockey_standings` a
-                    INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.raw_sports.swehockey_standings` WHERE season_group_id = {int(shl_regular_id)}) b
+                    FROM `{proj}.core.standings` a
+                    INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.standings` WHERE season_group_id = {int(shl_regular_id)}) b
                     ON a.scraped_at = b.max_s
                     WHERE a.season_group_id = {int(shl_regular_id)}
                       AND COALESCE(a.games_played, 0) >= 40
@@ -2875,7 +2882,7 @@ def get_analytics(season: str = None, refresh: bool = False):
 
             if not shl_standings:
                 shl_projected_table["data_quality"] = "missing_shl_source"
-                raise ValueError("No SHL standings data available in raw_sports.swehockey_standings for latest SHL season")
+                raise ValueError("No SHL standings data available in core.standings for latest SHL season")
 
             # Build baseline strength from SHL standings
             shl_rows = []
