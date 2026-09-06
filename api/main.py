@@ -260,6 +260,68 @@ def _to_float(value):
         return None
 
 
+def _season_points(row, is_home) -> int | None:
+    """Poang for ett lag i en spelad match, enligt svensk praxis.
+
+    Tre for vinst i ordinarie tid, tva efter forlangning eller straffar, ett
+    for forlust efter forlangning. Perioderna avgor: fler an tre betyder att
+    matchen gick vidare.
+    """
+    h, a = _score(row.get("result"))
+    if h is None:
+        return None
+    beyond = len(parse_period_results(row.get("period_results"))) > 3
+    won = (h > a) if is_home else (a > h)
+    return (2 if beyond else 3) if won else (1 if beyond else 0)
+
+
+def _league_table(rows) -> list[tuple[str, int, int]]:
+    """Tabellen raknad ur spelade matcher: (lag, poang, spelade).
+
+    Namnet sist i sorteringen, sa lika poang alltid ger samma ordning —
+    utan det gav samma anrop olika svar.
+    """
+    pts, gp = Counter(), Counter()
+    for row in rows:
+        for team, is_home in ((row.get("home_team"), True), (row.get("away_team"), False)):
+            p = _season_points(row, is_home)
+            if p is None:
+                continue
+            pts[team] += p
+            gp[team] += 1
+    return [(t, n, gp[t]) for t, n in sorted(pts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def _place_in(table, team) -> dict | None:
+    """Lagets rad i tabellen, eller None om laget inte spelat."""
+    for i, (t, pts, gp) in enumerate(table, 1):
+        if t == team:
+            return {"rank": i, "points": pts, "games_played": gp}
+    return None
+
+
+def _form_rows(rows, team, limit=5) -> list[dict]:
+    """Lagets senaste matcher, aldst forst."""
+    out = []
+    for r in rows:
+        at_home = str(r.get("home_team") or "") == team
+        if not at_home and str(r.get("away_team") or "") != team:
+            continue
+        h, a = _score(r.get("result"))
+        if h is None:
+            continue
+        out.append({
+            "game_id": r.get("game_id"),
+            "date": str(r.get("match_date") or "")[:10],
+            "won": (h > a) if at_home else (a > h),
+            "beyond_regulation": len(parse_period_results(r.get("period_results"))) > 3,
+            "opponent": r.get("away_team") if at_home else r.get("home_team"),
+            "goals_for": h if at_home else a,
+            "goals_against": a if at_home else h,
+        })
+    return out[-limit:]
+
+
 def _is_ours(team_code) -> bool:
     """Bjorklovens lagkod i Swehockeys handelser ar IFB."""
     low = str(team_code or "").lower()
@@ -303,6 +365,13 @@ def get_standings(season: str = None, refresh: bool = False):
     Tabellen fanns tidigare bara inbakad i /api/v1/statistics, och da enbart
     som lagets egen rad. Frontend behover alla lag for att kunna visa en
     tabell alls.
+
+    Swehockeys tabellsida bar FYRA tabeller staplade pa varandra — totalt,
+    hemma, borta och senaste fem — och skorningen lagger dem i samma tabell
+    utan att markera vilken rad som kom fran vilken. Fjorton lag blev alltsa
+    femtiosex rader, och frontend sorterade dem pa placering och visade allt:
+    varje lag fyra ganger. Att det inte syns idag beror bara pa att SHL 26/27
+    inte har spelat en match — da finns bara en tabell.
     """
     try:
         bq = bigquery.Client(project=BQ_PROJECT_ID or None)
@@ -326,6 +395,20 @@ def get_standings(season: str = None, refresh: bool = False):
             ).result()
         ]
 
+        # Totaltabellen plockas ut per lag: den rad som har flest spelade
+        # matcher. Totalen ar alltid minst lika stor som hemma- och
+        # bortatabellen var for sig, och minst lika stor som femmatchers-
+        # tabellen sa snart fem matcher spelats. Fore dess ar totalen och
+        # senaste fem samma tabell, sa valet spelar ingen roll.
+        best: dict[str, dict] = {}
+        for r in rows:
+            team = str(r.get("team_name") or "")
+            cur = best.get(team)
+            key = (r.get("games_played") or 0, r.get("points") or 0)
+            if cur is None or key > (cur.get("games_played") or 0, cur.get("points") or 0):
+                best[team] = r
+        rows = sorted(best.values(), key=lambda r: (r.get("rank") or 99, str(r.get("team_name") or "")))
+
         return {
             "status": "ok",
             "season": active["name"],
@@ -336,6 +419,197 @@ def get_standings(season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/standings")
         return {"status": "error", "error": str(e), "standings": []}
+
+
+@app.get("/api/v1/next-match")
+@cached_ok(cache=stats_cache)
+def get_next_match(season: str = None, refresh: bool = False):
+    """Nasta match, med det en supporter vill veta innan den spelas.
+
+    Startsidan hade bara en nedrakning och ett arenanamn. Allt annat pa sajten
+    tittar bakat; det har ar det enda som tittar framat.
+
+    I en debutsasong sager tabellen ingenting fore forsta omgangen, sa
+    motstandarens placering hamtas da ur forra sasongen i samma serie. Det ar
+    hela poangen med kortet i september: fanet kanner inte SHL-lagen sedan
+    Allsvenskan.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular = active["regular"]
+
+        sched = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, match_date, match_time, home_team, away_team,
+                       result, period_results, venue, spectators
+                FROM `{bq.project}.core.schedule`
+                WHERE season_group_id = {int(regular)}
+                ORDER BY match_date, match_time, game_id
+                """
+            ).result()
+        ]
+        if not sched:
+            return {"status": "not_found", "error": "Spelprogrammet saknas for sasongen."}
+
+        def _ours(r) -> bool:
+            return bool(BJK_HOME.search(str(r.get("home_team") or ""))
+                        or BJK_HOME.search(str(r.get("away_team") or "")))
+
+        played = [r for r in sched if _score(r.get("result"))[0] is not None]
+        ours_all = [r for r in sched if _ours(r)]
+        ours_played = [r for r in ours_all if _score(r.get("result"))[0] is not None]
+
+        upcoming = next((r for r in ours_all if _score(r.get("result"))[0] is None), None)
+        if upcoming is None:
+            return {"status": "done", "season": active["name"], "season_key": active["key"],
+                    "error": "Sasongens alla matcher ar spelade."}
+
+        at_home = bool(BJK_HOME.search(str(upcoming.get("home_team") or "")))
+        us = upcoming.get("home_team") if at_home else upcoming.get("away_team")
+        them = upcoming.get("away_team") if at_home else upcoming.get("home_team")
+
+        table = _league_table(played)
+        # Motstandarens hemmasnitt: bara nar de ar hemmalag, sa siffran hor
+        # till ratt arena.
+        host = upcoming.get("home_team")
+        crowds = [int(r["spectators"]) for r in played
+                  if r.get("home_team") == host and r.get("spectators")]
+
+        # Inbordes under sasongen, och det senaste motet oavsett utfall.
+        meetings = []
+        for r in played:
+            names = {str(r.get("home_team") or ""), str(r.get("away_team") or "")}
+            if us not in names or them not in names:
+                continue
+            home = str(r.get("home_team") or "") == us
+            h, a = _score(r.get("result"))
+            meetings.append({
+                "game_id": r.get("game_id"),
+                "date": str(r.get("match_date") or "")[:10],
+                "is_home": home,
+                "goals_for": h if home else a,
+                "goals_against": a if home else h,
+            })
+
+        # Forra sasongen i samma serie, for lag vi annu inte matt i ar.
+        previous = None
+        try:
+            prev_rows = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT season_key, season_name, regular_season_id
+                    FROM `{bq.project}.core.season`
+                    WHERE league = (SELECT league FROM `{bq.project}.core.season`
+                                    WHERE season_key = @key)
+                      AND start_date < (SELECT start_date FROM `{bq.project}.core.season`
+                                        WHERE season_key = @key)
+                    ORDER BY start_date DESC
+                    LIMIT 1
+                    """,
+                    job_config=bigquery.QueryJobConfig(query_parameters=[
+                        bigquery.ScalarQueryParameter("key", "STRING", active["key"])
+                    ]),
+                ).result()
+            ]
+            if prev_rows:
+                prev = prev_rows[0]
+                # Swehockey staplar fyra tabeller pa varandra. Raden med flest
+                # spelade matcher ar totalen — se get_standings.
+                best: dict[str, dict] = {}
+                for r in bq.query(
+                    f"""
+                    SELECT a.team_name, a.rank, a.points, a.games_played, a.goal_diff
+                    FROM `{bq.project}.core.standings` a
+                    WHERE a.season_group_id = {int(prev["regular_season_id"])}
+                    """
+                ).result():
+                    d = dict(r.items())
+                    name = str(d.get("team_name") or "")
+                    cur = best.get(name)
+                    if cur is None or (d.get("games_played") or 0) > (cur.get("games_played") or 0):
+                        best[name] = d
+                row = best.get(str(them))
+                if row:
+                    previous = {
+                        "season": prev["season_name"],
+                        "opponent": {
+                            "rank": row.get("rank"),
+                            "points": row.get("points"),
+                            "games_played": row.get("games_played"),
+                            "goal_diff": row.get("goal_diff"),
+                        },
+                        "teams": len(best),
+                    }
+
+            # Var egen forra sasong ar sallan samma serie — i debutaret spelade
+            # vi Allsvenskan. Den hamtas darfor separat: senaste sasongen dar
+            # Bjorkloven over huvud taget har en tabellrad.
+            mine = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT se.season_name, st.rank, st.points, st.games_played,
+                           st.goal_diff, se.start_date
+                    FROM `{bq.project}.core.standings` st
+                    JOIN `{bq.project}.core.season` se
+                      ON se.regular_season_id = st.season_group_id
+                    WHERE REGEXP_CONTAINS(st.team_name, r'(?i)bj[oö]rkl[oö]ven')
+                      AND st.games_played > 0
+                      AND se.start_date < (SELECT start_date FROM `{bq.project}.core.season`
+                                           WHERE season_key = @key)
+                    ORDER BY se.start_date DESC, st.games_played DESC
+                    LIMIT 1
+                    """,
+                    job_config=bigquery.QueryJobConfig(query_parameters=[
+                        bigquery.ScalarQueryParameter("key", "STRING", active["key"])
+                    ]),
+                ).result()
+            ]
+            if mine:
+                previous = previous or {}
+                previous["us"] = {
+                    "season": mine[0]["season_name"],
+                    "rank": mine[0]["rank"],
+                    "points": mine[0]["points"],
+                    "games_played": mine[0]["games_played"],
+                    "goal_diff": mine[0]["goal_diff"],
+                }
+        except Exception:
+            logging.warning("Kunde inte lasa forra sasongen for nasta match", exc_info=True)
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "game": {
+                "game_id": upcoming.get("game_id"),
+                "date": str(upcoming.get("match_date") or "")[:10],
+                "time": upcoming.get("match_time"),
+                "opponent": them,
+                "is_home": at_home,
+                "venue": upcoming.get("venue"),
+            },
+            # Vilken omgang i VART spelprogram, sa "match 1 av 52" gar att skriva.
+            "round": len(ours_played) + 1,
+            "total_rounds": len(ours_all),
+            "is_premiere": len(ours_played) == 0,
+            "us": _place_in(table, us),
+            "them": _place_in(table, them),
+            "us_form": _form_rows(played, us),
+            "them_form": _form_rows(played, them),
+            "meetings": meetings,
+            # Arenans snitt i ar. Tomt i borjan av sasongen.
+            "venue_average": round(sum(crowds) / len(crowds)) if crowds else None,
+            "venue_games": len(crowds),
+            "previous": previous,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/next-match")
+        return {"status": "error", "error": str(e)}
 
 
 @app.get("/api/v1/statistics")
@@ -2566,34 +2840,6 @@ def get_match(game_id: int):
                 ).result()
             ] if regular else []
 
-            def _points(row, is_home) -> int | None:
-                """Svensk praxis: 3 for vinst i ordinarie tid, 2 efter
-                forlangning, 1 for forlust efter forlangning."""
-                h, a = _score(row.get("result"))
-                if h is None:
-                    return None
-                beyond = len(parse_period_results(row.get("period_results"))) > 3
-                won = (h > a) if is_home else (a > h)
-                return (2 if beyond else 3) if won else (1 if beyond else 0)
-
-            def _table(rows) -> list[tuple[str, int, int]]:
-                pts, gp = Counter(), Counter()
-                for row in rows:
-                    for team, is_home in ((row.get("home_team"), True), (row.get("away_team"), False)):
-                        p = _points(row, is_home)
-                        if p is None:
-                            continue
-                        pts[team] += p
-                        gp[team] += 1
-                # Namnet sist, sa lika poang alltid ger samma ordning.
-                return [(t, n, gp[t]) for t, n in sorted(pts.items(), key=lambda kv: (-kv[1], kv[0]))]
-
-            def _place(table, team) -> dict | None:
-                for i, (t, pts, gp) in enumerate(table, 1):
-                    if t == team:
-                        return {"rank": i, "points": pts, "games_played": gp}
-                return None
-
             key = (str(sched.get("match_date") or ""), int(game_id))
             before_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) < key]
             through_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) <= key]
@@ -2645,9 +2891,9 @@ def get_match(game_id: int):
             avg = round(sum(crowds) / len(crowds)) if crowds else None
 
             context = {
-                "before": _place(_table(before_rows), us),
-                "after": _place(_table(through_rows), us),
-                "opponent_before": _place(_table(before_rows), them),
+                "before": _place_in(_league_table(before_rows), us),
+                "after": _place_in(_league_table(through_rows), us),
+                "opponent_before": _place_in(_league_table(before_rows), them),
                 "form": form,
                 "meetings": meetings,
                 "venue_average": avg,
