@@ -2408,6 +2408,7 @@ def get_match(game_id: int):
         teams: dict[str, dict] | None = None
         keepers: list[dict] = []
         skaters: list[dict] = []
+        lineup: list[dict] = []
         try:
             summary = [
                 dict(r.items())
@@ -2512,10 +2513,150 @@ def get_match(game_id: int):
                 )
             # Bast plus/minus forst; namnet sist sa ordningen ar deterministisk.
             skaters.sort(key=lambda p: (-p["plus_minus"], -p["points"], p["name"]))
+
+            # Uppstallningen som klubben registrerade: femmorna, malvakterna
+            # och extraspelarna. Swehockey skriver "1st Line" over hela femman,
+            # sa raden rymmer bade forwardstrion och backparet.
+            by_block: dict[tuple, list[dict]] = {}
+            for r in bq.query(
+                f"""
+                SELECT block, line_number, player_number, player_name
+                FROM `{bq.project}.core.game_lineups`
+                WHERE game_id = {int(game_id)}
+                  AND REGEXP_CONTAINS(IFNULL(team_name, ''), r'(?i)bj[oö]rkl[oö]ven')
+                ORDER BY block, line_number, player_number
+                """
+            ).result():
+                d = dict(r.items())
+                key = (str(d.get("block") or ""), d.get("line_number"))
+                by_block.setdefault(key, []).append(
+                    {"number": d.get("player_number"), "name": clean_person(d.get("player_name"))}
+                )
+            # Femmorna forst och i ordning, sedan malvakter och extraspelare.
+            order = {"line": 0, "goalie": 1, "extra": 2}
+            lineup = [
+                {"block": b, "line": n, "players": players}
+                for (b, n), players in sorted(
+                    by_block.items(), key=lambda kv: (order.get(kv[0][0], 9), kv[0][1] or 0)
+                )
+            ]
         except Exception:
             # Marten byggs om vid varje skorning. Rapporten ska ga att lasa
             # aven under de minuterna, sa summeringen ar frivillig.
             logging.warning("Kunde inte lasa lagsummeringen for match %s", game_id, exc_info=True)
+
+        # Vad matchen betydde i serien. Allt raknas ur schemat, som till
+        # skillnad fran handelserna tacker hela serien — vi skordar bara vara
+        # egna matcher, men resultatet for alla.
+        context = None
+        try:
+            regular = sched.get("season_group_id") or season_gid
+            league = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT game_id, match_date, home_team, away_team, result,
+                           period_results, spectators
+                    FROM `{bq.project}.core.schedule`
+                    WHERE season_group_id = {int(regular)}
+                      AND game_id IS NOT NULL
+                      AND REGEXP_CONTAINS(IFNULL(result, ''), r'\d+\s*-\s*\d+')
+                    ORDER BY match_date, game_id
+                    """
+                ).result()
+            ] if regular else []
+
+            def _points(row, is_home) -> int | None:
+                """Svensk praxis: 3 for vinst i ordinarie tid, 2 efter
+                forlangning, 1 for forlust efter forlangning."""
+                h, a = _score(row.get("result"))
+                if h is None:
+                    return None
+                beyond = len(parse_period_results(row.get("period_results"))) > 3
+                won = (h > a) if is_home else (a > h)
+                return (2 if beyond else 3) if won else (1 if beyond else 0)
+
+            def _table(rows) -> list[tuple[str, int, int]]:
+                pts, gp = Counter(), Counter()
+                for row in rows:
+                    for team, is_home in ((row.get("home_team"), True), (row.get("away_team"), False)):
+                        p = _points(row, is_home)
+                        if p is None:
+                            continue
+                        pts[team] += p
+                        gp[team] += 1
+                # Namnet sist, sa lika poang alltid ger samma ordning.
+                return [(t, n, gp[t]) for t, n in sorted(pts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+            def _place(table, team) -> dict | None:
+                for i, (t, pts, gp) in enumerate(table, 1):
+                    if t == team:
+                        return {"rank": i, "points": pts, "games_played": gp}
+                return None
+
+            key = (str(sched.get("match_date") or ""), int(game_id))
+            before_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) < key]
+            through_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) <= key]
+
+            us = home if BJK_HOME.search(str(home or "")) else away
+            them = away if us == home else home
+
+            # Formen in i matchen: vara senaste fem fore den har.
+            ourprev = [
+                r for r in before_rows
+                if BJK_HOME.search(str(r.get("home_team") or "")) or BJK_HOME.search(str(r.get("away_team") or ""))
+            ][-5:]
+            form = []
+            for r in ourprev:
+                at_home = bool(BJK_HOME.search(str(r.get("home_team") or "")))
+                h, a = _score(r.get("result"))
+                beyond = len(parse_period_results(r.get("period_results"))) > 3
+                form.append({
+                    "game_id": r.get("game_id"),
+                    "won": (h > a) if at_home else (a > h),
+                    "beyond_regulation": beyond,
+                    "opponent": r.get("away_team") if at_home else r.get("home_team"),
+                })
+
+            # Inbordes moten under sasongen, inklusive den har matchen.
+            meetings = []
+            for r in through_rows:
+                names = {str(r.get("home_team") or ""), str(r.get("away_team") or "")}
+                if us not in names or them not in names:
+                    continue
+                at_home = str(r.get("home_team") or "") == us
+                h, a = _score(r.get("result"))
+                meetings.append({
+                    "game_id": r.get("game_id"),
+                    "date": str(r.get("match_date") or "")[:10],
+                    "is_home": at_home,
+                    "goals_for": h if at_home else a,
+                    "goals_against": a if at_home else h,
+                })
+
+            # Publiken mot vad arenan brukar dra. Hemmalagets egna matcher, sa
+            # jamforelsen ar mot ratt arena och inte mot seriens snitt.
+            host = sched.get("home_team")
+            crowds = [
+                int(r["spectators"])
+                for r in league
+                if r.get("home_team") == host and r.get("spectators")
+            ]
+            avg = round(sum(crowds) / len(crowds)) if crowds else None
+
+            context = {
+                "before": _place(_table(before_rows), us),
+                "after": _place(_table(through_rows), us),
+                "opponent_before": _place(_table(before_rows), them),
+                "form": form,
+                "meetings": meetings,
+                "venue_average": avg,
+                "venue_games": len(crowds),
+            }
+        except Exception:
+            # Kontexten ar en bonus. Gar den inte att rakna ska rapporten anda
+            # ga att lasa.
+            logging.warning("Kunde inte rakna matchkontexten for %s", game_id, exc_info=True)
 
         return {
             "status": "ok",
@@ -2535,6 +2676,11 @@ def get_match(game_id: int):
             "goalies": keepers,
             # Lagets utespelare, en rad var. Tom tills matchen skordats.
             "skaters": skaters,
+            # Femmor, malvakter och extraspelare som klubben registrerade.
+            "lineup": lineup,
+            # Var matchen stod i serien: placering fore och efter, form in i
+            # matchen, inbordes moten och publiken mot arenans snitt.
+            "context": context,
             # Lagets trojnummer -> namn, sa on-ice-listorna gar att lasa som
             # namn i stallet for siffror.
             "squad": squad,
