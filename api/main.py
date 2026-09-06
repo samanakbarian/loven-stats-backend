@@ -322,6 +322,74 @@ def _form_rows(rows, team, limit=5) -> list[dict]:
     return out[-limit:]
 
 
+def _team_summary(rows, team) -> dict | None:
+    """Lagets sasong sa langt, raknad ur spelade matcher.
+
+    Allt harleds ur schemat, som tacker hela serien — vi skordar bara vara
+    egna matcher men resultatet for alla. Darfor gar det att beskriva vilken
+    motstandare som helst utan att ha skordat deras matcher.
+    """
+    gf = ga = wins = ot_wins = ot_losses = losses = 0
+    home_pts = away_pts = home_games = away_games = 0
+    results: list[bool] = []
+    for r in rows:
+        at_home = str(r.get("home_team") or "") == team
+        if not at_home and str(r.get("away_team") or "") != team:
+            continue
+        h, a = _score(r.get("result"))
+        if h is None:
+            continue
+        mine, theirs = (h, a) if at_home else (a, h)
+        gf += mine
+        ga += theirs
+        beyond = len(parse_period_results(r.get("period_results"))) > 3
+        won = mine > theirs
+        if won and not beyond:
+            wins += 1
+        elif won:
+            ot_wins += 1
+        elif beyond:
+            ot_losses += 1
+        else:
+            losses += 1
+        pts = (2 if beyond else 3) if won else (1 if beyond else 0)
+        if at_home:
+            home_pts += pts
+            home_games += 1
+        else:
+            away_pts += pts
+            away_games += 1
+        results.append(won)
+
+    games = len(results)
+    if games == 0:
+        return None
+
+    # Pagaende svit: hur manga i rad, raknat bakifran.
+    streak = 1
+    for prev in reversed(results[:-1]):
+        if prev != results[-1]:
+            break
+        streak += 1
+
+    return {
+        "games": games,
+        "goals_for": gf,
+        "goals_against": ga,
+        "goals_for_avg": round(gf / games, 2),
+        "goals_against_avg": round(ga / games, 2),
+        "wins": wins,
+        "ot_wins": ot_wins,
+        "ot_losses": ot_losses,
+        "losses": losses,
+        "home_points": home_pts,
+        "home_games": home_games,
+        "away_points": away_pts,
+        "away_games": away_games,
+        "streak": {"won": results[-1], "length": streak},
+    }
+
+
 def _is_ours(team_code) -> bool:
     """Bjorklovens lagkod i Swehockeys handelser ar IFB."""
     low = str(team_code or "").lower()
@@ -522,7 +590,8 @@ def get_next_match(season: str = None, refresh: bool = False):
                 best: dict[str, dict] = {}
                 for r in bq.query(
                     f"""
-                    SELECT a.team_name, a.rank, a.points, a.games_played, a.goal_diff
+                    SELECT a.team_name, a.rank, a.points, a.games_played, a.goal_diff,
+                           a.wins, a.ot_wins, a.ot_losses, a.losses
                     FROM `{bq.project}.core.standings` a
                     WHERE a.season_group_id = {int(prev["regular_season_id"])}
                     """
@@ -541,6 +610,10 @@ def get_next_match(season: str = None, refresh: bool = False):
                             "points": row.get("points"),
                             "games_played": row.get("games_played"),
                             "goal_diff": row.get("goal_diff"),
+                            "wins": row.get("wins"),
+                            "ot_wins": row.get("ot_wins"),
+                            "ot_losses": row.get("ot_losses"),
+                            "losses": row.get("losses"),
                         },
                         "teams": len(best),
                     }
@@ -553,7 +626,8 @@ def get_next_match(season: str = None, refresh: bool = False):
                 for r in bq.query(
                     f"""
                     SELECT se.season_name, st.rank, st.points, st.games_played,
-                           st.goal_diff, se.start_date
+                           st.goal_diff, st.wins, st.ot_wins, st.ot_losses, st.losses,
+                           se.start_date
                     FROM `{bq.project}.core.standings` st
                     JOIN `{bq.project}.core.season` se
                       ON se.regular_season_id = st.season_group_id
@@ -577,6 +651,10 @@ def get_next_match(season: str = None, refresh: bool = False):
                     "points": mine[0]["points"],
                     "games_played": mine[0]["games_played"],
                     "goal_diff": mine[0]["goal_diff"],
+                    "wins": mine[0]["wins"],
+                    "ot_wins": mine[0]["ot_wins"],
+                    "ot_losses": mine[0]["ot_losses"],
+                    "losses": mine[0]["losses"],
                 }
         except Exception:
             logging.warning("Kunde inte lasa forra sasongen for nasta match", exc_info=True)
@@ -599,6 +677,8 @@ def get_next_match(season: str = None, refresh: bool = False):
             "is_premiere": len(ours_played) == 0,
             "us": _place_in(table, us),
             "them": _place_in(table, them),
+            "us_season": _team_summary(played, us),
+            "them_season": _team_summary(played, them),
             "us_form": _form_rows(played, us),
             "them_form": _form_rows(played, them),
             "meetings": meetings,
