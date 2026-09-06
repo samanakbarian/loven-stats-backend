@@ -12,3 +12,12 @@ För att utveckla lokalt:
 1. `cd api`
 2. `pip install -r requirements.txt`
 3. `uvicorn main:app --reload`
+
+## Dokumentation
+
+- **[docs/DATAPLATTFORM.md](docs/DATAPLATTFORM.md)** — lagren, ETL-flödet,
+  datamodellen, endpoints och hur allt verifieras. Gäller före övriga
+  dokument där de skiljer sig.
+- [docs/SWEHOCKEY_STATS_SCRAPER.md](docs/SWEHOCKEY_STATS_SCRAPER.md) —
+  scraperns detaljer, mätningar och kända egenheter i källan.
+- [docs/DEPLOY.md](docs/DEPLOY.md) — driftsättning.

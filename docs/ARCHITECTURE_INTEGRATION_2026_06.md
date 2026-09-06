@@ -1,5 +1,8 @@
 # Arkitekturintegration juni 2026
 
+> Uppdaterad beskrivning av lager, ETL-flöde, datamodell och endpoints finns i
+> [`DATAPLATTFORM.md`](DATAPLATTFORM.md), som gäller där dokumenten skiljer sig.
+
 Senast verifierad: 2026-06-14
 
 Detta dokument kopplar den faktiska implementationen i `loven-stats-backend`

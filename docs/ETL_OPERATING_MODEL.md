@@ -1,5 +1,8 @@
 # ETL Operating Model
 
+> Uppdaterad beskrivning av lager, ETL-flöde, datamodell och endpoints finns i
+> [`DATAPLATTFORM.md`](DATAPLATTFORM.md), som gäller där dokumenten skiljer sig.
+
 Senast uppdaterad: 2026-06-14
 
 ## Syfte

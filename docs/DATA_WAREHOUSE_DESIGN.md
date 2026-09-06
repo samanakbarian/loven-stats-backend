@@ -1,5 +1,12 @@
 # 📐 Data Warehouse Design — Löven Stats Hub
 
+> **Föråldrat.** Det här dokumentet beskriver en dbt-baserad modell som aldrig
+> togs i bruk: katalogen `dbt/` har inga dimensioner, dess faktatabeller bär
+> inga mått, dess källor pekar på tabeller som inte finns, och ingenting läser
+> den. Gällande beskrivning av lager, ETL-flöde, datamodell och endpoints finns
+> i [`DATAPLATTFORM.md`](DATAPLATTFORM.md).
+
+
 *Senast uppdaterad: 2026-05-18*  
 *Detta är den officiella referensdokumentationen för hela datamodellen i BigQuery.*
 
