@@ -1099,6 +1099,33 @@ Haller den: nasta steg ar matchsidan och statistiken, som ocksa ar
 tabelldata. Nyheter och spelarprofiler ska **inte** dit — de ar loptext, och
 det ar dar riktningen sliter.
 
+#### Sajten anpassar sig inte till skrivbord
+
+Rapporterat 2026-09-06. Hela `frontend_v2` ar byggd for telefonbredd och
+raknar med den: korten far full bredd, typskalan ar satt for 390 px, och
+tabellerna har `min-width` i pixlar. Pa en dator blir raderna orimligt langa
+och layouten glesnar utan att fylla ytan.
+
+Det ar ratt prioritering sa langt — publiken sitter i telefonen — men det ar
+inte ett medvetet val i koden, bara en fronsida av att aldrig ha provats
+bredare. Atgarden hor ihop med feature 29: en maxbredd pa `.page`, en
+brytpunkt dar korten far ligga i tva kolumner, och en typskala som vaxer ett
+steg. **Gor det efter att designriktningen ar vald**, inte fore — annars gors
+arbetet tva ganger.
+
+#### 358-, 359- och 365-lagen — byggda
+
+| vy | sida | byggd |
+|---|---|---|
+| Serietabellen | **358** | 2026-09-06 |
+| Spelprogrammet | **359** | 2026-09-06 |
+| Poangligan | **365** | 2026-09-06 |
+| Live under match | **377** | vantar pa feature 27 |
+
+Det delade laget bor i `src/components/texttv.tsx`: sidnummer, vaxeln som
+minns sitt val per vy, sidhuvudet i cyan, och namnkortningen for lag och
+spelare. Nasta vy kostar nastan ingenting.
+
 #### Namnfragan, oppen
 
 "Lovenlaget 377" ligger pa bordet. Argumentet for: 377 betyder malservice,
@@ -1130,7 +1157,9 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 17. `WEB-004` Live-lage pa startsidan och i matchrapporten, med paus vid dold flik.
 18. `WEB-005` En typskala som tokens; ta bort alla lokala `font-size`-varden.
 19. `WEB-006` Kort med roller: sla ihop de fyra kortklasserna till en.
-20. `WEB-007` Utvardera 358-laget efter fem spelade omgangar; se feature 29.
+20. `WEB-007` Utvardera Text-TV-lagen efter fem spelade omgangar; se feature 29.
+21. `WEB-008` Skrivbordsanpassning: maxbredd, tvakolumnslage, en typskala som
+    vaxer. Efter att designriktningen ar vald.
 
 ## Beslutsregler
 
