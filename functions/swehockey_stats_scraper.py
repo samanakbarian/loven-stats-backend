@@ -1004,16 +1004,16 @@ def _fetch_game_boxscore(season_group_id: str, limit: int | None = None) -> tupl
             for r in parse_lineups(_lineup_html(gid) or "", gid)
         }
 
-        rows = [
-            {**r, "role": "skater"} for r in parsed["skaters"]
-        ] + [
-            {
-                **r, "role": "goalie",
-                "player_number": r.pop("goalie_number"),
-                "player_name": r.pop("goalie_name"),
-            }
-            for r in parsed["goalies"]
-        ]
+        # Malvakternas nummer och namn dops om sa bada rollerna delar
+        # kolumner. Popparna maste ske FORE hopslagningen: {**r, ...} kopierar
+        # r innan poparna kor, sa raden bar bade goalie_name och player_name.
+        for r in parsed["goalies"]:
+            r["player_number"] = r.pop("goalie_number")
+            r["player_name"] = r.pop("goalie_name")
+            r["role"] = "goalie"
+        for r in parsed["skaters"]:
+            r["role"] = "skater"
+        rows = parsed["skaters"] + parsed["goalies"]
         for r in rows:
             r["season_group_id"] = int(season_group_id)
             r["match_date"] = game.get("match_date")
@@ -1327,6 +1327,12 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
             return
         d = dict(row.items())
         a, b = d.get("a"), d.get("b")
+        # Fore seriestart finns inga spelade matcher: handelserna ar noll och
+        # summan ur resultaten NULL. Det ar inte en avvikelse, det finns inget
+        # att jamfora. SHL 26/27 larmade "0 mot None" varje korning i augusti.
+        if a is None or b is None:
+            checks.append({"name": name, "ok": None, "note": "inget att jamfora an"})
+            return
         checks.append(
             {
                 "name": name,

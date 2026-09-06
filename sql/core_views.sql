@@ -19,6 +19,34 @@
 
 CREATE SCHEMA IF NOT EXISTS `@PROJECT@.core` OPTIONS(location = 'europe-west1');
 
+
+-- De tva rapporttabellerna skapas har med explicit schema. En vy kan inte
+-- byggas over en tabell som inte finns, och de skrivs forst nar en match
+-- faktiskt spelats — sa en fardig deploy fore seriestart foll pa
+-- "Table raw_sports.swehockey_game_boxscore was not found".
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_game_boxscore` (
+  game_id INT64, season_group_id INT64, match_date STRING,
+  team_side INT64, team_name STRING, role STRING,
+  player_number INT64, player_name STRING,
+  shots INT64, goals INT64, assists INT64, points INT64,
+  official_plus_minus INT64, pim INT64,
+  faceoffs_won INT64, faceoffs_lost INT64, faceoff_pct FLOAT64,
+  saves INT64, goals_against INT64, shots_against INT64,
+  save_pct FLOAT64, shutout INT64, time_on_ice STRING,
+  source_etag STRING, report_url STRING,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_player_bio` (
+  game_id INT64, season_group_id INT64,
+  team_side INT64, team_name STRING,
+  position STRING, player_number INT64, player_name STRING,
+  birthdate STRING, is_captain BOOL, is_assistant_captain BOOL,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
 -- ---------------------------------------------------------------- matcher --
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.game_events` AS
