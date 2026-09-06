@@ -76,12 +76,14 @@ Verifierad implementationsstatus och arkitekturgap finns i
 7. Team strength rating och Monte Carlo-simuleringar
 8. Modellregister med backtesting och data quality per modell
 
-### Fas 4: Flodet som datalager
+### Fas 4: Levande sajt och flodet som datalager
 
-1. Genererade notiser ur marten (feature 21)
-2. Ett flodeskontrakt: `FeedItem` (feature 23)
-3. Entitetslankning nyhet -> spelare och match (feature 22)
-4. Hela seriens matcher, inte bara vara (feature 26)
+1. Live under match (feature 27) — storst havstang
+2. Genererade notiser ur marten (feature 21)
+3. Ett flodeskontrakt: `FeedItem` (feature 23)
+4. Entitetslankning nyhet -> spelare och match (feature 22)
+5. Hela seriens matcher, inte bara vara (feature 26)
+6. Push-notiser (feature 28)
 
 ## Featuredetaljer
 
@@ -630,7 +632,7 @@ Acceptanskriterier:
 - Filnamn innehaller vy, sasong och datum.
 - Export fungerar for spelarstatistik, lagstatistik och matchlista.
 
-### 20. Push-notiser vid milstolpar
+### 20. Push-notiser vid milstolpar — ERSATT AV FEATURE 28
 
 Typ: Feature / Notifications
 Prioritet: Lag
@@ -901,6 +903,126 @@ Acceptanskriterier:
 - Reconciliation-kontrollerna skiljer pa vara matcher och seriens, sa ett
   larm pekar ut vilken niva som brister.
 
+### 27. Live under match
+
+Typ: Feature / Data Engineering + Frontend
+Prioritet: Hog — storst havstang i hela appen
+Primart repo: bada
+Berorda omraden: ny Cloud Function, Cloud Scheduler, GCS, `api/main.py`,
+`Matcher.tsx`, `Matchrapport.tsx`
+
+#### Problemet
+
+Hela produkten ar byggd for eftersnack. Skrapan kor **fyra ganger om dygnet**
+(`30 0,7,18,22`), API:t cachar **sex timmar**, och Swehockey publicerar
+matchrapporten 137-195 minuter efter nedslapp. En supporter som sitter i
+Visionite Arena eller framfor strommen har ingen anledning att oppna appen.
+Bara X-flodet uppdaterar sig, var annan minut.
+
+Det gor att sajten ar nagot man kollar dagen efter. Det ar en mindre publik an
+de som foljer laget.
+
+#### Det som avgor designen: vi vet inte matchens id
+
+`game_id` kommer ur lanken `<a href=".../Game/Events/{id}">` i spelschemat, och
+**Swehockey satter den lanken forst nar matchen spelats.** Matt 2026-09-06:
+
+| sasongsgrupp | matchlankar pa schemasidan |
+|---|---|
+| 18266 (HA 25/26, spelad) | 364 |
+| 20961 (SHL 26/27, ospelad) | 0 |
+
+Sidan laddar i bada fallen (354 kB for den tomma), sa det ar inte ett
+hamtningsfel. Utan id finns ingen handelsesida att polla, och hela funktionen
+faller om den forutsatter en.
+
+#### Losningen: tva nivaer
+
+**Niva 1 — stallningen, ur spelschemat.** Schemaraden bar resultat i cell [4]
+och periodresultat i cell [5]. Den gar att lasa utan `game_id` och funkar
+alltsa fran forsta nedslapp. Ger: stallning, period, och nar matchen ar slut.
+
+**Niva 2 — handelserna, ur `/Game/Events/{id}`.** Sa snart lanken dyker upp i
+schemat plockas id:t, och da gar det att lasa mal, malskyttar, assist,
+utvisningar och vilka som stod pa isen. Parsern finns redan
+(`game_events_parser.parse_game_events`) och behover inte roras.
+
+Niva 1 levererar alltid nagot. Niva 2 ar en forbattring som slar in nar den
+kan. **Forsta uppgiften ar att mata pa premiaren 19 september: nar dyker
+lanken upp?** Svaret avgor om niva 2 ar vard att bygga alls.
+
+#### Arkitektur
+
+```
+Cloud Scheduler (varje minut)
+  -> Cloud Function  swehockey-live
+       finns match i fonstret?  nej -> returnera direkt
+       ja -> hamta schemat (ETag) -> stallning
+              har game_id?  ja -> hamta handelserna -> mal, utvisningar
+       -> skriv GCS  live/{season_group_id}/current.json
+  -> GET /api/v1/live  laser bloben, TTL 15 s
+  -> frontend pollar var 30:e sekund medan matchen pagar
+```
+
+**Live far ALDRIG skriva till `raw_sports`.** Halvfardig matchdata skulle
+korrumpera innehallshashen — en match vars hash satts mitt i andra perioden
+hoppas over nar den ar klar — och slacka reconciliation-kontrollerna. Nar
+matchen ar over hamtar den vanliga skrapan matchen som vanligt och skriver den
+riktiga raden. Live ar en **flyktig sidokanal**, inte en del av datalagret.
+
+GCS ar ratt plats: en blob som skrivs over, samma monster som
+`silly_scraper` redan anvander, och API:t laser redan GCS-blobbar.
+
+#### Detaljer som maste sitta
+
+- **Fonstret**: en match ar live fran `match_time` minus 15 minuter till plus
+  fyra timmar. Utanfor det returnerar funktionen direkt, sa 1 400 anrop om
+  dygnet kostar nastan ingenting.
+- **Villkorade anrop**: schemasidan ar 354 kB. Med `If-None-Match` blir en
+  opporandrad sida 304 och noll byte — samma mekanik som
+  `_fetch_report()` redan anvander for PDF:erna. Utan den blir det 85 MB per
+  match.
+- **Egen cache**: `/api/v1/live` far INTE anvanda `stats_cache` (sex timmar).
+  Egen `TTLCache(ttl=15)`.
+- **Frontend pausar**: sluta polla nar fliken ar dold
+  (`document.visibilitychange`). Annars pollar en glomd flik i timmar.
+- **Idle ar ett giltigt svar**: `{"status": "idle"}` nar ingen match pagar, och
+  da visar startsidan infor-kortet som vanligt.
+- **Kadensen ar en gissning tills den ar matt.** Uppdaterar Swehockey
+  schemasidan direkt vid mal, eller med minuters fordrojning? Mat pa
+  premiaren innan kadensen sätts.
+
+#### Acceptanskriterier
+
+- Stallningen pa startsidan uppdateras under match utan att sidan laddas om.
+- Ingen rad i `raw_sports` skrivs av live-funktionen.
+- Reconciliation ger samma resultat som fore funktionen infordes.
+- Funktionen kostar under en sekund per anrop nar ingen match pagar.
+- En glomd flik slutar polla.
+- Sidan fungerar oforandrat nar live-bloben saknas eller ar gammal.
+
+### 28. Push-notiser
+
+Typ: Feature / Frontend + Backend
+Prioritet: Medium — **beroende av feature 27**
+Primart repo: bada
+
+Ersatter feature 20, som beskrev samma sak utan att veta var handelserna
+skulle komma ifran.
+
+Utan live finns ingen handelse att pusha om narmare an sex timmar efter att
+den intraffat, sa det har ar meningslost att bygga forst. Med feature 27 pa
+plats ar det tva rader: **matchstart** och **slutresultat** ur niva 1, och
+**mal** ur niva 2.
+
+Milstolpar och sviter kommer inte harifran utan ur `marts.generated_events`
+(feature 21), som redan har `event_key` — samma nyckel duger for att inte
+skicka samma notis tva ganger.
+
+Att bestamma innan bygget: webbpush kraver service worker och VAPID-nycklar,
+och iOS stodjer det bara for appar som lagts till pa hemskarmen. Det ar en
+begransning att beratta om i granssnittet, inte att dolja.
+
 ## Forsta tickets att skapa
 
 1. `DATA-001` Historisk sasongsbackfill for HA 2022/23-2024/25.
@@ -917,6 +1039,10 @@ Acceptanskriterier:
 11. `FEED-002` Nyheterna till BigQuery, som forutsattning for `FeedItem`.
 12. `FEED-003` `FeedItem`-kontrakt och en endpoint for hela flodet.
 13. `DATA-003` Hela seriens matcher i tva nivaer; se feature 26.
+14. `LIVE-001` Mat nar Swehockey satter matchlanken, pa premiaren 19 september.
+15. `LIVE-002` Cloud Function + GCS-blob + `GET /api/v1/live`, niva 1.
+16. `LIVE-003` Niva 2: handelser sa snart `game_id` finns.
+17. `WEB-004` Live-lage pa startsidan och i matchrapporten, med paus vid dold flik.
 
 ## Beslutsregler
 
