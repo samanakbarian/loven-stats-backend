@@ -244,13 +244,49 @@ sextimmarscachen.
 | `shots` | skottandel och PDO |
 | `analytics` | sammansatta moduler för statistiksidan |
 | `projection` | simulerad slutplacering (Monte Carlo, σ = 55) |
-| `match/{game_id}` | matchrapport med spelarna på isen |
+| `match/{game_id}` | matchrapport med spelarna på isen, lagsummering och målvakter |
 | `games/{game_id}/momentum` | målskillnad genom matchen |
-| **`lines`** | **kedjornas utfall: mål för och emot med kedjan på isen** |
+| `lines` | femmornas utfall: mål för och emot med enheten på isen |
 | **`table-history`** | **tabellplacering per omgång, härledd ur resultaten** |
 | **`opponents`** | **facit per motståndare; `venue=home\|away`, `last=N`** |
 | **`swings`** | **vändningar och tapp: ställning efter två perioder mot slutresultat** |
 | `lovenlaget`, `silly-season`, `x-feed`, `financials` | innehåll utanför matchdatat |
+
+### Matchrapportens lagsummering
+
+`/api/v1/match/{game_id}` bar tidigare bara händelser — mål, utvisningar och
+tröjnummeruppslaget. Allt på sidan härleddes alltså ur måltiderna, och en
+match med fyra mål gav fyra datapunkter; det som hände mellan målen fanns
+inte.
+
+Svaret bär nu också `teams` och `goalies`, ur `marts.fact_team_game` och
+`marts.fact_goalie_game`:
+
+- `teams.ours` / `teams.theirs` — skott, räddningar, utvisningsminuter,
+  skott och räddningar per period, powerplayprocent och -tid, skjut- och
+  räddningsprocent, PDO.
+- `goalies[]` — vem som stod, för båda lagen: skott emot, räddningar,
+  räddningsprocent och speltid, med `is_ours` per rad.
+
+Båda är frivilliga. Marten byggs om vid varje skörning, och rapporten ska gå
+att läsa under de minuterna, så uppslaget ligger i ett eget `try` och svarar
+`teams: null`, `goalies: []` om det fallerar. **Klienten måste tåla det** —
+en match kan också vara skördad innan protokollet fanns.
+
+### Femmorna, inte kedjorna
+
+Swehockey skriver `1st Line` över en rad som rymmer hela femman: de tre
+forwardsen **och** backparet. `/api/v1/lines` returnerade tidigare bara
+`players` — de sex med flest matcher, i frekvensordning — och klienten visade
+de tre första som "kedjan". För HockeyAllsvenskan 2025/26 blev tre av fyra
+rader då fel: Kedja 1 stod som "Nilsson, Theocharidis, Vainio", där de två
+sista är backparet.
+
+Svaret bär nu `forwards` (högst tre) och `defence` (högst två), delade på
+`position` ur `core.player_season_stats`, plus `rotated` — hur många fler som
+spelat i femman. Säsongstabellen markerar spelare med asterisk och
+uppställningen inte, så namnen normaliseras innan uppslaget; utan det träffar
+positionen aldrig.
 
 ### Spelarens matchlogg
 

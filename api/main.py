@@ -1881,11 +1881,17 @@ def _ours_theirs(row):
 @app.get("/api/v1/lines")
 @cached_ok(cache=stats_cache)
 def get_lines(season: str = None, refresh: bool = False):
-    """Kedjornas utfall: mal for och emot med kedjan pa isen.
+    """Femmornas utfall: mal for och emot med enheten pa isen.
 
-    Kedjan kommer ur klubbens egen uppstallning pa matchsidan, inte gissad ur
-    vilka som gor mal ihop. Malet knyts till den kedja flest av spelarna pa
+    Enheten kommer ur klubbens egen uppstallning pa matchsidan, inte gissad ur
+    vilka som gor mal ihop. Malet knyts till den enhet flest av spelarna pa
     isen tillhorde.
+
+    Swehockey skriver "1st Line" over en rad som rymmer hela femman: de tre
+    forwardsen och backparet. Raden ar alltsa inte en kedja i ordets vanliga
+    mening, och forwards och backar maste delas isar har — annars blandas de
+    i listan, och vilka tre som syns avgors av vem som rakat spela flest
+    matcher. Positionen kommer ur sasongsstatistiken.
 
     Lagkoden avgor vem som gjorde malet — inte trojnumren. Motstandarens 19
     kolliderar med var egen 19, och rakas det pa nummer blir varje mal vart.
@@ -1916,6 +1922,38 @@ def get_lines(season: str = None, refresh: bool = False):
                 """
             ).result()
         ]
+
+        # Position per spelare, sa forwards och backar gar att skilja at.
+        # Sasongstabellen markerar spelare med asterisk, uppstallningen inte —
+        # utan den har normaliseringen traffar uppslaget aldrig.
+        def _key(name: str) -> str:
+            return re.sub(r"[*\u2020\u2021]+", "", str(name or "")).strip().rstrip(",").strip().lower()
+
+        position: dict[str, str] = {}
+        try:
+            for r in bq.query(
+                f"""
+                SELECT a.player_name, a.position
+                FROM `{bq.project}.core.player_season_stats` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.core.player_season_stats`
+                    WHERE season_group_id IN ({season_ids})
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id IN ({season_ids})
+                  AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+                """
+            ).result():
+                d = dict(r.items())
+                name = _key(clean_person(d.get("player_name")))
+                if name and d.get("position"):
+                    position.setdefault(name, str(d["position"]).upper())
+        except Exception:
+            logging.warning("Kunde inte lasa positionerna for kedjorna", exc_info=True)
+
+        def is_back(name: str) -> bool:
+            """LD, RD och D ar backar; CE, LW och RW ar forwards."""
+            return position.get(_key(name), "").rstrip("0123456789").endswith("D")
 
         line_of, members = {}, {}
         for l in lineups:
@@ -1950,13 +1988,24 @@ def get_lines(season: str = None, refresh: bool = False):
         lines = []
         for n in sorted(tally):
             row = tally[n]
+            # Flest matcher forst inom varje position; en femma ar tre
+            # forwards och tva backar, resten har hoppat in.
+            roster = members.get(n, Counter())
+            forwards = [name for name, _ in roster.most_common() if not is_back(name)][:3]
+            defence = [name for name, _ in roster.most_common() if is_back(name)][:2]
             lines.append({
                 "line": n,
                 "goals_for": row["gf"],
                 "goals_against": row["ga"],
                 "diff": row["gf"] - row["ga"],
                 "share_of_team_goals": round(100 * row["gf"] / max(1, sum(v["gf"] for v in tally.values())), 1),
-                "players": [name for name, _ in members.get(n, Counter()).most_common(6)],
+                "forwards": forwards,
+                "defence": defence,
+                # Hur manga fler som spelat i femman an de som listas ovan.
+                # Backparet byts oftare an kedjan, och att tiga om det vore
+                # att pasta att fem spelare stod for hela utfallet.
+                "rotated": max(0, len(roster) - len(forwards) - len(defence)),
+                "players": [name for name, _ in roster.most_common(6)],
             })
 
         return {
@@ -2330,6 +2379,77 @@ def get_match(game_id: int):
         # placera handelserna ratt utan att gissa.
         codes = [c for c in {e.get("team_code") for e in events} if c]
 
+        # Skott, raddningar och powerplaytid ligger i matchsummeringen, inte i
+        # handelserna. Utan dem kan rapporten bara beratta vad som hande, inte
+        # hur matchen sag ut — och delkortet skulle behova hitta pa siffror.
+        def _side(row: dict) -> dict:
+            return {
+                "team_name": row.get("team_name"),
+                "is_home": bool(row.get("is_home")),
+                "shots": row.get("shots"),
+                "saves": row.get("saves"),
+                "pim": row.get("pim"),
+                "shots_by_period": row.get("shots_by_period"),
+                "saves_by_period": row.get("saves_by_period"),
+                "pp_pct": _to_float(row.get("pp_pct")),
+                "pp_time": row.get("pp_time"),
+                "shooting_pct": _to_float(row.get("shooting_pct")),
+                "save_pct": _to_float(row.get("save_pct")),
+                "pdo": _to_float(row.get("pdo")),
+            }
+
+        teams: dict[str, dict] | None = None
+        keepers: list[dict] = []
+        try:
+            summary = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT team_key AS team_name, is_home, shots, saves, pim,
+                           shots_by_period, saves_by_period,
+                           pp_pct, pp_time, shooting_pct, save_pct, pdo
+                    FROM `{bq.project}.marts.fact_team_game`
+                    WHERE game_id = {int(game_id)}
+                    """
+                ).result()
+            ]
+            # Var rad ar ett lag. Hemmalaget avgor vilken sida som ar var bara
+            # nar vi sjalva spelar hemma.
+            ours = next((r for r in summary if BJK_HOME.search(str(r.get("team_name") or ""))), None)
+            theirs = next((r for r in summary if r is not ours), None)
+            if ours and theirs:
+                teams = {"ours": _side(ours), "theirs": _side(theirs)}
+
+            for r in bq.query(
+                f"""
+                SELECT player_key, team_key, jersey_number,
+                       shots_against, saves, goals_against, save_pct, time_on_ice
+                FROM `{bq.project}.marts.fact_goalie_game`
+                WHERE game_id = {int(game_id)}
+                """
+            ).result():
+                d = dict(r.items())
+                keepers.append(
+                    {
+                        "name": clean_person(d.get("player_key")),
+                        "team": d.get("team_key"),
+                        "number": d.get("jersey_number"),
+                        # Lagnyckeln ar ibland namnet och ibland koden; _is_ours tar bada.
+                        "is_ours": _is_ours(d.get("team_key")),
+                        "shots_against": d.get("shots_against"),
+                        "saves": d.get("saves"),
+                        "goals_against": d.get("goals_against"),
+                        "save_pct": _to_float(d.get("save_pct")),
+                        "time_on_ice": d.get("time_on_ice"),
+                    }
+                )
+            # Den som motte flest skott stod langst, och namns forst.
+            keepers.sort(key=lambda k: -(k.get("shots_against") or 0))
+        except Exception:
+            # Marten byggs om vid varje skorning. Rapporten ska ga att lasa
+            # aven under de minuterna, sa summeringen ar frivillig.
+            logging.warning("Kunde inte lasa lagsummeringen for match %s", game_id, exc_info=True)
+
         return {
             "status": "ok",
             "game_id": game_id,
@@ -2342,6 +2462,10 @@ def get_match(game_id: int):
             "venue": sched.get("venue"),
             "spectators": sched.get("spectators"),
             "team_codes": codes,
+            # Skott, raddningar och specialteam per lag. None nar matchen inte
+            # skorats med summeringen an.
+            "teams": teams,
+            "goalies": keepers,
             # Lagets trojnummer -> namn, sa on-ice-listorna gar att lasa som
             # namn i stallet for siffror.
             "squad": squad,
