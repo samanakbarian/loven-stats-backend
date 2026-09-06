@@ -773,6 +773,72 @@ def get_players(season: str = None, refresh: bool = False):
 
 @app.get("/api/v1/player/{name}")
 @cached_ok(cache=stats_cache)
+def _goalie_profile(bq, keeper: dict, active: dict, season_ids: str, wanted: str) -> dict:
+    """Malvaktens sasong, med exakt speltid ur matchrapporten.
+
+    GAA raknas pa verklig istid, inte pa antal matcher. En malvakt som byts
+    ut efter en period har inte spelat en match, och skillnaden ar stor: en
+    utbytt malvakt drog tidigare med sig hela matchens langd i namnaren.
+    """
+    log = list(keeper.get("game_log") or [])
+    toi: dict[int, dict] = {}
+    try:
+        for r in bq.query(
+            f"""
+            SELECT game_id, time_on_ice, shutout
+            FROM `{bq.project}.marts.fact_goalie_game`
+            WHERE season_group_id IN ({season_ids}) AND player_key = @who
+            """,
+            job_config=bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("who", "STRING", keeper.get("name"))
+            ]),
+        ).result():
+            d = dict(r.items())
+            toi[int(d["game_id"])] = d
+    except Exception:
+        logging.info("Ingen speltid for malvakten %s", keeper.get("name"), exc_info=True)
+
+    def _minutes(text) -> float | None:
+        try:
+            mm, ss = str(text or "").split(":")[:2]
+            return int(mm) + int(ss) / 60
+        except Exception:
+            return None
+
+    total_minutes = 0.0
+    for i, g in enumerate(log, 1):
+        extra = toi.get(int(g.get("game_id") or 0)) or {}
+        minutes = _minutes(extra.get("time_on_ice"))
+        g["game_number"] = i
+        g["time_on_ice"] = extra.get("time_on_ice")
+        g["shutout"] = bool(extra.get("shutout"))
+        if minutes:
+            total_minutes += minutes
+
+    saves = int(keeper.get("saves") or 0)
+    against = int(keeper.get("goals_against") or 0)
+    shots = int(keeper.get("shots_against") or 0)
+    profile = dict(keeper)
+    profile.update({
+        "save_pct": round(100 * saves / shots, 2) if shots else None,
+        # Med speltid blir GAA exakt. Utan den faller vi tillbaka pa matcher,
+        # och da ska det sagas — inte doljas bakom samma etikett.
+        "gaa": round(against * 60 / total_minutes, 2) if total_minutes else keeper.get("gaa"),
+        "gaa_basis": "speltid" if total_minutes else "matcher",
+        "minutes": round(total_minutes) if total_minutes else None,
+    })
+    return {
+        "status": "ok",
+        "role": "goalie",
+        "season": active["name"],
+        "season_key": active["key"],
+        "player": profile,
+        "game_log": log,
+        "games_with_points": 0,
+        "points_from_events": 0,
+    }
+
+
 def get_player(name: str, season: str = None, refresh: bool = False):
     """En spelares sasong, match for match.
 
@@ -801,6 +867,15 @@ def get_player(name: str, season: str = None, refresh: bool = False):
             return re.sub(r"[^a-z ]", "", x).strip()
 
         wanted = _key(name)
+
+        # Malvakter far ett eget svar. En utespelarlogg med noll skott och noll
+        # skjutprocent sager ingenting om en malvakt, och tack vare speltiden i
+        # matchrapporten gar GAA att rakna exakt i stallet for att uppskattas.
+        keepers = get_goalies(season=season)
+        keeper = next((g for g in keepers.get("goalies", []) if _key(g.get("name")) == wanted), None)
+        if keeper:
+            return _goalie_profile(bq, keeper, active, season_ids, wanted)
+
         season_stats = get_players(season=season)
         me = next((p for p in season_stats.get("players", []) if _key(p["name"]) == wanted), None)
         if not me:

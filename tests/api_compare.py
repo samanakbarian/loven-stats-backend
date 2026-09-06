@@ -35,6 +35,7 @@ ENDPOINTS = [
     # MoDo-Ostersund, en match vi inte har handelser for, sa facit provade
     # bara tomvagen. Den har har bade mal, utvisningar, on-ice och det
     # straffavgorande malet som parsern tidigare tappade.
+    "/api/v1/player/Tuohimaa,%20Frans?season=ha_2526&refresh=1",
     "/api/v1/match/1005615",
 ]
 
@@ -44,7 +45,7 @@ ENDPOINTS = [
 IGNORE = (
     "ai_coach",          # sprakmodellsgenererad text
     "last_updated", "generated_at", "scraped_at", "cached_at", "source_updated_at",
-    "new_signals",       # silly season-flodet far nya signaler over tid
+    "new_signals", "scraped_articles",  # silly season-flodet vaxer over tid
 )
 
 # Slutplaceringen ar en Monte Carlo-simulering och ar inte jamforbar rad for rad.
