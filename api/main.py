@@ -682,6 +682,18 @@ def get_next_match(season: str = None, refresh: bool = False):
             "us_form": _form_rows(played, us),
             "them_form": _form_rows(played, them),
             "meetings": meetings,
+            # De narmaste matcherna. I premiarveckan ar inledningen det enda
+            # som faktiskt sager nagot om vad som vantar.
+            "upcoming": [
+                {
+                    "date": str(r.get("match_date") or "")[:10],
+                    "time": r.get("match_time"),
+                    "opponent": r.get("away_team") if BJK_HOME.search(str(r.get("home_team") or ""))
+                    else r.get("home_team"),
+                    "is_home": bool(BJK_HOME.search(str(r.get("home_team") or ""))),
+                }
+                for r in [g for g in ours_all if _score(g.get("result"))[0] is None][:5]
+            ],
             # Arenans snitt i ar. Tomt i borjan av sasongen.
             "venue_average": round(sum(crowds) / len(crowds)) if crowds else None,
             "venue_games": len(crowds),
