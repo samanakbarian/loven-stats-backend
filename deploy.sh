@@ -9,6 +9,7 @@
 #   bash deploy.sh scraper    # bara scrapern
 #   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
 #   bash deploy.sh schedule   # sätt schemaläggningen, utan deploy
+#   bash deploy.sh views      # skapa/uppdatera core-vyerna, utan deploy
 #   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
 #
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
@@ -60,6 +61,57 @@ sin inloggning när sessionen startades om. Starta om Cloud Shell (menyn uppe
 till höger → Restart) och kör samma kommando igen. Hjälper inte det:
 
   gcloud auth login"
+fi
+
+if [[ "$TARGET" == "views" ]]; then
+  # raw_sports ar append-only och bar historiken. Varje lasning maste valja
+  # senaste generationen, och det har gatt fel tva ganger. core-vyerna gor
+  # avdupliceringen pa ett stalle sa att API:t inte kan glomma den.
+  command -v bq >/dev/null || fail "bq saknas. Kör från Cloud Shell."
+  TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+  sed "s/@PROJECT@/${PROJECT_ID}/g" sql/core_views.sql > "$TMP/core_views.sql"
+  say "Skapar core-vyerna"
+  bq query --project_id="$PROJECT_ID" --use_legacy_sql=false --quiet \
+    --format=none < "$TMP/core_views.sql"
+
+  # Rakna rader i bastabellen mot vyn. Skillnaden ar de generationer som
+  # avdupliceringen sorterar bort — ar den noll skrivs ingenting i onodan,
+  # och ar vyn tom nar tabellen inte ar det stammer inte nyckeln.
+  say "Jämför rader: raw_sports mot core"
+  {
+    first=1
+    while read -r raw view; do
+      [[ -z "$raw" ]] && continue
+      [[ $first == 1 ]] || printf ' UNION ALL '
+      first=0
+      printf "SELECT '%s' AS tabell, (SELECT COUNT(*) FROM \`%s.raw_sports.%s\`) AS raw_rader, (SELECT COUNT(*) FROM \`%s.core.%s\`) AS core_rader" \
+        "$view" "$PROJECT_ID" "$raw" "$PROJECT_ID" "$view"
+    done <<'TABLES'
+swehockey_game_events game_events
+swehockey_game_summary game_team_summary
+swehockey_game_goalies game_goalies
+swehockey_game_lineups game_lineups
+swehockey_schedule schedule
+swehockey_standings standings
+swehockey_player_stats player_season_stats
+swehockey_goalie_stats goalie_season_stats
+swehockey_roster roster
+TABLES
+    printf ' ORDER BY tabell'
+  } > "$TMP/counts.sql"
+  bq query --project_id="$PROJECT_ID" --use_legacy_sql=false --format=json --quiet \
+    < "$TMP/counts.sql" | python3 -c "
+import json, sys
+try: rows = json.load(sys.stdin)
+except Exception: print('  kunde inte tolka svaret'); raise SystemExit
+print(f\"  {'vy':<22}{'raw':>10}{'core':>10}{'bortsorterat':>14}\")
+for r in rows:
+    a, b = int(r['raw_rader']), int(r['core_rader'])
+    flag = '  <-- vyn är tom' if a and not b else ''
+    print(f\"  {r['tabell']:<22}{a:>10}{b:>10}{a-b:>14}{flag}\")
+" || true
+  say "Klart"
+  exit 0
 fi
 
 if [[ "$TARGET" == "schedule" ]]; then

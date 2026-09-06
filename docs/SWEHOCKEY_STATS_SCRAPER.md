@@ -335,3 +335,54 @@ Utan spelade matcher delar alla lag rating 1500, och siffrorna beskriver bara
 spelschemat. Svaret bär ett `reliability`-fält: `none` utan spelade matcher,
 `low` under fyra omgångar, annars `ok`. Frontend ska säga det rakt ut i
 stället för att visa en prognos som ser mer sannolik ut än den är.
+
+## Lagren: raw_sports → core → (marts)
+
+```
+raw_sports   append-only historik, en generation per faktisk ändring
+   ↓         avdupliceras en gång, i vy
+core         aktuellt tillstånd — det enda API:t får läsa
+   ↓         (ännu inte byggt)
+marts        stjärnschema: dim_* och fact_*
+```
+
+### core
+
+`bash deploy.sh views` skapar dem ur `sql/core_views.sql` och skriver ut hur
+många rader som sorteras bort per tabell.
+
+| vy | bastabell | avdupliceras på |
+|---|---|---|
+| `core.game_events` | `swehockey_game_events` | `game_id` |
+| `core.game_team_summary` | `swehockey_game_summary` | `game_id` |
+| `core.game_goalies` | `swehockey_game_goalies` | `game_id` |
+| `core.game_lineups` | `swehockey_game_lineups` | `game_id` |
+| `core.schedule` | `swehockey_schedule` | `season_group_id` |
+| `core.standings` | `swehockey_standings` | `season_group_id` |
+| `core.player_season_stats` | `swehockey_player_stats` | `season_group_id` |
+| `core.goalie_season_stats` | `swehockey_goalie_stats` | `season_group_id` |
+| `core.roster` | `swehockey_roster` | `season_group_id` |
+| `core.season` | `swehockey_seasons` | — (MERGE-hanterad) |
+| `core.standings_history` | `swehockey_standings` | `season_group_id` + dag |
+
+Nyckeln följer hur scrapern skriver: matchtabellerna en hel match i taget,
+ögonblicksbilderna en hel bild i taget. `QUALIFY scraped_at = MAX(scraped_at)
+OVER (PARTITION BY ...)` behåller **hela** den senaste generationen —
+`ROW_NUMBER` hade behållit en rad per match, vilket är fel när en match har
+tjugo händelser.
+
+### Varför lagret finns
+
+Avdupliceringen har missats två gånger: utvisningarna tredubblades när
+analysfrågan summerade tre skörningar, och spelarnas matchlogg multiplicerade
+poäng likadant. Ingen rad var trasig — bara läsningen. Med `core` går felet
+inte att göra, och avstämningskontrollerna blir ett skyddsnät i stället för
+enda försvaret.
+
+### Tabellplacering över tid kan inte hämtas ur historiken
+
+`core.standings_history` fungerar framåt, men **inte bakåt**. Avslutade
+säsonger har skrapats om i efterhand, och varje sådan generation bär
+sluttabellen med ett färskt `scraped_at`. För redan spelade säsonger måste
+ställningen i stället härledas ur matchresultaten i `core.schedule` — vilket
+är exakt och går att göra för alla lag och alla omgångar.
