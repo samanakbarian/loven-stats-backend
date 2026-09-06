@@ -237,7 +237,7 @@ sextimmarscachen.
 | `standings` | serietabellen |
 | `statistics` | säsongsöversikt: poängliga, målvakter, facit |
 | `players` | spelarlista med percentiler |
-| `player/{namn}` | en spelares säsongsrad och matchlogg |
+| `player/{namn}` | en spelares **fullständiga** matchlogg, situationer, sviter, kedjekompisar |
 | `goalies` | målvakter med matchlogg |
 | `roster` | truppen, med EliteProspects-länkar |
 | `onice` | on-ice mål för och emot per spelare |
@@ -251,6 +251,19 @@ sextimmarscachen.
 | **`opponents`** | **facit per motståndare; `venue=home\|away`, `last=N`** |
 | **`swings`** | **vändningar och tapp: ställning efter två perioder mot slutresultat** |
 | `lovenlaget`, `silly-season`, `x-feed`, `financials` | innehåll utanför matchdatat |
+
+### Spelarens matchlogg
+
+`/api/v1/player/{namn}` bygger på `marts.fact_player_game` och täcker **alla**
+matcher spelaren var med i. Tidigare kom loggen ur målhändelserna, så en
+57-poängare fick 34 rader av 51 och en back med femton poäng nästan
+ingenting. Nollmatcherna är halva bilden — utan dem går varken form, svackor
+eller sviter att läsa.
+
+Svaret bär `report_coverage`. Skott och tekningar finns bara för matcher med
+matchrapport, och `has_report` på varje rad skiljer "noll skott" från "ingen
+rapport". **Skjutprocenten räknas bara över matcher som har en rapport** —
+säsongens alla mål delat med skotten från halva säsongen gav 91 %.
 
 ### Determinism
 

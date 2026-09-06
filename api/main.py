@@ -774,16 +774,22 @@ def get_players(season: str = None, refresh: bool = False):
 @app.get("/api/v1/player/{name}")
 @cached_ok(cache=stats_cache)
 def get_player(name: str, season: str = None, refresh: bool = False):
-    """En spelares sasong: totaler, percentil och poang match for match.
+    """En spelares sasong, match for match.
 
-    Swehockey publicerar ingen matchvis spelarstatistik, men malhandelserna
-    bar malskytt och bada assisten. Poangforloppet harleds darfor ur
-    swehockey_game_events, sammanslaget med schemat for datum och motstandare.
+    Loggen kommer ur marts.fact_player_game och tacker ALLA matcher spelaren
+    var med i, inte bara de dar han fick poang. Tidigare byggdes den ur
+    malhandelserna, sa en 57-poangare fick 34 rader av 51 och en back med
+    femton poang fick nastan ingenting. Nollmatcherna ar halva bilden.
+
+    Matchrapporten bidrar med skott, tekningar och Swehockeys officiella
+    plus/minus. Den saknas for sasongens forsta matcher, sa raderna bar
+    has_report: "noll skott" och "ingen rapport" ar inte samma sak.
     """
     try:
         bq = bigquery.Client(project=BQ_PROJECT_ID or None)
         active = lookup_season(season)
         regular_id = active["regular"]
+        season_ids = ",".join(str(sid) for sid in {regular_id, active.get("playoff")} if sid)
 
         def _key(n: str) -> str:
             raw = str(n or "").strip().lower()
@@ -795,100 +801,243 @@ def get_player(name: str, season: str = None, refresh: bool = False):
             return re.sub(r"[^a-z ]", "", x).strip()
 
         wanted = _key(name)
-
         season_stats = get_players(season=season)
         me = next((p for p in season_stats.get("players", []) if _key(p["name"]) == wanted), None)
         if not me:
             return {"status": "not_found", "name": name, "error": "Spelaren finns inte i truppens statistik."}
 
-        season_ids = ",".join(
-            str(sid) for sid in {regular_id, active.get("playoff")} if sid
-        )
+        rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT f.game_id, f.player_key, f.team_key,
+                       f.goals, f.assists, f.points, f.pim, f.penalties,
+                       f.gf_on, f.ga_on, f.plus_minus_on_ice,
+                       f.shots, f.official_plus_minus,
+                       f.faceoffs_won, f.faceoffs_lost, f.faceoff_pct,
+                       f.has_report, f.in_lineup,
+                       g.match_date, g.home_team_key, g.away_team_key,
+                       g.home_goals, g.away_goals, g.went_beyond_regulation, g.venue
+                FROM `{bq.project}.marts.fact_player_game` f
+                INNER JOIN `{bq.project}.marts.dim_game` g USING (game_id)
+                WHERE f.season_group_id IN ({season_ids})
+                  AND REGEXP_CONTAINS(f.team_key, r'(?i)bj[oö]rkl[oö]ven')
+                ORDER BY g.match_date, f.game_id
+                """
+            ).result()
+        ]
+        mine = [r for r in rows if _key(r.get("player_key")) == wanted]
+        if not mine:
+            # Kan handa fore forsta matchen, eller for en spelare som finns i
+            # sasongstabellen men inte i nagon uppstallning vi hamtat.
+            return {
+                "status": "ok", "season": active["name"], "season_key": active["key"],
+                "player": me, "game_log": [], "games_with_points": 0,
+                "points_from_events": 0,
+                "note": "Ingen matchlogg för spelaren i den här säsongen.",
+            }
 
-        # Bada tabellerna ar append-only: varje skorning lagger till en ny
-        # uppsattning rader. Utan att forst valja den senaste korningen per
-        # match multipliceras varje mal med antalet skorningar, och en spelares
-        # poangkurva vaxer for varje gang scrapern kors.
+        log, running = [], 0
+        for i, r in enumerate(mine, 1):
+            home = bool(BJK_HOME.search(str(r.get("home_team_key") or "")))
+            gf = r.get("home_goals") if home else r.get("away_goals")
+            ga = r.get("away_goals") if home else r.get("home_goals")
+            running += int(r.get("points") or 0)
+            log.append({
+                "game_number": i,
+                "game_id": r.get("game_id"),
+                "date": str(r.get("match_date") or "")[:10],
+                "opponent": r.get("away_team_key") if home else r.get("home_team_key"),
+                "is_home": home,
+                "goals_for": gf,
+                "goals_against": ga,
+                "result": ("W" if (gf or 0) > (ga or 0) else "L"),
+                "beyond_regulation": bool(r.get("went_beyond_regulation")),
+                "goals": int(r.get("goals") or 0),
+                "assists": int(r.get("assists") or 0),
+                "points": int(r.get("points") or 0),
+                "cumulative_points": running,
+                "pim": int(r.get("pim") or 0),
+                "shots": r.get("shots"),
+                "official_plus_minus": r.get("official_plus_minus"),
+                "plus_minus_on_ice": int(r.get("plus_minus_on_ice") or 0),
+                "gf_on": int(r.get("gf_on") or 0),
+                "ga_on": int(r.get("ga_on") or 0),
+                "faceoffs_won": r.get("faceoffs_won"),
+                "faceoffs_lost": r.get("faceoffs_lost"),
+                "has_report": bool(r.get("has_report")),
+                "in_lineup": bool(r.get("in_lineup")),
+            })
+
+        # Situationer och kedjekompisar ur malhandelserna. Rapporten sager hur
+        # manga poang, handelserna sager i vilket lage och med vem.
         events = [
             dict(r.items())
             for r in bq.query(
                 f"""
-                WITH sched AS (
-                    SELECT a.game_id, a.match_date, a.home_team, a.away_team, a.result
-                    FROM `{bq.project}.core.schedule` a
-                    INNER JOIN (
-                        SELECT game_id, MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.core.schedule`
-                        WHERE season_group_id IN ({season_ids}) AND game_id IS NOT NULL
-                        GROUP BY game_id
-                    ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
-                    WHERE a.season_group_id IN ({season_ids}) AND a.game_id IS NOT NULL
-                ),
-                ev AS (
-                    SELECT e.*
-                    FROM `{bq.project}.core.game_events` e
-                    INNER JOIN (
-                        SELECT game_id, MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.core.game_events`
-                        GROUP BY game_id
-                    ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
-                    WHERE e.event_type = 'goal'
-                )
-                SELECT ev.game_id, ev.time, ev.period, ev.player_name,
-                       ev.assist1_name, ev.assist2_name,
-                       s.match_date, s.home_team, s.away_team, s.result
-                -- INNER JOIN mot det sasongsfiltrerade schemat haller
-                -- kurvan inom vald sasong.
-                FROM ev INNER JOIN sched s ON ev.game_id = s.game_id
-                ORDER BY s.match_date
+                SELECT e.game_id, e.time, e.period, e.team_code, e.score_state,
+                       e.player_name, e.assist1_name, e.assist2_name,
+                       e.is_power_play, e.is_short_handed, e.is_empty_net,
+                       e.home_goals, e.away_goals, e.event_index
+                FROM `{bq.project}.core.game_events` e
+                WHERE e.season_group_id IN ({season_ids}) AND e.event_type = 'goal'
+                ORDER BY e.game_id, e.event_index
                 """
             ).result()
         ]
 
-        # En rad per match dar spelaren gjort mal eller assist.
-        per_game: dict[str, dict] = {}
+        situations = {"power_play": 0, "even_strength": 0, "short_handed": 0,
+                      "game_winning": 0, "first_goal_of_game": 0, "empty_net": 0}
+        assisted_by = Counter()   # vem som lade fram at spelaren
+        assists_to = Counter()    # vem spelaren lade fram at
+        first_seen: set[int] = set()
+        our_goals_by_game: dict[int, list[dict]] = {}
         for e in events:
-            scorer = _key(clean_person(e.get("player_name")))
-            a1 = _key(clean_person(e.get("assist1_name")))
-            a2 = _key(clean_person(e.get("assist2_name")))
-            if wanted not in (scorer, a1, a2):
-                continue
-            gid = str(e.get("game_id"))
-            slot = per_game.setdefault(
-                gid,
-                {
-                    "game_id": e.get("game_id"),
-                    "date": str(e.get("match_date") or ""),
-                    "home_team": e.get("home_team"),
-                    "away_team": e.get("away_team"),
-                    "goals": 0,
-                    "assists": 0,
-                },
-            )
-            if wanted == scorer:
-                slot["goals"] += 1
-            else:
-                slot["assists"] += 1
+            if _is_ours(e.get("team_code")):
+                our_goals_by_game.setdefault(e["game_id"], []).append(e)
 
-        log = sorted(per_game.values(), key=lambda g: g["date"])
-        running = 0
-        for g in log:
-            g["points"] = g["goals"] + g["assists"]
-            running += g["points"]
-            g["cumulative_points"] = running
+        for gid, goals in our_goals_by_game.items():
+            for e in goals:
+                scorer = _key(clean_person(e.get("player_name")))
+                a1 = _key(clean_person(e.get("assist1_name")))
+                a2 = _key(clean_person(e.get("assist2_name")))
+                if wanted not in (scorer, a1, a2):
+                    continue
+                if scorer == wanted:
+                    if e.get("is_short_handed"):
+                        situations["short_handed"] += 1
+                    elif e.get("is_power_play"):
+                        situations["power_play"] += 1
+                    else:
+                        situations["even_strength"] += 1
+                    if e.get("is_empty_net"):
+                        situations["empty_net"] += 1
+                    if gid not in first_seen and goals and goals[0] is e:
+                        situations["first_goal_of_game"] += 1
+                        first_seen.add(gid)
+                    for other in (clean_person(e.get("assist1_name")),
+                                  clean_person(e.get("assist2_name"))):
+                        if other:
+                            assisted_by[other] += 1
+                else:
+                    who = clean_person(e.get("player_name"))
+                    if who:
+                        assists_to[who] += 1
+
+        # Matchavgorande mal: sista malet for det vinnande laget som andrade
+        # stallningen till en ledning laget behold.
+        for row in log:
+            if row["result"] != "W":
+                continue
+            goals = our_goals_by_game.get(row["game_id"]) or []
+            needed = (row["goals_against"] or 0) + 1
+            winner = next((g for g in goals
+                           if max(int(g.get("home_goals") or 0), int(g.get("away_goals") or 0)) == needed
+                           and min(int(g.get("home_goals") or 0), int(g.get("away_goals") or 0)) < needed), None)
+            if winner and _key(clean_person(winner.get("player_name"))) == wanted:
+                situations["game_winning"] += 1
+
+        # Sviter over ALLA matcher, inte bara de med poang — det ar poangen
+        # med en fullstandig logg.
+        best = cur = 0
+        worst = dry = 0
+        for row in log:
+            if row["points"] > 0:
+                cur += 1
+                best = max(best, cur)
+                dry = 0
+            else:
+                cur = 0
+                dry += 1
+                worst = max(worst, dry)
+        current_streak = 0
+        for row in reversed(log):
+            if row["points"] > 0:
+                current_streak += 1
+            else:
+                break
+
+        def _sum(rows_, field):
+            vals = [r[field] for r in rows_ if r.get(field) is not None]
+            return sum(vals) if vals else None
+
+        home_rows = [r for r in log if r["is_home"]]
+        away_rows = [r for r in log if not r["is_home"]]
+
+        def _split(rows_):
+            return {
+                "games": len(rows_),
+                "goals": sum(r["goals"] for r in rows_),
+                "assists": sum(r["assists"] for r in rows_),
+                "points": sum(r["points"] for r in rows_),
+                "shots": _sum(rows_, "shots"),
+                "plus_minus_on_ice": sum(r["plus_minus_on_ice"] for r in rows_),
+            }
+
+        # Skjutprocenten far bara raknas over matcher som HAR en rapport.
+        # Sasongens alla mal delat med skotten fran halva sasongen gav 91 %.
+        with_report = [r for r in log if r["has_report"]]
+        shots_total = _sum(with_report, "shots")
+        goals_in_reported = sum(r["goals"] for r in with_report)
+        fw = _sum(with_report, "faceoffs_won")
+        fl = _sum(with_report, "faceoffs_lost")
+
+        player = dict(me)
+        player.update({
+            "shots": shots_total,
+            "shooting_pct": round(100 * goals_in_reported / shots_total, 1) if shots_total else None,
+            "goals_in_reported_games": goals_in_reported,
+            "faceoffs_won": fw,
+            "faceoffs_lost": fl,
+            "faceoff_pct": round(100 * fw / (fw + fl), 1) if (fw or fl) else None,
+            "official_plus_minus_sum": _sum(log, "official_plus_minus"),
+            "plus_minus_on_ice": sum(r["plus_minus_on_ice"] for r in log),
+        })
+
+        # Biografin ur trupprapporten: alder, kaptensbindel, detaljerad position.
+        try:
+            bio = next(iter(bq.query(
+                f"""
+                SELECT birthdate, age, is_captain, is_assistant_captain, detailed_position
+                FROM `{bq.project}.marts.dim_player`
+                WHERE player_key = @who
+                """,
+                job_config=bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("who", "STRING", mine[0]["player_key"])
+                ]),
+            ).result()), None)
+            if bio:
+                player.update({k: v for k, v in dict(bio.items()).items() if v is not None})
+        except Exception:
+            logging.info("Ingen biografi for %s", name, exc_info=True)
 
         return {
             "status": "ok",
             "season": active["name"],
             "season_key": active["key"],
-            "player": me,
-            "games_with_points": len(log),
-            "points_from_events": running,
+            "player": player,
             "game_log": log,
+            "games_with_points": sum(1 for r in log if r["points"] > 0),
+            "points_from_events": sum(r["points"] for r in log),
+            "splits": {"home": _split(home_rows), "away": _split(away_rows)},
+            "situations": situations,
+            "streaks": {
+                "current_points": current_streak,
+                "longest_points": best,
+                "longest_drought": worst,
+            },
+            "linemates": {
+                "assisted_by": [{"name": n, "count": c} for n, c in assisted_by.most_common(6)],
+                "assists_to": [{"name": n, "count": c} for n, c in assists_to.most_common(6)],
+            },
+            "report_coverage": {
+                "games_with_report": len(with_report),
+                "games_total": len(log),
+            },
         }
     except Exception as e:
-        logging.exception("Failed to load /api/v1/player/%s", name)
-        return {"status": "error", "name": name, "error": str(e)}
+        logging.exception("get_player misslyckades")
+        return {"status": "error", "name": name, "error": str(e), "game_log": []}
 
 
 @app.get("/api/v1/projection")
