@@ -374,3 +374,101 @@ def parse_game_summary(html: str, game_id: int) -> dict[str, Any]:
             side["pdo"] = round(side["shooting_pct"] + side["save_pct"], 2)
 
     return {"teams": sides, "goalies": goalies}
+
+# ── Kedjor: /Game/LineUps/{game_id} ───────────────────────────────────────
+#
+# Sidan listar den uppstallning klubben registrerat: forsta till fjarde
+# kedjan med forwards och backpar, malvakter och extraspelare. Det ar bättre
+# an att gissa kedjor ur vilka som gor mal tillsammans — det har ar lagets
+# egen indelning, match for match.
+#
+# Lagen skrivs i tva spalter med spegelvand ordning: hemmalaget listar
+# backparet fore forwardskedjan, bortalaget tvartom, och bortalagets kedjor
+# kommer i fallande ordning. Parsern samlar darfor hela blocket per kedja och
+# later positionen avgoras i efterhand av spelarens kanda position.
+
+_LINE_LABEL = re.compile(r"^(1st|2nd|3rd|4th)\s+Line$", re.I)
+_TEAM_HEADER = re.compile(r"^(.+?)\s*\(\s*\)$")
+_LINE_NUMBER = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+
+
+def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:
+    """En rad per spelare och kedja i matchens uppstallning."""
+    soup = BeautifulSoup(html, "lxml")
+    header = parse_header(html)
+
+    # Uppstallningen ligger i flera nastlade tabeller ovanpa varandra, och
+    # select("tr") plockar upp raderna i dem alla. Den innersta som fortfarande
+    # bar kedjeetiketterna ar den vi vill ha — de yttre upprepar samma rader
+    # med extra sammanslagna celler.
+    candidates = []
+    for t in soup.select("table"):
+        rows = [[_clean(c.get_text(" ", strip=True)) for c in tr.select("td,th")] for tr in t.select("tr")]
+        labels = sum(1 for r in rows if r and _LINE_LABEL.match(r[0]))
+        if labels >= 2:
+            candidates.append((len(t.select("table")), len(rows), rows))
+    if not candidates:
+        return []
+    table = min(candidates)[2]
+
+    out: list[dict[str, Any]] = []
+    team: str | None = None
+    block: str | None = None
+    line_no: int | None = None
+
+    def _players(cells: list[str]) -> list[dict[str, Any]]:
+        found = []
+        for c in cells:
+            m = _PLAYER.match(_clean(c))
+            if m:
+                found.append({"number": int(m.group(1)), "name": _clean(m.group(2)).rstrip(",").strip()})
+        return found
+
+    for cells in table:
+        if not cells or not any(cells):
+            continue
+        first = _clean(cells[0])
+
+        # Lagrubriken star ensam och slutar pa tomma parenteser.
+        if len(cells) == 1 and " - " not in first:
+            m = _TEAM_HEADER.match(first)
+            if m:
+                team = _clean(m.group(1))
+                block, line_no = None, None
+                continue
+
+        label = _LINE_LABEL.match(first)
+        if label:
+            block, line_no = "line", _LINE_NUMBER[label.group(1).lower()]
+        elif first in ("Goalies", "Extra Players"):
+            block, line_no = ("goalie" if first == "Goalies" else "extra"), None
+        elif first.startswith(("Head Coach", "Assistant Coach", "Referee", "Linesmen")):
+            block, line_no = None, None
+            continue
+
+        if not team or not block:
+            continue
+        for pl in _players(cells):
+            out.append(
+                {
+                    "game_id": game_id,
+                    "team_name": team,
+                    "home_team": header.get("home_team"),
+                    "away_team": header.get("away_team"),
+                    "block": block,
+                    "line_number": line_no,
+                    "player_number": pl["number"],
+                    "player_name": pl["name"],
+                }
+            )
+
+    # Samma spelare kan sta med tva ganger i en rad som upprepas i layouten.
+    seen: set[tuple] = set()
+    unique = []
+    for r in out:
+        key = (r["team_name"], r["block"], r["line_number"], r["player_number"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(r)
+    return unique

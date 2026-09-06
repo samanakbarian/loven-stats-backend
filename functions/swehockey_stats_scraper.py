@@ -28,9 +28,9 @@ except ImportError:
     )
 
 try:
-    from game_events_parser import parse_events, parse_game_summary
+    from game_events_parser import parse_events, parse_game_summary, parse_lineups
 except ImportError:
-    from functions.game_events_parser import parse_events, parse_game_summary
+    from functions.game_events_parser import parse_events, parse_game_summary, parse_lineups
 
 logging.basicConfig(level=logging.INFO)
 
@@ -551,6 +551,7 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
 # varje match hamtas tre ganger, en gang per datatyp, och en sasong ta tre
 # gonger sa lang tid. Cachen lever bara under korningen.
 _GAME_PAGES: dict[int, str] = {}
+_LINEUP_PAGES: dict[int, str] = {}
 
 
 def _team_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]:
@@ -574,6 +575,41 @@ def _game_html(game_id: int) -> str | None:
             return None
         _GAME_PAGES[game_id] = html
     return _GAME_PAGES.get(game_id)
+
+
+def _lineup_html(game_id: int) -> str | None:
+    """Uppstallningen ligger pa en egen sida, inte pa handelsesidan."""
+    if game_id not in _LINEUP_PAGES:
+        html = _fetch_html(f"{BASE_URL}/Game/LineUps/{game_id}")
+        if html is None:
+            return None
+        _LINEUP_PAGES[game_id] = html
+    return _LINEUP_PAGES.get(game_id)
+
+
+def _fetch_game_lineups(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Kedjorna som klubben registrerat, match for match.
+
+    Uppstallningen ar lagets egen indelning i forsta till fjarde kedjan med
+    backpar — battre an att gissa kedjor ur vilka som gor mal tillsammans.
+    Bada lagens uppstallningar sparas; vilket som ar vart avgors nedstroms.
+    """
+    out: list[dict[str, Any]] = []
+    for game in _team_games(season_group_id, limit):
+        html = _lineup_html(int(game["game_id"]))
+        if not html:
+            continue
+        try:
+            rows = parse_lineups(html, int(game["game_id"]))
+        except Exception:
+            logging.exception("Kunde inte tolka uppstallningen for match %s", game["game_id"])
+            continue
+        for r in rows:
+            r["season_group_id"] = int(season_group_id)
+            r["match_date"] = game.get("match_date")
+            r["source"] = SOURCE
+        out.extend(rows)
+    return out, f"{BASE_URL}/Game/LineUps/"
 
 
 def _fetch_game_summary(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
@@ -719,6 +755,13 @@ def _scrape_jobs():
             # nummer, och 31 ar ett av de vanligaste. Utan den blir nyckeln en
             # dubblett och kvalitetsgrinden stoppar hela laddningen.
             "key_fields": ("game_id", "team_code", "goalie_number"),
+        },
+        {
+            "data_type": "game_lineups",
+            "fetcher": _fetch_game_lineups,
+            "table_name": "swehockey_game_lineups",
+            "required_fields": ("game_id", "team_name", "player_number"),
+            "key_fields": ("game_id", "team_name", "player_number"),
         },
         {
             "data_type": "roster",
@@ -880,6 +923,7 @@ def _append_bq_rows(
 def run_swehockey_stats_scraper(request):
     scraped_at = _now().isoformat()
     _GAME_PAGES.clear()
+    _LINEUP_PAGES.clear()
     bq_client = bigquery.Client(project=GCP_PROJECT)
     _ensure_dataset(bq_client, BQ_DATASET)
 
@@ -959,7 +1003,7 @@ def run_swehockey_stats_scraper(request):
         for season_group_id in active_season_ids:
             for job in _scrape_jobs():
                 data_type = job["data_type"]
-                if data_type in ("game_events", "game_summary", "game_goalies"):
+                if data_type in ("game_events", "game_summary", "game_goalies", "game_lineups"):
                     rows, source_url = job["fetcher"](season_group_id, events_limit)
                 else:
                     rows, source_url = job["fetcher"](season_group_id)
@@ -997,7 +1041,10 @@ def run_swehockey_stats_scraper(request):
             allow_preseason_empty = (
                 # game_events ar tomt for slutspelsgrupper, som saknar
                 # matchlankar hos Swehockey, och fore seriestart.
-                data_type in {"roster", "standings", "game_events", "game_summary", "game_goalies"}
+                data_type in {
+                    "roster", "standings",
+                    "game_events", "game_summary", "game_goalies", "game_lineups",
+                }
                 or (
                     data_type in {"player_stats", "goalie_stats"}
                     and not season_has_games.get(season_group_id, False)
