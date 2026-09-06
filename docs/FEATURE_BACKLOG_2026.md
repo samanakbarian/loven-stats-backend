@@ -1,6 +1,6 @@
 # Feature Backlog 2026
 
-Senast uppdaterad: 2026-06-14
+Senast uppdaterad: 2026-09-06
 Galler for: `loven-stats-backend` som produktionskalla och `slutspel/frontend_v2` som konsument.
 
 ## Syfte
@@ -27,8 +27,18 @@ Verifierad implementationsstatus och arkitekturgap finns i
 - Swehockey-scrapern kan iterera över flera aktiva regular season/playoff-id:n.
 - Sju säsongsrader är definierade från HA 2023/24 till 2026/27. Både SHL och
   HA 2026/27 är aktiva för ingestion; API-defaulten väljer SHL deterministiskt.
-- dbt-lagret har `staging`, `marts/core` och `serving`, men flera API-floden
-  ar inte migrerade till `serving_*` annu.
+- **dbt har aldrig körts.** `dbt/` innehåller modeller för `staging`,
+  `marts/core` och `serving`, men det finns ingen `target/`, ingen
+  `profiles.yml`, och `deploy.sh` anropar den inte. Allt som körs i produktion
+  är vanlig SQL i `sql/core_views.sql` och `sql/marts.sql`, deployad med
+  `deploy.sh views`. Planera aldrig en feature som *förutsätter* dbt utan att
+  först ta migrationen som eget arbete — se feature 25.
+- **Nyheterna ligger inte i BigQuery.** `functions/silly_scraper.py` skriver
+  JSON-snapshots till GCS (`raw/silly_season/scraped_*.json`), och
+  `GET /api/silly-season` läser nyaste bloben vid anrop och slår ihop den med
+  en hårdkodad baseline i `silly_season_data.py`. Klassificeringen sker med
+  Gemini 2.5 Flash via Vertex, med tak på 15 anrop per körning och
+  artikelcache i GCS. Frontend läser API:t live, inte en exporterad fil.
 - `slutspel/frontend_v2` anropar aven `/api/v1/current-state` och
   `/api/v1/sportradar/results`, som finns i gamla Node-servern men inte i
   FastAPI-backenden.
@@ -65,6 +75,13 @@ Verifierad implementationsstatus och arkitekturgap finns i
 6. Push-notiser vid milstolpar
 7. Team strength rating och Monte Carlo-simuleringar
 8. Modellregister med backtesting och data quality per modell
+
+### Fas 4: Flodet som datalager
+
+1. Genererade notiser ur marten (feature 21)
+2. Ett flodeskontrakt: `FeedItem` (feature 23)
+3. Entitetslankning nyhet -> spelare och match (feature 22)
+4. Matchrapporten vidare (feature 24)
 
 ## Featuredetaljer
 
@@ -501,6 +518,15 @@ Acceptanskriterier:
 - Cachead version ateranvands.
 - Fel i AI-lagret stoppar inte matchvyn.
 
+Skarpning 2026-09 (från Fables förslag, utvärderat och accepterat):
+- Indata ska vara ett **strukturerat objekt** — mål, målvakter, +/-, PP/BP,
+  momentumsiffror — inte råtext. `/api/v1/match/{game_id}` bär numera `teams`
+  och `goalies` och räcker som källa.
+- Prompten ska bära regeln *"inga siffror som inte finns i indata"*. Det är den
+  enda spärren mot att referatet hittar på ett skottantal.
+- Genereras **en gång per `game_id`** och aldrig om. Cirka 50 anrop per säsong,
+  vilket ligger långt under det tak `silly_scraper` redan lever med.
+
 ### 15. xG-light baserat pa skottposition
 
 Typ: Feature / Analytics
@@ -624,6 +650,194 @@ Acceptanskriterier:
 - Anvandaren kan sla av och pa notiser.
 - Backend loggar skickade notiser.
 
+### 21. Genererade notiser ur marten
+
+Typ: Feature / Data Engineering
+Prioritet: Hog — bygg denna forst i fas 4
+Primart repo: `loven-stats-backend`
+Berorda omraden: `sql/marts.sql`, `deploy.sh views`, ny endpoint, Nyheter-sidan
+
+Beskrivning:
+Mycket av det som borde sta i flodet ar deterministiskt och kraver ingen LLM:
+milstolpar (spelare passerar 10/25/50 poang, laget passerar en poang- eller
+vinsttroskel), sviter (fem raka, sasongens langsta), och truppforandringar
+(debut, forsta malet, tredje raka matchen utanfor truppen). Texten kommer ur
+mallar, inte ur en modell. Ingen kostnad, ingen hallucination.
+
+Befintliga byggblock:
+- `marts.fact_player_game` har en rad per spelare och match for **alla**
+  matcher, inte bara de med poang. Milstolpar och sviter gar att rakna direkt.
+- `marts.fact_team_game` bar lagets utfall per match.
+- `marts.fact_standings_snapshot` bar tabellen som den sag ut varje dag den
+  andrades.
+- `marts.fact_lineup_slot` bar klubbens egen uppstallning per match, sa
+  "utanfor truppen" gar att lasa utan att gissa.
+
+Saknas:
+- En vy `marts.generated_events` som per korning raknar fram raderna.
+- `event_key` — en hash av typ, entitet och varde — sa att en omkorning ger
+  exakt samma rad. Vyn ar en vy, inte en tabell, sa idempotensen kommer gratis
+  sa lange nyckeln ar deterministisk. Ska notiserna kunna kvitteras eller
+  skickas som push behovs en materialiserad tabell och da ar `event_key`
+  primarnyckeln.
+- Malltexter. Halls i SQL sa lange de ar en rad var; flyttas till Python forst
+  om de behover boja sig efter genus eller numerus.
+
+Foreslaget API/DB-kontrakt:
+- Ny vy: `marts.generated_events` med `event_key`, `event_type`, `ts`,
+  `player_key`, `game_id`, `value`, `title`, `body`.
+- Ny endpoint: `GET /api/v1/generated-events?season=...&since=...`.
+
+Beroenden och fallgropar:
+- **Elo persisteras inte.** Fables forslag namnde "nytt sasongshogsta i Elo",
+  men Elo raknas fram inne i `get_projection()` vid anrop och sparas aldrig.
+  Den notistypen kraver att serien skrivs ner forst, och ar darfor **inte** med
+  i forsta omgangen.
+- Milstolpar far bara raknas over matcher vi faktiskt har. Samma fel som
+  skjutprocenten hade — sasongens alla mal delat med skotten fran halva
+  sasongen gav 91 procent.
+
+Acceptanskriterier:
+- Vyn kan koras om utan att ge nya `event_key` for samma handelse.
+- Minst tre notistyper: poangmilstolpe, vinstsvit, debut.
+- Ingen notis for en match som saknas i `fact_player_game`.
+- Notiserna gar att lasa i flodet utan att ett LLM-anrop har skett.
+
+### 22. Entitetslankning nyhet -> spelare och match
+
+Typ: Feature / Data Engineering
+Prioritet: Medium
+Primart repo: `loven-stats-backend`
+Berorda omraden: `functions/silly_scraper.py`, BigQuery, `GET /api/silly-season`
+
+Beskrivning:
+En nyhet som namner en spelare ska barra spelarens nyckel, sa att artikeln kan
+visas pa spelarsidan och sa att flodet kan grupperas. Detsamma for matcher: en
+nyhet daterad plus/minus en dag fran en match som namner motstandaren hor till
+den matchen.
+
+Befintliga byggblock:
+- Namnformen ar redan lost tre ganger: `clean_person()` i `api/main.py`,
+  `_name()` och `_roster_name()` i `functions/game_report_parser.py`. Media
+  skriver "Liam Dower Nilsson", vi skriver "Dower Nilsson, Liam".
+- `core.player_bio` bar fodelsedatum och position ur trupprapporten.
+- `core.schedule` ger datum och motstandare per match.
+
+Saknas:
+- Steget maste ligga **efter** att nyheterna landat i BigQuery — idag finns de
+  bara som JSON i GCS. Se feature 23; den ar en forutsattning.
+- En datumbegransad trupp. Det ar den svara delen, inte namnmatchningen: en
+  medieomnamning ar inte en trupphandelse, och en spelare kan skrivas om efter
+  att ha lamnat. Utan datumfonster kopplas en avskedsartikel till en spelare
+  som inte langre finns i truppen.
+
+Foreslaget API/DB-kontrakt:
+- LLM-anropet som redan sker utokas till strukturerad JSON:
+  `{event_type, player_names[], status: rykte|uppgifter|officiellt,
+  source_role: avslojar|bekraftar|refererar}`. Det ar samma anrop, alltsa
+  ingen ny kostnad.
+- `links[]` pa varje flodesrad bar `{kind: player|game, key}`.
+
+Acceptanskriterier:
+- Namn matchas normaliserat, utan diakritika, pa efternamn plus forsta initial.
+- En trav ger `player_id`; en miss loggas och matchas inte manuellt.
+- Ingen nyhet kopplas till en spelare som inte var i truppen vid publiceringen.
+
+### 23. Ett flodeskontrakt: `FeedItem`
+
+Typ: Refactor / Arkitektur
+Prioritet: Hog
+Primart repo: bada
+Berorda omraden: `GET /api/silly-season`, `GET /api/v1/x-feed`, `Nyheter.tsx`
+
+Beskrivning:
+Frontend ska lasa **en** lista av `FeedItem { id, type, ts, title, body?, tag,
+links[], sources[] }` dar `type` ar `story | generated | press | x`. Renderingen
+valjs pa `type`; allt arbete sker i pipelinen, inte i React.
+
+Motivet ar konkret: `GET /api/silly-season` laser nyaste GCS-bloben vid anrop
+och slar ihop den med en hardkodad Python-baseline i `silly_season_data.py`.
+Den sammanslagningen ar dar komplexiteten sitter, och den ar osynlig for
+frontend som anda maste kanna bada formerna.
+
+Saknas:
+- Att nyheterna faktiskt skrivs till BigQuery i stallet for att bara ligga som
+  JSON-snapshots i GCS. Utan det finns ingen tabell for feature 21 och 22 att
+  lasa eller skriva till.
+- En enda endpoint som serverar alla fyra typerna.
+
+Avgransning — vad som **inte** ska goras:
+- Fables forslag att exportera `feed.json` till GCS och trigga en Netlify build
+  hook ar utvarderat och **avvisat**. Vi serverar redan fran API:t med
+  TTL-cache; en andra serveringsvag lagger till ett inaktualitetsfonster utan
+  att losa nagot. Cloud Run-kostnaden ar inget problem idag. Tas upp igen forst
+  om den blir det.
+
+Acceptanskriterier:
+- `Nyheter.tsx` laser en lista och valjer rendering pa `type`.
+- Baselinen i `silly_season_data.py` ar antingen borta eller en rad i samma
+  tabell som allt annat.
+- Gamla svarsformen kan tas bort utan att sidan slutar fungera.
+
+### 24. Matchrapporten vidare
+
+Typ: Feature / Frontend
+Prioritet: Medium
+Primart repo: `slutspel/frontend_v2`, delvis backend
+Berorda omraden: `Matchrapport.tsx`, `GET /api/v1/match/{game_id}`
+
+Klart 2026-09: lagmarke per rad, malvakter for bada lagen, skott per period,
+delbart PNG-kort. Kvar, i ordning:
+
+1. **Boxscore per spelare.** Mal, assist, +/-, utvisningsminuter, skott.
+   `+/-` gar att rakna ur `on_ice_for` / `on_ice_against` som redan finns i
+   svaret, med PP-mal exkluderade enligt regeln. Skott finns i
+   `core.game_boxscore` for matcher med rapport. Diverging bar sorterad fran
+   bast till samst.
+2. **Handelser i momentumkurvan.** Namn pa malpunkterna vid tryck, utvisningar
+   som korta streck under linjen, PP- och BP-mal markta.
+3. **Kollapsa "pa isen".** Den tar en stor del av scrollen och lases sallan.
+   Visa per mal vid tryck; flytta insikten till boxscoren, dar "vem var pa
+   isen for flest mal emot" faktiskt betyder nagot.
+4. **Spelform per mal** — 5v5, PP, BP, tom bur — som liten tagg vid stallningen.
+5. **Utvisning -> utfall.** "PP utan mal" eller "resulterade i 2-0 (namn, tid)".
+   Kopplar ihop tva kort som nu lever isar.
+6. **Kedjorna ur uppstallningen** — vilka fem som startade. `fact_lineup_slot`
+   bar redan datat; kom ihag att Swehockeys "1st Line" ar hela femman, tre
+   forwards **och** backparet.
+7. **Kontextkort.** Tabellplacering fore och efter, form in i matchen, inbordes
+   moten under sasongen. Elo-forandring kraver att Elo persisteras — se
+   feature 21.
+8. **Publik mot arenans snitt** i huvudet: "5 799 · +22 % mot AIK:s snitt".
+
+Ej byggbart, dokumenterat:
+- **TOI, hits och blocks for utespelare finns inte.** Kolumnerna star i
+  Swehockeys mall men ar tomma genom hela serien, i bade SHL och
+  HockeyAllsvenskan. Se docstringen i `functions/game_report_parser.py`.
+  Malvakternas speltid finns daremot, och anvands redan for exakt GAA.
+
+### 25. Utvarderat och nedprioriterat
+
+For sparbarhetens skull: forslag som provats mot koden och lagts at sidan,
+med skalet utskrivet.
+Tas upp igen nar forutsattningen andras.
+
+**Klustring av medianyheter till stories.** Foreslagen nyckel var
+`event_type + normaliserat spelarnamn + 14-dagarsfonster`. Mekaniken ar rimlig,
+men nyhetsvolymen kring Bjorkloven ar en handfull poster i veckan — de flesta
+kluster skulle bli ett. Byggs forst nar flodet faktiskt ar brusigt, och da
+ovanpa feature 22 som anda ger entiteterna.
+
+**Export av `feed.json` till GCS plus Netlify build hook.** Se avgransningen i
+feature 23.
+
+**Migration av produktionsflodet till dbt.** Detta ar ett eget projekt:
+profiler, CI, och tretton core-vyer plus tio marts att flytta over. Att gora det
+*for nyhetsflodets skull* ar fel forsta anledning — feature 21 blir en fil till
+i `sql/marts.sql` och samma `deploy.sh views`, med samma idempotens och utan
+migrationen. Ratt anledning att ta dbt ar tester och harstamning over hela
+lagret, inte en enskild feature.
+
 ## Forsta tickets att skapa
 
 1. `DATA-001` Historisk sasongsbackfill for HA 2022/23-2024/25.
@@ -636,6 +850,10 @@ Acceptanskriterier:
 7. `WEB-002` Laget-vy kopplad till ett enda current-state-kontrakt.
 8. `ML-001` Modellregister och metadata-schema för ML/simuleringar.
 9. `SIM-001` Team strength rating v1 och SHL Monte Carlo simulator v1.
+10. `FEED-001` `marts.generated_events` med `event_key` och tre notistyper.
+11. `FEED-002` Nyheterna till BigQuery, som forutsattning for `FeedItem`.
+12. `FEED-003` `FeedItem`-kontrakt och en endpoint for hela flodet.
+13. `WEB-003` Boxscore per spelare pa matchrapporten, med harlett `+/-`.
 
 ## Beslutsregler
 
