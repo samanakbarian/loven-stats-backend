@@ -273,6 +273,32 @@ att läsa under de minuterna, så uppslaget ligger i ett eget `try` och svarar
 `teams: null`, `goalies: []` om det fallerar. **Klienten måste tåla det** —
 en match kan också vara skördad innan protokollet fanns.
 
+### Plus/minus enligt regelboken
+
+`marts.fact_player_game` bar tva olika tal, och de ar inte samma sak:
+
+- `plus_minus_on_ice` = `gf_on - ga_on`. **Alla** mal med spelaren pa isen,
+  oavsett spelform. Ett rent on-ice-malsaldo.
+- `plus_minus` = `gf_on_ev - ga_on_ev`. Bara de mal som ger plus/minus enligt
+  regelboken: lika styrka och underlage raknas, powerplaymal inte, och
+  straffslag och avgorandet i strafflaggningen inte alls.
+
+Skillnaden var forut oforklarad — dokumentationen noterade att vart tal skilde
+sig fran Swehockeys officiella med ungefar sexton procent utan att saga varfor.
+Orsaken var precis den har: powerplaymalen raknades med.
+
+Straffslag och straffar kanns igen pa `score_state`, som skriver `(PS)`
+respektive `(GWS)`. De gar **inte** att kanna igen pa antalet spelare pa isen —
+Swehockey listar skytten och malvakten, precis som vid ett vanligt mal med tomt
+mal.
+
+Verifierat mot HockeyAllsvenskan 2025/26 i DuckDB-riggen:
+**233 av 233 spelarrader stammer exakt** med `official_plus_minus` ur
+matchrapporten. Det gamla talet traffade 187 av 233 (80,3 %).
+
+`/api/v1/match/{game_id}` bar `skaters[]` med bada talen bredvid varandra, plus
+Swehockeys officiella nar rapporten finns.
+
 ### Femmorna, inte kedjorna
 
 Swehockey skriver `1st Line` över en rad som rymmer hela femman: de tre

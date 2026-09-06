@@ -152,7 +152,12 @@ goals AS (
          l.team_name AS scoring_team,
          e.player_name AS scorer, e.assist1_name, e.assist2_name,
          e.on_ice_for, e.on_ice_against,
-         e.is_power_play, e.is_short_handed, e.is_empty_net
+         e.is_power_play, e.is_short_handed, e.is_empty_net,
+         -- Straffslag och avgörandet i straffläggningen ger inget plus/minus
+         -- åt någon. Swehockey markerar dem i score_state, (PS) respektive
+         -- (GWS), och listar bara skytten och målvakten på isen — de går
+         -- alltså inte att känna igen på hur många som stod där.
+         COALESCE(REGEXP_CONTAINS(e.score_state, r'\((PS|GWS)\)'), FALSE) AS is_penalty_shot
   FROM ev e
   LEFT JOIN lineup l ON l.game_id = e.game_id AND l.player_key = e.player_name
   WHERE e.event_type = 'goal'
@@ -177,7 +182,12 @@ penalties AS (
 -- Pa isen: numren i on_ice_for hor till det gorande laget, on_ice_against
 -- till motstandaren. Numren oversatts till namn via matchens uppstallning.
 on_for AS (
-  SELECT g.game_id, g.season_group_id, l.player_key, COUNT(*) AS gf_on
+  -- gf_on räknar varje mål laget gjorde med spelaren på isen. gf_on_ev räknar
+  -- bara de som ger plus enligt regelboken: powerplaymål ger inget plus åt det
+  -- lag som hade övertaget. Utan den skillnaden går vårt tal inte att jämföra
+  -- med Swehockeys officiella — det var därför de skilde sig med sexton procent.
+  SELECT g.game_id, g.season_group_id, l.player_key, COUNT(*) AS gf_on,
+         COUNTIF(NOT COALESCE(g.is_power_play, FALSE) AND NOT g.is_penalty_shot) AS gf_on_ev
   FROM goals g,
        UNNEST(SPLIT(g.on_ice_for, ',')) AS num
   JOIN lineup l ON l.game_id = g.game_id
@@ -187,7 +197,8 @@ on_for AS (
   GROUP BY g.game_id, g.season_group_id, l.player_key
 ),
 on_against AS (
-  SELECT g.game_id, g.season_group_id, l.player_key, COUNT(*) AS ga_on
+  SELECT g.game_id, g.season_group_id, l.player_key, COUNT(*) AS ga_on,
+         COUNTIF(NOT COALESCE(g.is_power_play, FALSE) AND NOT g.is_penalty_shot) AS ga_on_ev
   FROM goals g,
        UNNEST(SPLIT(g.on_ice_against, ',')) AS num
   JOIN lineup l ON l.game_id = g.game_id
@@ -252,6 +263,11 @@ SELECT
   IFNULL(ANY_VALUE(f.gf_on), 0) AS gf_on,
   IFNULL(ANY_VALUE(a.ga_on), 0) AS ga_on,
   IFNULL(ANY_VALUE(f.gf_on), 0) - IFNULL(ANY_VALUE(a.ga_on), 0) AS plus_minus_on_ice,
+  -- Plus/minus enligt regelboken: bara mål i lika styrka och i underläge.
+  -- Jämförbart med bx.official_plus_minus, till skillnad från talet ovan.
+  IFNULL(ANY_VALUE(f.gf_on_ev), 0) AS gf_on_ev,
+  IFNULL(ANY_VALUE(a.ga_on_ev), 0) AS ga_on_ev,
+  IFNULL(ANY_VALUE(f.gf_on_ev), 0) - IFNULL(ANY_VALUE(a.ga_on_ev), 0) AS plus_minus,
   ANY_VALUE(bx.shots) AS shots,
   ANY_VALUE(bx.official_plus_minus) AS official_plus_minus,
   ANY_VALUE(bx.faceoffs_won) AS faceoffs_won,

@@ -2407,6 +2407,7 @@ def get_match(game_id: int):
 
         teams: dict[str, dict] | None = None
         keepers: list[dict] = []
+        skaters: list[dict] = []
         try:
             summary = [
                 dict(r.items())
@@ -2452,6 +2453,65 @@ def get_match(game_id: int):
                 )
             # Den som motte flest skott stod langst, och namns forst.
             keepers.sort(key=lambda k: -(k.get("shots_against") or 0))
+
+            # Spelarraden per match, for lagets utespelare. Plus/minus raknas
+            # ur on-ice-listorna enligt regelboken — mal i lika styrka och i
+            # underlage — och stams av mot rapportens officiella tal, som
+            # ligger bredvid i samma rad.
+            for r in bq.query(
+                f"""
+                SELECT p.player_key, p.goals, p.assists, p.points, p.pim,
+                       p.gf_on, p.ga_on, p.gf_on_ev, p.ga_on_ev, p.plus_minus,
+                       p.shots, p.official_plus_minus,
+                       p.faceoffs_won, p.faceoffs_lost, p.faceoff_pct,
+                       p.has_report, p.in_lineup,
+                       l.player_number, l.block, l.line_number
+                FROM `{bq.project}.marts.fact_player_game` p
+                LEFT JOIN (
+                    SELECT game_id, player_name,
+                           ANY_VALUE(player_number) AS player_number,
+                           ANY_VALUE(block) AS block,
+                           ANY_VALUE(line_number) AS line_number
+                    FROM `{bq.project}.core.game_lineups`
+                    WHERE game_id = {int(game_id)}
+                    GROUP BY game_id, player_name
+                ) l ON l.game_id = p.game_id AND l.player_name = p.player_key
+                WHERE p.game_id = {int(game_id)}
+                  AND REGEXP_CONTAINS(IFNULL(p.team_key, ''), r'(?i)bj[oö]rkl[oö]ven')
+                """
+            ).result():
+                d = dict(r.items())
+                # Malvakterna har en egen lista med raddningar och speltid.
+                if str(d.get("block") or "") == "goalie":
+                    continue
+                skaters.append(
+                    {
+                        "name": clean_person(d.get("player_key")),
+                        "number": d.get("player_number"),
+                        "line": d.get("line_number"),
+                        "goals": d.get("goals") or 0,
+                        "assists": d.get("assists") or 0,
+                        "points": d.get("points") or 0,
+                        "pim": d.get("pim") or 0,
+                        # Alla mal med spelaren pa isen, oavsett spelform.
+                        "gf_on": d.get("gf_on") or 0,
+                        "ga_on": d.get("ga_on") or 0,
+                        # Bara de som ger plus/minus: lika styrka och underlage.
+                        "gf_on_ev": d.get("gf_on_ev") or 0,
+                        "ga_on_ev": d.get("ga_on_ev") or 0,
+                        "plus_minus": d.get("plus_minus") or 0,
+                        # Swehockeys eget tal, nar matchrapporten finns.
+                        "official_plus_minus": d.get("official_plus_minus"),
+                        "shots": d.get("shots"),
+                        "faceoffs_won": d.get("faceoffs_won"),
+                        "faceoffs_lost": d.get("faceoffs_lost"),
+                        "faceoff_pct": _to_float(d.get("faceoff_pct")),
+                        "has_report": bool(d.get("has_report")),
+                        "in_lineup": bool(d.get("in_lineup")),
+                    }
+                )
+            # Bast plus/minus forst; namnet sist sa ordningen ar deterministisk.
+            skaters.sort(key=lambda p: (-p["plus_minus"], -p["points"], p["name"]))
         except Exception:
             # Marten byggs om vid varje skorning. Rapporten ska ga att lasa
             # aven under de minuterna, sa summeringen ar frivillig.
@@ -2473,6 +2533,8 @@ def get_match(game_id: int):
             # skorats med summeringen an.
             "teams": teams,
             "goalies": keepers,
+            # Lagets utespelare, en rad var. Tom tills matchen skordats.
+            "skaters": skaters,
             # Lagets trojnummer -> namn, sa on-ice-listorna gar att lasa som
             # namn i stallet for siffror.
             "squad": squad,
