@@ -1023,6 +1023,91 @@ Att bestamma innan bygget: webbpush kraver service worker och VAPID-nycklar,
 och iOS stodjer det bara for appar som lagts till pa hemskarmen. Det ar en
 begransning att beratta om i granssnittet, inte att dolja.
 
+### 29. Designriktning
+
+Typ: Design / Frontend
+Prioritet: Medium — men 358-forsoket ar redan igang och har ett datum
+Primart repo: `slutspel/frontend_v2`
+Underlag: <https://claude.ai/code/artifact/34b49521-4fc3-4a07-a24d-76611b646dff>
+
+#### Diagnosen
+
+Sajten laser som aldre an den ar, och det ar inte fargen. Raknat i
+`index.css` 2026-09-06:
+
+| | |
+|---|---|
+| **36** | olika typstorlekar, fran `0.55rem` till `2.6rem` |
+| **4** | kortklasser for samma sak: `mc-card`, `mr-card`, `im-card`, `signal-card` |
+| **75** | radiedeklarationer, valda var for sig |
+
+Lagg till versal spardd etikett pa varje kort och ram runt allt. **Nar allt ar
+likadant markerat blir ingenting markerat.**
+
+#### Fyra riktningar, sammanfattade
+
+1. **Rinken** — evolution. Ramarna bort, en typskala pa sex steg, versalerna
+   bort, talen upp. Ingen ny palett. Risk lag, ett par dagar.
+2. **Sandning** — TV-grafik. Ratvinkligt, farg som yta, var tabellrad som ett
+   gront falt med mork text. Risk medel, en vecka.
+3. **Dag & natt** — ett ljust lage vid sidan av det morka. Ratt mal, men bygg
+   det pa en sorterad grund. Risk medel, en till tva veckor.
+4. **Sida 358** — Text-TV. Atta farger, ett rutnat, en typstorlek plus
+   dubbelhojd. Risk hog. **Byggd som forsok, se nedan.**
+
+Rekommendation: Rinken forst, ljust lage sedan. Sandning skulle jag lana till
+premiaren och matchdagen, inte gora till hela appen.
+
+#### Maste goras oavsett riktning
+
+- **En typskala, sex steg som tokens.** Ingen komponent far skriva
+  `font-size` med ett eget varde. Det ensamt gor mer an nagon fargandring.
+- **Kort med roller**, inte en kortklass: hjalte, sektion, detalj. De fyra
+  nuvarande blir en med en variant.
+- **`--data-for` och `--data-against` bara i diagram, aldrig i krom.** Gront
+  pa en knapp och gront pa en stapel ska inte vara samma gront.
+- **Rorelse pa ett enda stalle:** nedrakningen, och siffran som byter nar ett
+  mal faller under live.
+
+#### 358-forsoket — pagaende
+
+Tabellen finns i bada lagen, vaxlas pa en knapp i kortet och minns valet i
+`localStorage`. Byggt 2026-09-06.
+
+**Sidnumren ar inte pahittade och far inte blandas ihop.** SVT Text lagger
+SHL-tabellen pa **358**; **377 ar malservicen** dar resultaten tickar in medan
+matcherna pagar. Varje vy bar sitt eget nummer — tabellen 358, och live-laget
+377 den dagen feature 27 finns. Det ar den detaljen som skiljer en hyllning
+fran en kostym.
+
+Tre val som gjordes i bygget, och skalen:
+- Lagnamnen kortas som de kortades dar. Bolagsformen bar ingen information i
+  en tabell, sa Kalmar HC ar Kalmar. Ordet stryks bara nar nagot aterstar, sa
+  AIK forblir AIK. Utan det kapades var tredje namn mitt i ordet.
+- Malskillnaden ar struken. Malkolumnen bar den redan, och 358 visade aldrig
+  bada. Det frigjorde bredden namnen behovde.
+- Systemets egen monospace, inte ett nytt webbteckensnitt. Ett forsok ska inte
+  kosta en font att prova. Haller laget en sasong ar ett blockigare snitt
+  nasta steg.
+
+**Vad som ska avgoras, och nar.** Las den nagra dagar och bedom en sak som
+inte gar att se pa en skarmbild: **hur versalerna kanns nar man skummar
+tabellen varje morgon.** Beslut senast nar SHL-sasongen har spelat fem
+omgangar — da finns riktig data i den och nyhetens behag har lagt sig.
+
+Haller den: nasta steg ar matchsidan och statistiken, som ocksa ar
+tabelldata. Nyheter och spelarprofiler ska **inte** dit — de ar loptext, och
+det ar dar riktningen sliter.
+
+#### Namnfragan, oppen
+
+"Lovenlaget 377" ligger pa bordet. Argumentet for: 377 betyder malservice,
+alltsa precis det feature 27 ska leverera, och namnet lovar ratt sak.
+Argumentet emot, och skalet att vanta: **namnet skriver en check appen inte
+kan losa in forran live finns**, och att dopa om appen laser identiteten till
+en visuell riktning som annu inte ar bestamd. Namn ar billiga att ta senare
+och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
+
 ## Forsta tickets att skapa
 
 1. `DATA-001` Historisk sasongsbackfill for HA 2022/23-2024/25.
@@ -1043,6 +1128,9 @@ begransning att beratta om i granssnittet, inte att dolja.
 15. `LIVE-002` Cloud Function + GCS-blob + `GET /api/v1/live`, niva 1.
 16. `LIVE-003` Niva 2: handelser sa snart `game_id` finns.
 17. `WEB-004` Live-lage pa startsidan och i matchrapporten, med paus vid dold flik.
+18. `WEB-005` En typskala som tokens; ta bort alla lokala `font-size`-varden.
+19. `WEB-006` Kort med roller: sla ihop de fyra kortklasserna till en.
+20. `WEB-007` Utvardera 358-laget efter fem spelade omgangar; se feature 29.
 
 ## Beslutsregler
 
