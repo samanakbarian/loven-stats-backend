@@ -9,6 +9,11 @@ som inte star i IGNORE ar en regression.
 
 refresh=1 kringgar API:ts sextimmarscache. Utan den jamfor man gamla svar
 med gamla svar och far gront oavsett vad koden gor.
+
+OBS: --save skriver over tests/api_baseline/, som ligger i repot. Kor den
+bara nar facit ska flyttas fram, och committa resultatet — annars vagrar
+nasta git pull med "local changes would be overwritten". Ligger andringarna
+kvar och du inte vill ha dem: git checkout -- tests/api_baseline
 """
 import argparse, json, os, sys, urllib.parse, urllib.request
 
