@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import storage
 from google.cloud import bigquery
+from collections import Counter
 from datetime import datetime, timezone, timedelta
 import functools
 
@@ -1609,6 +1610,357 @@ def get_onice(season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/onice")
         return {"status": "error", "error": str(e), "players": []}
+
+
+# ===========================================================================
+# Vyerna fran mockupen. Allt underlag ligger redan i core — ingen ny hamtning
+# fran Swehockey behovs.
+# ===========================================================================
+
+
+def _bjk_games(bq, season_ids: str) -> list[dict]:
+    """Lagets spelade matcher med resultat och periodresultat, aldst forst."""
+    return [
+        dict(r.items())
+        for r in bq.query(
+            f"""
+            SELECT game_id, match_date, home_team, away_team, result,
+                   period_results, venue, spectators, stage
+            FROM `{bq.project}.core.schedule`
+            WHERE season_group_id IN ({season_ids})
+              AND game_id IS NOT NULL
+              AND REGEXP_CONTAINS(IFNULL(result, ''), r'\d+\s*-\s*\d+')
+              AND (REGEXP_CONTAINS(home_team, r'(?i)bj[oö]rkl[oö]ven')
+                   OR REGEXP_CONTAINS(away_team, r'(?i)bj[oö]rkl[oö]ven'))
+            ORDER BY match_date, game_id
+            """
+        ).result()
+    ]
+
+
+def _score(result):
+    """'3 - 1' -> (3, 1). Ingen giltig strang ger (None, None)."""
+    m = re.match(r"\s*(\d+)\s*-\s*(\d+)", str(result or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+
+def _ours_theirs(row):
+    """Matchen sedd fran vart hall: (vara mal, deras, motstandare, hemma)."""
+    home = bool(BJK_HOME.search(str(row.get("home_team") or "")))
+    h, a = _score(row.get("result"))
+    if h is None:
+        return None
+    opponent = row.get("away_team") if home else row.get("home_team")
+    return (h, a, opponent, True) if home else (a, h, opponent, False)
+
+
+@app.get("/api/v1/lines")
+@cached_ok(cache=stats_cache)
+def get_lines(season: str = None, refresh: bool = False):
+    """Kedjornas utfall: mal for och emot med kedjan pa isen.
+
+    Kedjan kommer ur klubbens egen uppstallning pa matchsidan, inte gissad ur
+    vilka som gor mal ihop. Malet knyts till den kedja flest av spelarna pa
+    isen tillhorde.
+
+    Lagkoden avgor vem som gjorde malet — inte trojnumren. Motstandarens 19
+    kolliderar med var egen 19, och rakas det pa nummer blir varje mal vart.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        season_ids = ",".join(str(sid) for sid in {active["regular"], active.get("playoff")} if sid)
+
+        lineups = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, player_number, player_name, block, line_number
+                FROM `{bq.project}.core.game_lineups`
+                WHERE season_group_id IN ({season_ids})
+                  AND REGEXP_CONTAINS(team_name, r'(?i)bj[oö]rkl[oö]ven')
+                """
+            ).result()
+        ]
+        goals = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, team_code, on_ice_for, on_ice_against, score_state
+                FROM `{bq.project}.core.game_events`
+                WHERE season_group_id IN ({season_ids}) AND event_type = 'goal'
+                """
+            ).result()
+        ]
+
+        line_of, members = {}, {}
+        for l in lineups:
+            if l.get("block") != "line" or not l.get("line_number"):
+                continue
+            num = l.get("player_number")
+            if num is None:
+                continue
+            line_of[(l["game_id"], int(num))] = int(l["line_number"])
+            members.setdefault(int(l["line_number"]), Counter())[clean_person(l.get("player_name"))] += 1
+
+        def numbers(text):
+            return [int(x) for x in str(text or "").split(",") if x.strip().isdigit()]
+
+        tally = {}
+        unattributed = {"for": 0, "against": 0}
+        for g in goals:
+            ours = _is_ours(g.get("team_code"))
+            on = numbers(g.get("on_ice_for") if ours else g.get("on_ice_against"))
+            seen = [line_of.get((g["game_id"], n)) for n in on]
+            seen = [x for x in seen if x]
+            key = "for" if ours else "against"
+            if not seen:
+                # Tomt mal: malvakten utbytt mot en extra spelare, och de pa
+                # isen tillhor ingen kedja. Redovisas, inte tystas.
+                unattributed[key] += 1
+                continue
+            line = Counter(seen).most_common(1)[0][0]
+            row = tally.setdefault(line, {"gf": 0, "ga": 0})
+            row["gf" if ours else "ga"] += 1
+
+        lines = []
+        for n in sorted(tally):
+            row = tally[n]
+            lines.append({
+                "line": n,
+                "goals_for": row["gf"],
+                "goals_against": row["ga"],
+                "diff": row["gf"] - row["ga"],
+                "share_of_team_goals": round(100 * row["gf"] / max(1, sum(v["gf"] for v in tally.values())), 1),
+                "players": [name for name, _ in members.get(n, Counter()).most_common(6)],
+            })
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "lines": lines,
+            "totals": {
+                "goals_for": sum(v["gf"] for v in tally.values()),
+                "goals_against": sum(v["ga"] for v in tally.values()),
+                "without_line_for": unattributed["for"],
+                "without_line_against": unattributed["against"],
+            },
+        }
+    except Exception as e:
+        logging.exception("get_lines misslyckades")
+        return {"status": "error", "error": str(e), "lines": []}
+
+
+@app.get("/api/v1/table-history")
+@cached_ok(cache=stats_cache)
+def get_table_history(season: str = None, refresh: bool = False):
+    """Tabellplacering per omgang, harledd ur matchresultaten.
+
+    Sparade tabellogonblicksbilder gar inte att anvanda bakat: en avslutad
+    sasong har skrapats om i efterhand, och varje sadan generation bar
+    sluttabellen med ett farskt scraped_at. Resultaten daremot ligger kvar
+    som de var, sa serien gar att rakna fram for hela sasongen.
+
+    Poang enligt svensk praxis: 3 for vinst i ordinarie tid, 2 efter
+    forlangning, 1 for forlust efter forlangning.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular = active["regular"]
+
+        games = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, match_date, home_team, away_team, result, period_results
+                FROM `{bq.project}.core.schedule`
+                WHERE season_group_id = {int(regular)}
+                  AND game_id IS NOT NULL
+                  AND REGEXP_CONTAINS(IFNULL(result, ''), r'\d+\s*-\s*\d+')
+                ORDER BY match_date, game_id
+                """
+            ).result()
+        ]
+
+        def award(row, home):
+            h, a = _score(row.get("result"))
+            if h is None:
+                return None
+            beyond = len(parse_period_results(row.get("period_results"))) > 3
+            won = (h > a) if home else (a > h)
+            return (2 if beyond else 3) if won else (1 if beyond else 0)
+
+        points, played = Counter(), Counter()
+        rounds, our_round = [], 0
+        for row in games:
+            for team, home in ((row.get("home_team"), True), (row.get("away_team"), False)):
+                pts = award(row, home)
+                if pts is None:
+                    continue
+                points[team] += pts
+                played[team] += 1
+            ours = next((t for t in (row.get("home_team"), row.get("away_team"))
+                         if BJK_HOME.search(str(t or ""))), None)
+            if not ours or played[ours] == our_round:
+                continue
+            our_round = played[ours]
+            order = sorted(points.items(), key=lambda kv: (-kv[1], kv[0]))
+            rounds.append({
+                "round": our_round,
+                "date": str(row.get("match_date") or "")[:10],
+                "table": [{"team": t, "rank": i, "points": p, "games_played": played[t]}
+                          for i, (t, p) in enumerate(order, 1)],
+            })
+
+        # Serien mats i VARA omgangar, men sasongen tar inte slut med var sista
+        # match: HA 25/26 spelade tre matcher efter Bjorklovens, och Kalmar vann
+        # en av dem. Ogonblicksbilden vid var sista omgang gav dem darfor 110
+        # poang dar tabellen sager 113. Sluttabellen raknas separat, over alla
+        # matcher, och ar den som far ge final_rank.
+        order = sorted(points.items(), key=lambda kv: (-kv[1], kv[0]))
+        final = [{"team": t, "rank": i, "points": p, "games_played": played[t]}
+                 for i, (t, p) in enumerate(order, 1)]
+
+        series = {}
+        for entry in final:
+            team = entry["team"]
+            series[team] = [next((x["rank"] for x in r["table"] if x["team"] == team), None)
+                            for r in rounds]
+
+        trailing = sum(1 for t in played if played[t] > (
+            next((x["games_played"] for x in (rounds[-1]["table"] if rounds else [])
+                  if x["team"] == t), 0)))
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "rounds": [r["round"] for r in rounds],
+            "dates": [r["date"] for r in rounds],
+            # Sant nar minst ett lag spelade fler matcher efter var sista. Da ar
+            # sista punkten i kurvan inte sluttabellen, och frontend ska saga det.
+            "table_settled_after_last_round": trailing > 0,
+            "teams": [
+                {
+                    "team": e["team"],
+                    "is_bjk": bool(BJK_HOME.search(str(e["team"] or ""))),
+                    "final_rank": e["rank"],
+                    "points": e["points"],
+                    "games_played": e["games_played"],
+                    "ranks": series[e["team"]],
+                }
+                for e in final
+            ],
+        }
+    except Exception as e:
+        logging.exception("get_table_history misslyckades")
+        return {"status": "error", "error": str(e), "teams": []}
+
+
+@app.get("/api/v1/opponents")
+@cached_ok(cache=stats_cache)
+def get_opponents(season: str = None, venue: str = None, last: int = 0, refresh: bool = False):
+    """Facit mot varje motstandare. venue=home|away, last=N begransar urvalet."""
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        season_ids = ",".join(str(sid) for sid in {active["regular"], active.get("playoff")} if sid)
+
+        rows = _bjk_games(bq, season_ids)
+        want_home = {"home": True, "hemma": True, "away": False, "borta": False}.get(
+            str(venue or "").lower()
+        )
+        picked = []
+        for row in rows:
+            view = _ours_theirs(row)
+            if view is None:
+                continue
+            gf, ga, opponent, home = view
+            if want_home is not None and home != want_home:
+                continue
+            picked.append((row, gf, ga, opponent, home))
+        if last and last > 0:
+            picked = picked[-int(last):]
+
+        by_opponent = {}
+        for row, gf, ga, opponent, home in picked:
+            d = by_opponent.setdefault(opponent, {
+                "opponent": opponent, "games": 0, "wins": 0, "losses": 0,
+                "goals_for": 0, "goals_against": 0, "beyond_regulation": 0,
+            })
+            d["games"] += 1
+            d["goals_for"] += gf
+            d["goals_against"] += ga
+            d["wins" if gf > ga else "losses"] += 1
+            if len(parse_period_results(row.get("period_results"))) > 3:
+                d["beyond_regulation"] += 1
+
+        table = sorted(
+            ({**d, "diff": d["goals_for"] - d["goals_against"]} for d in by_opponent.values()),
+            key=lambda d: (-d["wins"], -d["diff"], d["opponent"]),
+        )
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "filter": {"venue": venue or "all", "last": last or 0},
+            "games": len(picked),
+            "opponents": table,
+        }
+    except Exception as e:
+        logging.exception("get_opponents misslyckades")
+        return {"status": "error", "error": str(e), "opponents": []}
+
+
+@app.get("/api/v1/swings")
+@cached_ok(cache=stats_cache)
+def get_swings(season: str = None, refresh: bool = False):
+    """Vandningar och tapp: stallningen efter tva perioder mot slutresultatet."""
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        season_ids = ",".join(str(sid) for sid in {active["regular"], active.get("playoff")} if sid)
+
+        out = []
+        for row in _bjk_games(bq, season_ids):
+            view = _ours_theirs(row)
+            periods = parse_period_results(row.get("period_results"))
+            if view is None or len(periods) < 3:
+                continue
+            gf, ga, opponent, home = view
+            after_home = sum(p["home_gf"] for p in periods[:2])
+            after_away = sum(p["away_gf"] for p in periods[:2])
+            us2, them2 = (after_home, after_away) if home else (after_away, after_home)
+            if us2 < them2 and gf > ga:
+                kind = "comeback"
+            elif us2 > them2 and gf < ga:
+                kind = "collapse"
+            else:
+                continue
+            out.append({
+                "kind": kind,
+                "game_id": row.get("game_id"),
+                "date": str(row.get("match_date") or "")[:10],
+                "opponent": opponent,
+                "is_home": home,
+                "after_two": f"{us2}-{them2}",
+                "final": f"{gf}-{ga}",
+                "beyond_regulation": len(periods) > 3,
+            })
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "comebacks": sum(1 for x in out if x["kind"] == "comeback"),
+            "collapses": sum(1 for x in out if x["kind"] == "collapse"),
+            "swings": out,
+        }
+    except Exception as e:
+        logging.exception("get_swings misslyckades")
+        return {"status": "error", "error": str(e), "swings": []}
 
 
 @app.get("/api/v1/match/{game_id}")
