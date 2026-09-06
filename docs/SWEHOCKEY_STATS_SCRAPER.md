@@ -151,9 +151,38 @@ Det gäller även backfill: en omkörning mot en avslutad säsong skriver bara d
 matcher vars innehåll skiljer sig, vilket är exakt vad man vill efter en
 parserrättning.
 
-Första körningen efter driftsättning saknar kolumnen `content_hash` i
-tabellerna. Hash-frågan misslyckas då, loggas som `INFO`, och matcherna skrivs
-om en gång — varpå kolumnen finns och nästa körning kan jämföra.
+### Ögonblicksbilderna, som är den tunga delen
+
+Matchtabellerna är inte där volymen ligger. Schema, tabell, trupp och
+spelarstatistik hämtas som en **hel bild per säsongsgrupp** och skrevs om i sin
+helhet vid varje körning:
+
+| tabell | rader per säsongsgrupp |
+|---|---|
+| `swehockey_schedule` | 364 |
+| `swehockey_roster` | 541 |
+| `swehockey_player_stats` | 509 |
+| `swehockey_goalie_stats` | 47 |
+| `swehockey_standings` | 14 |
+| **summa** | **1 475** |
+
+Med två aktiva säsongsgrupper och fyra körningar om dygnet blir det 11 800
+rader om dygnet, drygt **fyra miljoner om året**, där de allra flesta är
+ordagranna kopior. Bilden ändras i praktiken bara när en match spelats.
+
+Samma hash gäller därför dem, fast en per `(tabell, säsongsgrupp)` i stället för
+per match. Är bilden oförändrad hoppas både GCS-blobben och BigQuery-laddningen
+över. Kvalitetsgrinden körs ändå — det som hämtats valideras, oavsett om det
+skrivs.
+
+Under säsong skrivs de alltså ungefär två gånger i veckan, inte tjugoåtta.
+
+### Första körningen efter driftsättning
+
+Kolumnen `content_hash` finns inte i tabellerna än. Hash-frågan misslyckas då,
+loggas som `INFO`, och allt skrivs om en gång — varpå kolumnen finns och nästa
+körning kan jämföra. `deploy.sh` skriver ut `oförändrad, inget skrivet` för de
+datatyper som hoppats över.
 
 ## Avstämning efter varje körning
 

@@ -226,7 +226,8 @@ except Exception: print('  kunde inte tolka svaret'); raise SystemExit
 print('  status:', d.get('status','?'))
 for k,v in (d.get('types') or {}).items():
     mark='ok ' if v.get('ok') else 'FEL'
-    print(f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\")
+    note='  oförändrad, inget skrivet' if v.get('unchanged') else ''
+    print(f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade{note}\")
 for c in (d.get('reconciliation') or []):
     ok = c.get('ok')
     mark = 'ok ' if ok else ('  ?' if ok is None else 'AVVIKER')
@@ -250,6 +251,7 @@ print('  status:', d.get('status','?'))
 for k,v in (d.get('types') or {}).items():
     mark='ok ' if v.get('ok') else 'FEL'
     line=f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\"
+    if v.get('unchanged'): line += '  oförändrad, inget skrivet'
     if v.get('error'): line += '  ' + str(v['error'])[:70]
     print(line)
 for c in (d.get('reconciliation') or []):

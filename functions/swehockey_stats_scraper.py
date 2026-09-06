@@ -574,6 +574,20 @@ _GAME_TABLES = (
     "swehockey_game_lineups",
 )
 
+# Tabeller som hamtas som en hel ogonblicksbild per sasongsgrupp. De ar
+# radmassigt tunga — schema, trupp och spelarstatistik ar 1 400 rader per
+# grupp — och skrevs om i sin helhet vid varje korning.
+_SNAPSHOT_TABLES = (
+    "swehockey_schedule",
+    "swehockey_standings",
+    "swehockey_player_stats",
+    "swehockey_goalie_stats",
+    "swehockey_roster",
+)
+
+# Ogonblicksbildens hash per (tabell, sasongsgrupp).
+_SNAPSHOT_HASHES: dict[tuple[str, str], str] = {}
+
 
 _LINEAGE_FIELDS = frozenset({"scraped_at", "run_id", "source_url", "content_hash"})
 
@@ -634,6 +648,41 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
                     _GAME_HASHES[(table, int(r["game_id"]))] = str(r["h"])
         except Exception as exc:
             logging.info("Ingen hash att jamfora mot i %s: %s", table, str(exc)[:120])
+
+    # Samma sak for ogonblicksbilderna, men en hash per sasongsgrupp.
+    for table in _SNAPSHOT_TABLES:
+        try:
+            rows = client.query(
+                f"""
+                SELECT season_group_id,
+                       ARRAY_AGG(content_hash ORDER BY scraped_at DESC LIMIT 1)[OFFSET(0)] AS h
+                FROM `{client.project}.{BQ_DATASET}.{table}`
+                WHERE season_group_id IN ({ids})
+                GROUP BY season_group_id
+                """
+            ).result()
+            for r in rows:
+                if r["h"]:
+                    _SNAPSHOT_HASHES[(table, str(r["season_group_id"]))] = str(r["h"])
+        except Exception as exc:
+            logging.info("Ingen hash att jamfora mot i %s: %s", table, str(exc)[:120])
+
+
+def _snapshot_unchanged(table: str, season_group_id: str, rows: list[dict[str, Any]]) -> bool:
+    """Sant nar hela ogonblicksbilden ar identisk med den som redan ligger inne.
+
+    Schema, tabell, trupp och spelarstatistik hamtas som en hel bild per
+    sasongsgrupp — 1 475 rader — och skrevs om i sin helhet vid varje korning.
+    Med fyra korningar om dygnet och tva aktiva grupper blev det 11 800 rader
+    om dygnet, drygt fyra miljoner om aret, dar de allra flesta var identiska
+    kopior. Bilden andras i praktiken bara nar en match spelats.
+    """
+    h = _content_hash(rows)
+    if _SNAPSHOT_HASHES.get((table, str(season_group_id))) == h:
+        return True
+    for row in rows:
+        row["content_hash"] = h
+    return False
 
 
 def _unchanged(table: str, game_id: int, rows: list[dict[str, Any]]) -> bool:
@@ -1331,12 +1380,18 @@ def run_swehockey_stats_scraper(request):
                 else:
                     rows, source_url = job["fetcher"](season_group_id)
                 fetched_rows += len(rows)
+                # Matchtabellerna hoppar over oforandrade matcher redan i
+                # hamtaren. Ogonblicksbilderna kommer hela och jamfors har.
+                unchanged = bool(rows) and job["table_name"] in _SNAPSHOT_TABLES and (
+                    _snapshot_unchanged(job["table_name"], season_group_id, rows)
+                )
                 fetched_batches.append(
                     {
                         **job,
                         "season_group_id": season_group_id,
                         "rows": rows,
                         "source_url": source_url,
+                        "unchanged": unchanged,
                     }
                 )
                 type_result = result["types"].setdefault(
@@ -1344,6 +1399,8 @@ def run_swehockey_stats_scraper(request):
                     {"ok": True, "rows": 0, "bq_loaded": 0, "source_urls": []},
                 )
                 type_result["rows"] += len(rows)
+                if unchanged:
+                    type_result["unchanged"] = True
                 if source_url:
                     type_result["source_urls"].append(source_url)
 
@@ -1409,6 +1466,15 @@ def run_swehockey_stats_scraper(request):
         for batch in fetched_batches:
             data_type = batch["data_type"]
             season_group_id = batch["season_group_id"]
+            # Oforandrad ogonblicksbild: raderna ar redan validerade, men de
+            # ar ord for ord samma som senaste generationen. Att skriva dem
+            # igen ger bara en generation till att deduplicera bort.
+            if batch.get("unchanged"):
+                logging.info(
+                    "%s for sasong %s oforandrad — hoppar over skrivningen",
+                    data_type, season_group_id,
+                )
+                continue
             payload = {
                 "meta": {
                     "run_id": run_id,
