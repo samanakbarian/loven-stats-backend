@@ -300,6 +300,16 @@ python3 tests/api_compare.py --check tests/api_baseline  # efter deploy
 `--save` skriver över versionshanterade filer; kör den bara när facit
 medvetet ska flyttas fram, och committa resultatet.
 
+**`tests/routes_check.py`** läser `api/main.py` med `ast` och kräver att varje
+route-funktions parametrar antingen står i sökvägen eller har ett
+standardvärde. En hjälpfunktion som råkar hamna mellan `@app.get(...)` och sin
+funktion tar över dekoratorn, och endpointen börjar svara `HTTP 422` — det syns
+varken i en syntaxkontroll eller i en typkontroll, bara i drift.
+
+```bash
+python3 tests/routes_check.py
+```
+
 **Avstämningen i scrapern** körs vid varje produktionskörning, se 2.5.
 
 ---

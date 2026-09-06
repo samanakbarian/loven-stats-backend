@@ -771,8 +771,6 @@ def get_players(season: str = None, refresh: bool = False):
         return {"status": "error", "error": str(e), "players": []}
 
 
-@app.get("/api/v1/player/{name}")
-@cached_ok(cache=stats_cache)
 def _goalie_profile(bq, keeper: dict, active: dict, season_ids: str, wanted: str) -> dict:
     """Malvaktens sasong, med exakt speltid ur matchrapporten.
 
@@ -839,6 +837,8 @@ def _goalie_profile(bq, keeper: dict, active: dict, season_ids: str, wanted: str
     }
 
 
+@app.get("/api/v1/player/{name}")
+@cached_ok(cache=stats_cache)
 def get_player(name: str, season: str = None, refresh: bool = False):
     """En spelares sasong, match for match.
 
