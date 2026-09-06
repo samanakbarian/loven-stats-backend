@@ -761,7 +761,9 @@ def _scrape_jobs():
             "fetcher": _fetch_game_lineups,
             "table_name": "swehockey_game_lineups",
             "required_fields": ("game_id", "team_name", "player_number"),
-            "key_fields": ("game_id", "team_name", "player_number"),
+            # Block och kedja maste ingaa: en spelare kan sta bade i en kedja
+            # och bland extraspelarna, och da ar det tva riktiga rader.
+            "key_fields": ("game_id", "team_name", "block", "line_number", "player_number"),
         },
         {
             "data_type": "roster",

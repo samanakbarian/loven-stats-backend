@@ -388,7 +388,10 @@ def parse_game_summary(html: str, game_id: int) -> dict[str, Any]:
 # later positionen avgoras i efterhand av spelarens kanda position.
 
 _LINE_LABEL = re.compile(r"^(1st|2nd|3rd|4th)\s+Line$", re.I)
-_TEAM_HEADER = re.compile(r"^(.+?)\s*\(\s*\)$")
+# Laghuvudet ar "IF Bjorkloven ()" eller "MoDo Hockey (Red)" — parentesen bar
+# trojfargen och ar ofta tom. Kravde man tomma parenteser foll matcher dar
+# fargen stod utsatt, och motstandarens spelare tillskrevs da fel lag.
+_TEAM_HEADER = re.compile(r"^(?!\d+\.)(.+?)\s*\(([^)]*)\)$")
 _LINE_NUMBER = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
 
 
@@ -413,6 +416,7 @@ def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     team: str | None = None
+    jersey: str | None = None
     block: str | None = None
     line_no: int | None = None
 
@@ -434,6 +438,7 @@ def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:
             m = _TEAM_HEADER.match(first)
             if m:
                 team = _clean(m.group(1))
+                jersey = _clean(m.group(2)) or None
                 block, line_no = None, None
                 continue
 
@@ -453,6 +458,7 @@ def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:
                 {
                     "game_id": game_id,
                     "team_name": team,
+                    "jersey_colour": jersey,
                     "home_team": header.get("home_team"),
                     "away_team": header.get("away_team"),
                     "block": block,
