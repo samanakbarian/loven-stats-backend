@@ -42,7 +42,10 @@ _PERIOD_HEADERS = {
 _SKIP_SECTIONS = {"goalkeeper summary", "actions"}
 
 _TIME = re.compile(r"^\d{1,3}:\d{2}$")
-_GOAL = re.compile(r"^(\d+)\s*-\s*(\d+)\s*(?:\(([^)]*)\))?$")
+# "3-1 (PP1)", men ocksa "4-1 (EQ) ENG": tomma-mal-malet bar sin markering
+# EFTER parentesen. Med ett $ direkt efter parentesen foll varje sadant mal
+# bort — fjorton mal pa en sasong, med spelarnas mal, assist och on-ice.
+_GOAL = re.compile(r"^(\d+)\s*-\s*(\d+)\s*(?:\(([^)]*)\))?\s*([A-Za-z0-9]*)\s*$")
 _PENALTY_MIN = re.compile(r"^(\d+)\s*min", re.I)
 # "64. Malmström, Anton (1)" — nummer, namn, och for malskytten mallopnummer.
 _PLAYER = re.compile(r"^(\d{1,2})\.\s*(.+?)(?:\s*\((\d+)\))?$")
@@ -157,16 +160,32 @@ def parse_events(html: str, game_id: int) -> list[dict[str, Any]]:
         if label in _PERIOD_HEADERS:
             period = _PERIOD_HEADERS[label]
             continue
-        if len(cells) < 4 or not _TIME.match(cells[0]):
+        # Straffavgorandet star i avsnittet "Game Winning Shot" och saknar
+        # tid — forsta cellen ar tom. Det raknas i Swehockeys egen
+        # spelarstatistik men fanns inte i vara handelser: fyra mal pa en
+        # sasong, alla pa lagets basta poangplockare.
+        #
+        # Avsnittet "Game Winning Shots" (plural) darunder listar varje
+        # straff, med "Missed" eller "Scored" i forsta cellen. De ar forsok,
+        # inte mal, och far inte plockas upp — darav kravet pa tom cell.
+        is_gws = (
+            not _clean(cells[0])
+            and len(cells) >= 4
+            and bool(_GOAL.match(_clean(cells[1])))
+        )
+        if len(cells) < 4 or (not _TIME.match(cells[0]) and not is_gws):
             continue
 
         time_str, kind, team_code, who = cells[0], cells[1], cells[2], cells[3]
         detail = cells[4] if len(cells) > 4 else ""
+        if is_gws:
+            # Forlangningen tar slut 65:00; straffarna ligger efter den.
+            time_str = "65:00"
 
         base: dict[str, Any] = {
             "game_id": game_id,
             "time": time_str,
-            "period": period or None,
+            "period": 5 if is_gws else (period or None),
             "team_code": _clean(team_code) or None,
             "home_team": header.get("home_team"),
             "away_team": header.get("away_team"),
@@ -180,7 +199,8 @@ def parse_events(html: str, game_id: int) -> list[dict[str, Any]]:
             scorer = players[0] if players else {}
             assists = players[1:3]
             pos, neg = _split_on_ice(detail)
-            state = _clean(goal.group(3) or "")
+            # Bade parentesens innehall och en eventuell markering efter den.
+            state = " ".join(x for x in (goal.group(3), goal.group(4)) if x).strip()
             out.append(
                 {
                     **base,

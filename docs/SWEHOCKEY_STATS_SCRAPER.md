@@ -386,3 +386,64 @@ säsonger har skrapats om i efterhand, och varje sådan generation bär
 sluttabellen med ett färskt `scraped_at`. För redan spelade säsonger måste
 ställningen i stället härledas ur matchresultaten i `core.schedule` — vilket
 är exakt och går att göra för alla lag och alla omgångar.
+
+## marts: stjärnschemat
+
+`bash deploy.sh views` bygger `core` och `marts` i den ordningen.
+
+| dimension | korn |
+|---|---|
+| `dim_season` | säsongsgrupp (grundserie och slutspel var för sig) |
+| `dim_team` | lag |
+| `dim_player` | spelare |
+| `dim_game` | match — hela serien, inte bara våra matcher |
+
+| fakta | korn | mått |
+|---|---|---|
+| `fact_player_game` | spelare × match | mål, assist, poäng, pim, on-ice för/emot |
+| `fact_team_game` | lag × match | skott, räddningar, pim, pp%, pdo, mål för/emot |
+| `fact_goalie_game` | målvakt × match | skott emot, räddningar, insläppta, sv% |
+| `fact_lineup_slot` | spelare × match × kedja | — |
+| `fact_player_season` | spelare × säsong | Swehockeys egna totaler, som facit |
+| `fact_standings_snapshot` | lag × säsong × dag | tabellplacering |
+
+### Nycklar
+
+Nycklarna är normaliserade naturliga värden, inte hashade surrogat. Swehockey
+har inget spelar-id, så namnet är den enda identitet som finns, och ett
+surrogat hade bara lagt ett joinsteg mellan felsökaren och datat. Kontrollerat
+mot HA 25/26: 541 truppspelare, **noll äkta namnkrockar**.
+
+Säsongstabellerna märker spelare som bytt klubb under säsongen med `**` —
+`Hellberg, Hannes**`. Matchtabellerna gör det inte. Markören strippas i
+`dim_player` och `fact_player_season`; utan det hittar en övergångsspelares
+matcher aldrig sin säsongsstatistik. 23 spelare i HA 25/26.
+
+Lagkoden (`IFB`, `MoDo`) finns bara i händelsetabellen, lagnamnet bara i de
+övriga. `dim_team` härleder kopplingen: knyt varje händelse till en spelare i
+matchens uppställning, och därmed till lagnamnet. Över HA 25/26 gav det 14
+koder, noll tvetydiga.
+
+### fact_player_game är hela poängen
+
+Swehockey ger säsongstotaler och en händelselista — aldrig raden däremellan.
+Nästan varje fråga appen ställer om form, motståndare eller kedjor behöver just
+det kornet, och det räknades tidigare fram på nytt i Python vid varje anrop.
+
+### Validering
+
+`tests/marts_extract.py` + `tests/marts_validate.py` kör samma SQL i DuckDB mot
+en riktigt skrapad säsong och jämför mot Swehockeys officiella tabell. Facit
+för HA 25/26, Björklövens 33 utespelare:
+
+| | avvikelser |
+|---|---|
+| mål | 0 av 33 |
+| assist | 0 av 33 |
+| poäng | 0 av 33 |
+| utvisningsminuter | 0 av 33 |
+
+`in_lineup` betyder "stod i uppställningen", inte "spelade". Swehockeys
+uppställningssida listar 20–22 spelare per lag där 22 klätt om, och utelämnar
+ibland målvakten. Använd `fact_player_season.games_played` för antal spelade
+matcher.

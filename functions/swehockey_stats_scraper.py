@@ -1145,7 +1145,12 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
         )
 
     # Malen i handelserna maste vara lika manga som malen i matchresultaten.
-    # Fangar bade dubbletter och tappade matcher.
+    # Fangar bade dubbletter, tappade matcher och parserfel — det var precis
+    # sa fjorton tomma-mal-mal upptacktes saknas.
+    #
+    # Ett undantag: en match som avgjorts pa straffar far ett mal i resultatet
+    # som aldrig star i handelselistan. Sadana matcher har fem periodresultat
+    # i stallet for tre eller fyra, och draget bort har.
     _run(
         "events_goals_match_results",
         f"""
@@ -1163,6 +1168,8 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
             SELECT SUM(
                 CAST(REGEXP_EXTRACT(a.result, r'^\\s*(\\d+)') AS INT64)
                 + CAST(REGEXP_EXTRACT(a.result, r'-\\s*(\\d+)') AS INT64)
+                -- fem periodresultat = forlangning plus straffar
+                - IF(ARRAY_LENGTH(SPLIT(IFNULL(a.period_results, ''), ',')) >= 5, 1, 0)
             ) AS n
             FROM `{proj}.{BQ_DATASET}.swehockey_schedule` a
             INNER JOIN (
@@ -1178,7 +1185,7 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
         )
         SELECT (SELECT n FROM ev) AS a, (SELECT n FROM sc) AS b
         """,
-        "mal i handelserna mot mal i matchresultaten",
+        "mal i handelserna mot mal i matchresultaten, straffavgoranden borträknade",
     )
 
     # Skottsammanfattningen ska ha tva rader per match, en per lag.

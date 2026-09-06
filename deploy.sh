@@ -9,7 +9,7 @@
 #   bash deploy.sh scraper    # bara scrapern
 #   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
 #   bash deploy.sh schedule   # sätt schemaläggningen, utan deploy
-#   bash deploy.sh views      # skapa/uppdatera core-vyerna, utan deploy
+#   bash deploy.sh views      # skapa/uppdatera core- och marts-vyerna
 #   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
 #
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
@@ -69,10 +69,13 @@ if [[ "$TARGET" == "views" ]]; then
   # avdupliceringen pa ett stalle sa att API:t inte kan glomma den.
   command -v bq >/dev/null || fail "bq saknas. Kör från Cloud Shell."
   TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-  sed "s/@PROJECT@/${PROJECT_ID}/g" sql/core_views.sql > "$TMP/core_views.sql"
-  say "Skapar core-vyerna"
-  bq query --project_id="$PROJECT_ID" --use_legacy_sql=false --quiet \
-    --format=none < "$TMP/core_views.sql"
+  # Ordningen spelar roll: marts laser core, och dim_team laser dim_game.
+  for f in core_views marts; do
+    sed "s/@PROJECT@/${PROJECT_ID}/g" "sql/${f}.sql" > "$TMP/${f}.sql"
+    say "Skapar vyerna i ${f/core_views/core}"
+    bq query --project_id="$PROJECT_ID" --use_legacy_sql=false --quiet \
+      --format=none < "$TMP/${f}.sql"
+  done
 
   # Rakna rader i bastabellen mot vyn. Skillnaden ar de generationer som
   # avdupliceringen sorterar bort — ar den noll skrivs ingenting i onodan,
