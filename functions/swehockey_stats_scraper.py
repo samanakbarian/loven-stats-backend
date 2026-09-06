@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import functions_framework
@@ -48,6 +48,11 @@ TEAM_TOKENS = [t.strip().lower() for t in os.environ.get("SWEHOCKEY_TEAM_TOKENS"
 # for att en schemalagd korning ska rymmas med god marginal; en backfill
 # hojer den med ?events_limit=all.
 EVENTS_LIMIT_DEFAULT = int(os.environ.get("SWEHOCKEY_EVENTS_LIMIT", "20"))
+# Swehockey publicerar matchrapporten en kvart till en timme efter slutsignal,
+# men rattar den ofta i efterhand — matt over en sasong kom rattelserna oftast
+# inom en vecka, i ett fall efter sexton dagar. En match vi redan hamtat maste
+# darfor hamtas om ett tag till, annars fastnar vi med den forsta versionen.
+REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_REFRESH_DAYS", "21"))
 
 
 def _now():
@@ -552,10 +557,40 @@ def _fetch_schedule(season_group_id: str) -> tuple[list[dict[str, Any]], str | N
 # gonger sa lang tid. Cachen lever bara under korningen.
 _GAME_PAGES: dict[int, str] = {}
 _LINEUP_PAGES: dict[int, str] = {}
+# Matcher vi redan har i datalagret. Fylls en gang per korning.
+_SCRAPED_GAMES: set[int] = set()
+
+
+def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
+    """Vilka matcher som redan finns, sa de inte hamtas om i onodan."""
+    _SCRAPED_GAMES.clear()
+    ids = ",".join(str(int(s)) for s in season_ids if str(s).isdigit())
+    if not ids:
+        return
+    try:
+        rows = client.query(
+            f"""
+            SELECT DISTINCT game_id
+            FROM `{client.project}.{BQ_DATASET}.swehockey_game_events`
+            WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL
+            """
+        ).result()
+        _SCRAPED_GAMES.update(int(r["game_id"]) for r in rows)
+        logging.info("%s matcher finns redan i datalagret", len(_SCRAPED_GAMES))
+    except Exception:
+        # Utan svar hamtar vi hellre for mycket an for lite.
+        logging.warning("Kunde inte lasa befintliga matcher", exc_info=True)
 
 
 def _team_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]:
-    """Lagets spelade matcher med matchlank, nyast forst."""
+    """Lagets matcher att hamta, nyast forst.
+
+    Med limit=None tas allt — det ar backfill. Annars hamtas bara matcher vi
+    saknar, plus de som spelats inom REFRESH_DAYS: en match vi redan har kan
+    ha rattats i efterhand, men en fran i host andras inte langre. Utan den
+    uppdelningen hamtades de tjugo senaste matcherna om vid varje korning, och
+    tabellerna vaxte med tusentals dubblettrader i veckan.
+    """
     schedule, _ = _fetch_schedule(season_group_id)
     ours = [
         g
@@ -565,7 +600,22 @@ def _team_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]
         and str(g.get("result") or "").strip()
     ]
     ours.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
-    return ours if limit is None else ours[: max(0, limit)]
+    if limit is None:
+        return ours
+
+    cutoff = (_now().date() - timedelta(days=REFRESH_DAYS)).isoformat()
+    wanted = [
+        g
+        for g in ours
+        if int(g["game_id"]) not in _SCRAPED_GAMES or str(g.get("match_date") or "")[:10] >= cutoff
+    ]
+    if len(wanted) < len(ours):
+        logging.info(
+            "Hamtar %s av %s matcher (%s nya eller nyare an %s)",
+            min(len(wanted), max(0, limit)), len(ours), len(wanted), cutoff,
+        )
+    # Taket ar en sakerhetsventil, inte urvalsregeln.
+    return wanted[: max(0, limit)]
 
 
 def _game_html(game_id: int) -> str | None:
@@ -921,6 +971,188 @@ def _append_bq_rows(
     return len(enriched)
 
 
+
+def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str, Any]]:
+    """Stammer de harledda talen mot det Swehockey sjalv redovisar?
+
+    Kvalitetsgrinden kontrollerar form — att rader finns, att falt ar ifyllda,
+    att nycklar ar unika. Den sager ingenting om varden. Nar utvisningarna
+    tredubblades var varje rad valformad; det fanns bara tre generationer av
+    dem, och en lasning som glomt avduplicera summerade alla.
+
+    De har kontrollerna jamfor i stallet tal som maste ga ihop. En avvikelse
+    betyder att nagot ar fel, aven om alla rader ser prydliga ut.
+    """
+    ids = ",".join(str(int(x)) for x in season_ids if str(x).isdigit())
+    if not ids:
+        return []
+    proj = client.project
+    checks: list[dict[str, Any]] = []
+
+    def _run(name: str, sql: str, note: str = "") -> None:
+        try:
+            row = next(iter(client.query(sql).result()), None)
+        except Exception as exc:
+            checks.append({"name": name, "ok": None, "note": f"kunde inte koras: {exc}"[:180]})
+            return
+        if row is None:
+            checks.append({"name": name, "ok": None, "note": "inget att jamfora"})
+            return
+        d = dict(row.items())
+        a, b = d.get("a"), d.get("b")
+        checks.append(
+            {
+                "name": name,
+                "ok": a == b,
+                "observed": a,
+                "expected": b,
+                "note": note,
+            }
+        )
+
+    # Malen i handelserna maste vara lika manga som malen i matchresultaten.
+    # Fangar bade dubbletter och tappade matcher.
+    _run(
+        "events_goals_match_results",
+        f"""
+        WITH ev AS (
+            SELECT COUNT(*) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_events` e
+            INNER JOIN (
+                SELECT game_id, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON e.game_id = k.game_id AND e.scraped_at = k.m
+            WHERE e.event_type = 'goal' AND e.season_group_id IN ({ids})
+        ),
+        sc AS (
+            SELECT SUM(
+                CAST(REGEXP_EXTRACT(a.result, r'^\\s*(\\d+)') AS INT64)
+                + CAST(REGEXP_EXTRACT(a.result, r'-\\s*(\\d+)') AS INT64)
+            ) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_schedule` a
+            INNER JOIN (
+                SELECT game_id, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_schedule`
+                WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL GROUP BY game_id
+            ) k ON a.game_id = k.game_id AND a.scraped_at = k.m
+            WHERE a.season_group_id IN ({ids})
+              AND a.game_id IN (SELECT DISTINCT game_id
+                                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
+                                WHERE season_group_id IN ({ids}))
+              AND REGEXP_CONTAINS(a.result, r'\\d+\\s*-\\s*\\d+')
+        )
+        SELECT (SELECT n FROM ev) AS a, (SELECT n FROM sc) AS b
+        """,
+        "mal i handelserna mot mal i matchresultaten",
+    )
+
+    # Skottsammanfattningen ska ha tva rader per match, en per lag.
+    _run(
+        "summary_two_rows_per_game",
+        f"""
+        SELECT COUNTIF(n <> 2) AS a, 0 AS b FROM (
+            SELECT game_id, COUNT(*) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_summary` a
+            INNER JOIN (
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_summary`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON a.game_id = k.g AND a.scraped_at = k.m
+            WHERE a.season_group_id IN ({ids})
+            GROUP BY game_id
+        )
+        """,
+        "antal matcher med annat an tva lagrader",
+    )
+
+    # En malvakts raddningar plus inslappta ar per definition skotten mot.
+    _run(
+        "goalie_saves_plus_goals_equal_shots",
+        f"""
+        SELECT COUNTIF(saves + goals_against <> shots_against) AS a, 0 AS b
+        FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies` a
+        INNER JOIN (
+            SELECT game_id AS g, MAX(scraped_at) AS m
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies`
+            WHERE season_group_id IN ({ids}) GROUP BY game_id
+        ) k ON a.game_id = k.g AND a.scraped_at = k.m
+        WHERE a.season_group_id IN ({ids})
+        """,
+        "malvaktsrader dar raddningar plus inslappta inte ar skotten mot",
+    )
+
+    # Utvisningsminuterna star bade i handelselistan och i matchsammanfattningen,
+    # och de rakas fram pa olika satt. Det var precis har det gick fel forra
+    # gangen: handelserna summerade tre skorningsgenerationer och gav 223 PIM
+    # dar rapporten sa 75. Jamfor bara matcher som finns i bada tabellerna.
+    _run(
+        "penalties_events_match_summary",
+        f"""
+        WITH ev AS (
+            SELECT e.game_id, SUM(e.penalty_minutes) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_events` e
+            INNER JOIN (
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON e.game_id = k.g AND e.scraped_at = k.m
+            WHERE e.season_group_id IN ({ids})
+            GROUP BY e.game_id
+        ),
+        su AS (
+            SELECT a.game_id, SUM(a.pim) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_summary` a
+            INNER JOIN (
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_summary`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON a.game_id = k.g AND a.scraped_at = k.m
+            WHERE a.season_group_id IN ({ids})
+            GROUP BY a.game_id
+        )
+        SELECT COUNTIF(ev.n <> su.n) AS a, 0 AS b
+        FROM ev INNER JOIN su USING (game_id)
+        """,
+        "matcher dar handelsernas utvisningsminuter inte stammer med rapportens",
+    )
+
+    # Lagets skott i sammanfattningen ar motstandarmalvaktens skott emot.
+    # Tva tabellers oberoende talserier som maste ge samma summa.
+    _run(
+        "summary_shots_match_goalie_shots_against",
+        f"""
+        WITH su AS (
+            SELECT a.game_id, SUM(a.shots) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_summary` a
+            INNER JOIN (
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_summary`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON a.game_id = k.g AND a.scraped_at = k.m
+            WHERE a.season_group_id IN ({ids})
+            GROUP BY a.game_id
+        ),
+        gk AS (
+            SELECT a.game_id, SUM(a.shots_against) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies` a
+            INNER JOIN (
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON a.game_id = k.g AND a.scraped_at = k.m
+            WHERE a.season_group_id IN ({ids})
+            GROUP BY a.game_id
+        )
+        SELECT COUNTIF(su.n <> gk.n) AS a, 0 AS b
+        FROM su INNER JOIN gk USING (game_id)
+        """,
+        "matcher dar lagens skott inte stammer med malvakternas skott emot",
+    )
+
+    return checks
+
+
 @functions_framework.http
 def run_swehockey_stats_scraper(request):
     scraped_at = _now().isoformat()
@@ -982,6 +1214,10 @@ def run_swehockey_stats_scraper(request):
         active_season_ids = [SWEHOCKEY_SEASON_GROUP_ID]
     
     active_season_ids = sorted(set(active_season_ids), key=int)
+    # Backfill hamtar allt; en vanlig korning bara det som saknas eller kan ha
+    # rattats, och behover darfor veta vad som redan finns.
+    if events_limit is not None:
+        _load_scraped_games(bq_client, active_season_ids)
     run_logger = BigQueryRunLogger(bq_client)
     run_id = run_logger.start_run(
         pipeline_name=PIPELINE_NAME,
@@ -1134,13 +1370,31 @@ def run_swehockey_stats_scraper(request):
         # Sag ifran nar bara delar av koringen gick igenom, i stallet for att
         # rapportera ok och lata en tom tabell se ut som ett tomt resultat.
         result["status"] = "ok" if not failed_steps else "partial"
+
+        # Avstamningen laser tabellerna efter laddningen och jamfor tal som
+        # maste ga ihop. Den far aldrig falla en korning som annars gick bra —
+        # datat ar redan skrivet — men en avvikelse ska synas i svaret och i
+        # korloggen sa den gar att larma pa.
+        try:
+            reconciliation = _reconcile(bq_client, active_season_ids)
+        except Exception:
+            logging.exception("Avstamningen kunde inte koras run_id=%s", run_id)
+            reconciliation = []
+        if reconciliation:
+            result["reconciliation"] = reconciliation
+            mismatched = [c["name"] for c in reconciliation if c.get("ok") is False]
+            if mismatched:
+                result["reconciliation_failed"] = mismatched
+                logging.error(
+                    "Avstamningen gick inte ihop run_id=%s: %s", run_id, ", ".join(mismatched)
+                )
         run_logger.finish_run(
             run_id=run_id,
             status="SUCCESS" if not failed_steps else "PARTIAL",
             fetched_rows=fetched_rows,
             loaded_rows=loaded_rows,
             failed_steps=failed_steps,
-            metadata={"types": result["types"]},
+            metadata={"types": result["types"], "reconciliation": reconciliation},
         )
         return json.dumps(result, ensure_ascii=False), 200, {"Content-Type": "application/json"}
     except Exception as exc:
