@@ -81,7 +81,7 @@ Verifierad implementationsstatus och arkitekturgap finns i
 1. Genererade notiser ur marten (feature 21)
 2. Ett flodeskontrakt: `FeedItem` (feature 23)
 3. Entitetslankning nyhet -> spelare och match (feature 22)
-4. Matchrapporten vidare (feature 24)
+4. Hela seriens matcher, inte bara vara (feature 26)
 
 ## Featuredetaljer
 
@@ -779,42 +779,43 @@ Acceptanskriterier:
   tabell som allt annat.
 - Gamla svarsformen kan tas bort utan att sidan slutar fungera.
 
-### 24. Matchrapporten vidare
+### 24. Matchrapporten vidare — KLAR 2026-09-06
 
 Typ: Feature / Frontend
-Prioritet: Medium
 Primart repo: `slutspel/frontend_v2`, delvis backend
 Berorda omraden: `Matchrapport.tsx`, `GET /api/v1/match/{game_id}`
 
-Klart 2026-09: lagmarke per rad, malvakter for bada lagen, skott per period,
-delbart PNG-kort. Kvar, i ordning:
+Allt pa listan ar byggt. Kvar star bara det som inte gar att bygga.
 
-1. **Boxscore per spelare.** Mal, assist, +/-, utvisningsminuter, skott.
-   `+/-` gar att rakna ur `on_ice_for` / `on_ice_against` som redan finns i
-   svaret, med PP-mal exkluderade enligt regeln. Skott finns i
-   `core.game_boxscore` for matcher med rapport. Diverging bar sorterad fran
-   bast till samst.
-2. **Handelser i momentumkurvan.** Namn pa malpunkterna vid tryck, utvisningar
-   som korta streck under linjen, PP- och BP-mal markta.
-3. **Kollapsa "pa isen".** Den tar en stor del av scrollen och lases sallan.
-   Visa per mal vid tryck; flytta insikten till boxscoren, dar "vem var pa
-   isen for flest mal emot" faktiskt betyder nagot.
-4. **Spelform per mal** — 5v5, PP, BP, tom bur — som liten tagg vid stallningen.
-5. **Utvisning -> utfall.** "PP utan mal" eller "resulterade i 2-0 (namn, tid)".
-   Kopplar ihop tva kort som nu lever isar.
-6. **Kedjorna ur uppstallningen** — vilka fem som startade. `fact_lineup_slot`
-   bar redan datat; kom ihag att Swehockeys "1st Line" ar hela femman, tre
-   forwards **och** backparet.
-7. **Kontextkort.** Tabellplacering fore och efter, form in i matchen, inbordes
-   moten under sasongen. Elo-forandring kraver att Elo persisteras — se
-   feature 21.
-8. **Publik mot arenans snitt** i huvudet: "5 799 · +22 % mot AIK:s snitt".
+Levererat:
+- Lagmarke per mal- och utvisningsrad. Tidigare skildes lagen bara av en
+  fargad prick pa malen och av fetstil pa utvisningarna.
+- Malvakter for bada lagen, skott per period, delbart PNG-kort i 1080x1080.
+- Boxscore per spelare med tornadostapel: bada halvorna, inte bara nettot.
+- **Plus/minus enligt regelboken** i `marts.fact_player_game`. Se
+  DATAPLATTFORM.md — 233 av 233 spelarrader stammer med Swehockeys officiella,
+  mot 187 forut.
+- Sammanhang: placering fore och efter, form in i matchen, motstandarens
+  placering, inbordes moten, publik mot arenans snitt.
+- Uppstallningen med femmorna, backparet efter en avdelare.
+- Spelform per mal som utskriven tagg: 5v5, PP, BP, Straff, Tom bur.
+- Utvisning till utfall, med "Fyra mot fyra" nar bada lagen fick en samtidigt.
+- Momentumkurvan bar utvisningar som streck och malskyttens namn.
+- On-ice-listan hopfalld.
+
+Tva buggar hittade pa vagen, bada rattade:
+- Speltiden raknades som 20 minuter per period, sa en straffmatch blev 100
+  minuter lang och tiden i ledning nara dubbelt sa lang som den var.
+- Positionen slogs upp pa trojnummer. Oliwer Sjostrom bar 26 mot Almtuna och
+  star som 5 i sasongstabellen, sa en back visades som forward. Uppslaget gar
+  nu pa namn, med numret som reserv.
 
 Ej byggbart, dokumenterat:
 - **TOI, hits och blocks for utespelare finns inte.** Kolumnerna star i
   Swehockeys mall men ar tomma genom hela serien, i bade SHL och
   HockeyAllsvenskan. Se docstringen i `functions/game_report_parser.py`.
   Malvakternas speltid finns daremot, och anvands redan for exakt GAA.
+- **Elo-forandring per match** kraver att Elo persisteras. Se feature 21.
 
 ### 25. Utvarderat och nedprioriterat
 
@@ -838,6 +839,68 @@ i `sql/marts.sql` och samma `deploy.sh views`, med samma idempotens och utan
 migrationen. Ratt anledning att ta dbt ar tester och harstamning over hela
 lagret, inte en enskild feature.
 
+### 26. Hela seriens matcher, inte bara vara
+
+Typ: Feature / Data Engineering
+Prioritet: Hog
+Primart repo: `loven-stats-backend`
+Berorda omraden: `functions/swehockey_stats_scraper.py`, BigQuery, API
+
+Beskrivning:
+`core.schedule` och `core.standings` tacker redan hela serien — 364 matcher
+per sasong. Men `game_events`, `game_lineups`, `game_team_summary`,
+`game_goalies` och `game_boxscore` finns bara for vara ~52, for att
+`_team_games()` filtrerar pa lagnamnet. Vi vet alltsa hur alla matcher
+slutade men bara hur vara egna sag ut.
+
+Det avgorande for kostnaden: `_fetch_game_events`, `_fetch_game_summary` och
+`_fetch_game_goalies` laser **samma** sida via `_GAME_PAGES`-cachen. Att lagga
+till resten av serien kostar darfor **en request per match**, inte tre.
+Uppstallningen och matchrapporten i PDF behovs bara for vara egna spelare.
+
+| | idag | med hela serien |
+|---|---|---|
+| backfill | – | ~364 requests, en gang |
+| lopande | ~250 per dygn | +7 per dygn (nya matcher) |
+| rader per sasong | ~2 600 handelser | ~18 000 |
+
+Genomforande — tva nivaer:
+1. **Vara matcher**: oforandrat. Handelser, uppstallning, summering,
+   malvakter, PDF-rapport, och omhamtning inom `REFRESH_DAYS`.
+2. **Ovriga lags matcher**: bara handelsesidan, hamtad **en gang, utan
+   omhamtning**.
+
+Fallgropen ar punkt 2. `REFRESH_DAYS = 21` galler idag allt vi hamtar; laggs
+hela serien in med samma policy hamnar ~150 matcher i omhamtningsfonstret, och
+med taket pa 20 per korning roterar de. Vara egna matcher skulle da inte
+langre rattas i tid — vilket ar hela skalet till att omhamtningen finns.
+
+Backfillen behover ingen ny infrastruktur: `_SCRAPED_GAMES` gor att varje
+korning tar `events_limit` nya matcher och fortsatter dar den slutade. Fyra
+korningar per dygn ganger tjugo ar klart pa fem dagar. Funktionen har 300
+sekunders timeout, sa det maste ske i portioner anda.
+
+Vad det ger:
+- Riktiga ligafordelningar i stallet for harledda ur sasongstotaler. "Ar 30
+  skott mycket?" gar inte att svara pa idag.
+- Motstandarscouting: skottandel, PP och PDO for nasta motstandare.
+- Malvaktspercentiler over hela ligan, inte bara vara.
+- Underlaget for xG-light nar koordinatdata finns (feature 15).
+
+Vad det INTE ger:
+- Andra lags spelarniva — plus/minus, skott, tekningar. Det kraver
+  uppstallning och PDF per match, alltsa tre requests i stallet for en. Vi
+  behover det inte, och det ar skalet att halla nivaerna isar.
+
+Acceptanskriterier:
+- Handelser, lagsummering och malvakter finns for alla spelade matcher i
+  sasongen.
+- Vara egna matcher hamtas fortfarande om inom `REFRESH_DAYS`; ovrigas gor det
+  inte.
+- En korning ryms inom 300 sekunder aven mitt i backfillen.
+- Reconciliation-kontrollerna skiljer pa vara matcher och seriens, sa ett
+  larm pekar ut vilken niva som brister.
+
 ## Forsta tickets att skapa
 
 1. `DATA-001` Historisk sasongsbackfill for HA 2022/23-2024/25.
@@ -853,7 +916,7 @@ lagret, inte en enskild feature.
 10. `FEED-001` `marts.generated_events` med `event_key` och tre notistyper.
 11. `FEED-002` Nyheterna till BigQuery, som forutsattning for `FeedItem`.
 12. `FEED-003` `FeedItem`-kontrakt och en endpoint for hela flodet.
-13. `WEB-003` Boxscore per spelare pa matchrapporten, med harlett `+/-`.
+13. `DATA-003` Hela seriens matcher i tva nivaer; se feature 26.
 
 ## Beslutsregler
 
