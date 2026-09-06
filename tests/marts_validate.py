@@ -14,7 +14,8 @@ import duckdb, json, re, pathlib, sys
 
 con = duckdb.connect()
 for name in ("game_events","game_team_summary","game_goalies","game_lineups",
-             "player_season_stats","roster","schedule","standings"):
+             "player_season_stats","roster","schedule","standings",
+             "game_boxscore","player_bio"):
     rows = json.load(open(f"core_data/{name}.json"))
     con.execute(f"CREATE TABLE {name} AS SELECT * FROM read_json_auto(?)", [f"core_data/{name}.json"])
     print(f"  {name:<22}{len(rows):>6} rader")
@@ -33,6 +34,8 @@ sql = re.sub(r"CREATE SCHEMA[^;]+;", "", sql)
 sql = sql.replace("SAFE_CAST", "TRY_CAST").replace("SPLIT(", "STRING_SPLIT(")
 sql = sql.replace("IFNULL(", "COALESCE(").replace("LOGICAL_OR(", "BOOL_OR(")
 sql = sql.replace("REGEXP_CONTAINS(", "REGEXP_MATCHES(")
+# BigQuery: DATE_DIFF(a, b, YEAR). DuckDB: date_diff('year', b, a).
+sql = re.sub(r"DATE_DIFF\((.+?),\s*(.+?),\s*YEAR\)", r"date_diff('year', \2, \1)", sql)
 # BigQuery REGEXP_EXTRACT ger fangstgruppen, DuckDB hela traffen
 sql = re.sub(r"REGEXP_EXTRACT\(([^,]+), ('[^']*')\)", r"REGEXP_EXTRACT(\1, \2, 1)", sql)
 sql = sql.replace("UNION DISTINCT", "UNION")

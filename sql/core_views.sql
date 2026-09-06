@@ -37,6 +37,12 @@ CREATE OR REPLACE VIEW `@PROJECT@.core.game_lineups` AS
 SELECT * FROM `@PROJECT@.raw_sports.swehockey_game_lineups`
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 
+-- Spelarstatistik ur matchrapporten: skott, tekningar, officiellt +/- och
+-- målvakternas speltid. Skrivs bara när rapportens ETag ändrats.
+CREATE OR REPLACE VIEW `@PROJECT@.core.game_boxscore` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_game_boxscore`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
+
 -- --------------------------------------------------------- ögonblicksbilder --
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.schedule` AS
@@ -57,6 +63,12 @@ QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id);
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.roster` AS
 SELECT * FROM `@PROJECT@.raw_sports.swehockey_roster`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id);
+
+-- Födelsedatum, position och kaptensbindel ur trupprapporten. Innehållet är
+-- per lag och säsong, så det behandlas som en ögonblicksbild.
+CREATE OR REPLACE VIEW `@PROJECT@.core.player_bio` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_player_bio`
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id);
 
 -- Säsongsregistret skrivs med MERGE, inte append. Det behöver ingen

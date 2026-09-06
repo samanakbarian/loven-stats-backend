@@ -72,20 +72,38 @@ WITH src AS (
          games_played
   FROM `@PROJECT@.core.roster`
   WHERE player_name IS NOT NULL
+),
+bio AS (
+  -- Fodelsedatum och kaptensbindel finns bara i trupprapportens PDF. Aldern
+  -- raknas mot sasongens slut sa den inte tickar mitt i tabellen.
+  SELECT TRIM(REGEXP_REPLACE(player_name, '[* ]+$', '')) AS player_key,
+         ANY_VALUE(birthdate) AS birthdate,
+         LOGICAL_OR(is_captain) AS is_captain,
+         LOGICAL_OR(is_assistant_captain) AS is_assistant_captain,
+         ANY_VALUE(position) AS detailed_position
+  FROM `@PROJECT@.core.player_bio`
+  WHERE player_name IS NOT NULL
+  GROUP BY player_key
 )
-SELECT player_key,
-       player_key AS player_name,
-       ANY_VALUE(team_name) AS team_key,
-       ANY_VALUE(jersey_number) AS jersey_number,
-       ANY_VALUE(position) AS position,
-       LOGICAL_OR(is_transfer) AS has_transferred,
-       COUNT(DISTINCT team_name) AS teams_in_season
+SELECT s.player_key,
+       s.player_key AS player_name,
+       ANY_VALUE(s.team_name) AS team_key,
+       ANY_VALUE(s.jersey_number) AS jersey_number,
+       ANY_VALUE(s.position) AS position,
+       ANY_VALUE(b.detailed_position) AS detailed_position,
+       ANY_VALUE(b.birthdate) AS birthdate,
+       DATE_DIFF(CURRENT_DATE(), ANY_VALUE(SAFE_CAST(b.birthdate AS DATE)), YEAR) AS age,
+       IFNULL(LOGICAL_OR(b.is_captain), FALSE) AS is_captain,
+       IFNULL(LOGICAL_OR(b.is_assistant_captain), FALSE) AS is_assistant_captain,
+       LOGICAL_OR(s.is_transfer) AS has_transferred,
+       COUNT(DISTINCT s.team_name) AS teams_in_season
 FROM (
   SELECT * FROM src
   QUALIFY ROW_NUMBER() OVER (PARTITION BY player_key, team_name
                              ORDER BY games_played DESC) = 1
-)
-GROUP BY player_key;
+) s
+LEFT JOIN bio b ON b.player_key = s.player_key
+GROUP BY s.player_key;
 
 -- Matcherna. Schemat täcker hela serien, inte bara våra matcher, så
 -- dimensionen är konform för alla lag.
@@ -200,18 +218,32 @@ ev_team AS (
   )
   GROUP BY game_id, player_key
 ),
+-- Matchrapportens egna tal: skott och tekningar finns ingen annanstans, och
+-- plus/minus ar Swehockeys officiella. Det skiljer sig fran vart on-ice-tal
+-- med ungefar sexton procent — se dokumentationen — sa de star bredvid
+-- varandra i stallet for att ersatta varandra.
+box AS (
+  SELECT game_id, player_name AS player_key, team_name,
+         shots, official_plus_minus, faceoffs_won, faceoffs_lost, faceoff_pct,
+         pim AS official_pim
+  FROM `@PROJECT@.core.game_boxscore`
+  WHERE role = 'skater' AND player_name IS NOT NULL
+),
 keys AS (
   SELECT game_id, season_group_id, player_key FROM scoring
   UNION DISTINCT SELECT game_id, season_group_id, player_key FROM penalties
   UNION DISTINCT SELECT game_id, season_group_id, player_key FROM on_for
   UNION DISTINCT SELECT game_id, season_group_id, player_key FROM on_against
   UNION DISTINCT SELECT game_id, season_group_id, player_key FROM lineup
+  UNION DISTINCT SELECT b.game_id, l.season_group_id, b.player_key
+    FROM box b JOIN (SELECT DISTINCT game_id, season_group_id FROM lineup) l
+      USING (game_id)
 )
 SELECT
   k.game_id,
   k.season_group_id,
   k.player_key,
-  COALESCE(ANY_VALUE(lu.team_name), ANY_VALUE(et.team_name)) AS team_key,
+  COALESCE(ANY_VALUE(lu.team_name), ANY_VALUE(bx.team_name), ANY_VALUE(et.team_name)) AS team_key,
   IFNULL(SUM(s.goals), 0) AS goals,
   IFNULL(SUM(s.assists), 0) AS assists,
   IFNULL(SUM(s.goals), 0) + IFNULL(SUM(s.assists), 0) AS points,
@@ -220,6 +252,14 @@ SELECT
   IFNULL(ANY_VALUE(f.gf_on), 0) AS gf_on,
   IFNULL(ANY_VALUE(a.ga_on), 0) AS ga_on,
   IFNULL(ANY_VALUE(f.gf_on), 0) - IFNULL(ANY_VALUE(a.ga_on), 0) AS plus_minus_on_ice,
+  ANY_VALUE(bx.shots) AS shots,
+  ANY_VALUE(bx.official_plus_minus) AS official_plus_minus,
+  ANY_VALUE(bx.faceoffs_won) AS faceoffs_won,
+  ANY_VALUE(bx.faceoffs_lost) AS faceoffs_lost,
+  ANY_VALUE(bx.faceoff_pct) AS faceoff_pct,
+  -- Sant nar matchrapporten finns. Sasongens forsta matcher saknar den, och
+  -- da ar skott och tekningar NULL — inte noll.
+  MAX(bx.player_key IS NOT NULL) AS has_report,
   -- "stod i uppstallningen", inte "spelade". Swehockeys uppstallningssida
   -- listar 20-22 spelare per lag och match dar 22 klatt om, och utelamnar
   -- ibland malvakten. Anvand fact_player_season.games_played som facit for
@@ -232,6 +272,7 @@ LEFT JOIN on_for     f ON f.game_id = k.game_id AND f.player_key = k.player_key
 LEFT JOIN on_against a ON a.game_id = k.game_id AND a.player_key = k.player_key
 LEFT JOIN lineup    lu ON lu.game_id = k.game_id AND lu.player_key = k.player_key
 LEFT JOIN ev_team   et ON et.game_id = k.game_id AND et.player_key = k.player_key
+LEFT JOIN box       bx ON bx.game_id = k.game_id AND bx.player_key = k.player_key
 GROUP BY k.game_id, k.season_group_id, k.player_key;
 
 -- Lag x match: skott, räddningar, utvisningar och PDO ur matchrapporten,
@@ -262,8 +303,14 @@ SELECT
   COALESCE(l.team_name, k.team_code) AS team_key,
   k.goalie_number AS jersey_number,
   k.shots_against, k.saves, k.goals_against, k.save_pct,
+  b.time_on_ice,
+  b.shutout,
   g.match_date
 FROM `@PROJECT@.core.game_goalies` k
+LEFT JOIN (
+  SELECT game_id, player_name, time_on_ice, shutout
+  FROM `@PROJECT@.core.game_boxscore` WHERE role = 'goalie'
+) b ON b.game_id = k.game_id AND b.player_name = k.goalie_name
 LEFT JOIN `@PROJECT@.core.game_lineups` l
   ON l.game_id = k.game_id AND l.player_name = k.goalie_name AND l.block = 'goalie'
 LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = k.game_id;
