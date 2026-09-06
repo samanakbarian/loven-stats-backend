@@ -8,6 +8,7 @@
 #   bash deploy.sh api        # bara API:t
 #   bash deploy.sh scraper    # bara scrapern
 #   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
+#   bash deploy.sh schedule   # sätt schemaläggningen, utan deploy
 #   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
 #
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
@@ -59,6 +60,49 @@ sin inloggning när sessionen startades om. Starta om Cloud Shell (menyn uppe
 till höger → Restart) och kör samma kommando igen. Hjälper inte det:
 
   gcloud auth login"
+fi
+
+if [[ "$TARGET" == "schedule" ]]; then
+  # Swehockey publicerar matchrapporten en kvart till tre kvart efter
+  # slutsignal. Matt over arton matcher lag rapporten uppe 137-195 minuter
+  # efter nedslapp. Med avslag 15:15, 16:00, 19:00 och 20:30 ger det:
+  #
+  #   18:30  eftermiddagsmatcherna ar inne
+  #   22:30  kvallsmatcherna (19:00-avslag) ar inne
+  #   00:30  sena avslag och matcher som drog ut
+  #   07:30  rattelser som kom under natten, och tabellen infor dagen
+  #
+  # Veckokorningen den ersatter lamnade en tisdagsmatch osedd i sex dygn.
+  # Fyra korningar kostar nastan ingenting nu nar matchsidorna hamtas
+  # inkrementellt: en korning utan nya matcher ror bara schema, tabell och
+  # spelarstatistik.
+  CRON="${SCRAPER_CRON:-30 0,7,18,22 * * *}"
+  FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/swehockey-stats-scraper"
+  say "Sätter schemat: $CRON (Europe/Stockholm)"
+  if gcloud scheduler jobs describe swehockey-stats-scraper-job \
+       --location "$REGION" >/dev/null 2>&1; then
+    gcloud scheduler jobs update http swehockey-stats-scraper-job \
+      --location "$REGION" \
+      --schedule "$CRON" \
+      --time-zone "Europe/Stockholm" \
+      --uri "$FN_URL" \
+      --http-method GET \
+      --attempt-deadline 320s \
+      --quiet
+  else
+    gcloud scheduler jobs create http swehockey-stats-scraper-job \
+      --location "$REGION" \
+      --schedule "$CRON" \
+      --time-zone "Europe/Stockholm" \
+      --uri "$FN_URL" \
+      --http-method GET \
+      --attempt-deadline 320s \
+      --quiet
+  fi
+  gcloud scheduler jobs describe swehockey-stats-scraper-job --location "$REGION" \
+    --format='value[separator="  "](schedule, timeZone, state, scheduleTime)'
+  say "Klart"
+  exit 0
 fi
 
 if [[ "$TARGET" == "restore-env" ]]; then
@@ -183,6 +227,11 @@ print('  status:', d.get('status','?'))
 for k,v in (d.get('types') or {}).items():
     mark='ok ' if v.get('ok') else 'FEL'
     print(f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\")
+for c in (d.get('reconciliation') or []):
+    ok = c.get('ok')
+    mark = 'ok ' if ok else ('  ?' if ok is None else 'AVVIKER')
+    extra = '' if ok else f\"  {c.get('observed')} mot {c.get('expected')}  {c.get('note','')}\"
+    print(f\"    {mark} {c['name']}{extra}\")
 " || true
 fi
 
@@ -203,6 +252,11 @@ for k,v in (d.get('types') or {}).items():
     line=f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade\"
     if v.get('error'): line += '  ' + str(v['error'])[:70]
     print(line)
+for c in (d.get('reconciliation') or []):
+    ok = c.get('ok')
+    mark = 'ok ' if ok else ('  ?' if ok is None else 'AVVIKER')
+    extra = '' if ok else f\"  {c.get('observed')} mot {c.get('expected')}  {c.get('note','')}\"
+    print(f\"    {mark} {c['name']}{extra}\")
 " || true
   say "Klart"
   exit 0

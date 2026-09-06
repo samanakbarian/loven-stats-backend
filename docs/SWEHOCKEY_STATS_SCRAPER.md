@@ -71,15 +71,90 @@ gcloud functions deploy swehockey-stats-scraper \
   --set-env-vars="GCP_PROJECT=granskaren-d51a1,GCS_BUCKET=loven-stats-raw-data-prod,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961"
 ```
 
-## Scheduler (veckovis, Stockholm)
+## Scheduler: fyra körningar om dygnet
 
 ```bash
-gcloud scheduler jobs create http swehockey-stats-scraper-job \
-  --location=europe-west1 \
-  --schedule="0 6 * * 1" \
-  --time-zone="Europe/Stockholm" \
-  --uri="https://europe-west1-granskaren-d51a1.cloudfunctions.net/swehockey-stats-scraper" \
-  --http-method=GET
+bash deploy.sh schedule    # sätter eller uppdaterar jobbet
+```
+
+Schemat är `30 0,7,18,22 * * *` i Europe/Stockholm:
+
+| tid | vad den fångar |
+|---|---|
+| 18:30 | eftermiddagsmatcher (avslag 15:15–16:00) |
+| 22:30 | kvällsmatcher (avslag 19:00) |
+| 00:30 | sena avslag och matcher som drog ut |
+| 07:30 | rättelser som kom under natten, och tabellen inför dagen |
+
+### Varför just de tiderna
+
+Swehockey publicerar matchrapporten en stund efter slutsignal. Mätt över arton
+matcher i HA 25/26, ur sidornas egna `Last update`-stämplar, låg rapporten uppe
+**137–195 minuter efter nedsläpp** — ungefär en kvart till tre kvart efter
+slutsignal. Åtta av matcherna fick dessutom senare rättelser, oftast inom en
+vecka, i ett fall efter sexton dagar.
+
+Med avslag 15:15, 16:00, 19:00 och 20:30 räcker det alltså med en körning
+runt tre timmar efter varje vanligt avslag. Det tidigare schemat var
+`0 6 * * 1` — en gång i veckan, måndag morgon. En tisdagsmatch hann bli sex
+dygn gammal innan siffrorna dök upp.
+
+Fyra körningar kostar nästan ingenting nu när matchsidorna hämtas
+inkrementellt: en körning utan nya matcher rör bara schema, tabell,
+spelarstatistik och trupp.
+
+## Inkrementell hämtning
+
+Matchsidorna (`/Game/Events/`, `/Game/LineUps/`) hämtas en match i taget och är
+det enda som skalar med antalet matcher. Körningen frågar därför först
+BigQuery vilka `game_id` som redan finns:
+
+```sql
+SELECT DISTINCT game_id FROM swehockey_game_events WHERE season_group_id IN (...)
+```
+
+och hämtar bara
+
+- matcher som saknas, och
+- matcher spelade inom `SWEHOCKEY_REFRESH_DAYS` (21 dagar), eftersom rapporten
+  kan ha rättats i efterhand.
+
+`events_limit` är kvar som säkerhetsventil, inte som urvalsregel.
+`?events_limit=all` stänger av filtret helt och tar säsongens alla matcher —
+det är vad backfill gör.
+
+Tabellerna är append-only. Utan filtret hämtades de tjugo senaste matcherna om
+vid varje körning, och varje körning la till ännu en generation av samma rader.
+
+## Avstämning efter varje körning
+
+Kvalitetsgrinden kontrollerar **form**: att rader finns, att fält är ifyllda,
+att nycklar är unika. Den säger ingenting om **värden**. När utvisningarna
+tredubblades var varje rad välformad — det fanns bara tre generationer av dem,
+och en läsning som glömt avduplicera summerade alla tre.
+
+`_reconcile()` jämför i stället tal som måste gå ihop, hämtade från olika håll
+i datalagret:
+
+| kontroll | jämför |
+|---|---|
+| `events_goals_match_results` | mål i händelselistan mot mål i matchresultaten |
+| `summary_two_rows_per_game` | matchsammanfattningen ska ha två lagrader per match |
+| `goalie_saves_plus_goals_equal_shots` | räddningar + insläppta = skott emot |
+| `penalties_events_match_summary` | händelsernas utvisningsminuter mot rapportens PIM |
+| `summary_shots_match_goalie_shots_against` | lagens skott mot målvakternas skott emot |
+
+Avstämningen **fäller aldrig en körning** — datat är redan skrivet när den
+körs. Avvikelser hamnar i svaret (`reconciliation`, `reconciliation_failed`), i
+`raw_ops.ingestion_runs` och som `ERROR` i Cloud Logging. `deploy.sh scraper`
+och `deploy.sh backfill` skriver ut dem.
+
+Larma på detta i Cloud Logging:
+
+```
+resource.type="cloud_run_revision"
+severity=ERROR
+textPayload:"Avstamningen gick inte ihop"
 ```
 
 ## dbt
