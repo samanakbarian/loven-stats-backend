@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -561,9 +562,42 @@ _LINEUP_PAGES: dict[int, str] = {}
 _SCRAPED_GAMES: set[int] = set()
 
 
+# Vad varje match redan har for innehall, per tabell: (tabell, game_id) -> hash.
+# Ar hashen oforandrad skrivs matchen inte om.
+_GAME_HASHES: dict[tuple[str, int], str] = {}
+
+# Tabeller som hamtas match for match och darmed kan hoppas over per match.
+_GAME_TABLES = (
+    "swehockey_game_events",
+    "swehockey_game_summary",
+    "swehockey_game_goalies",
+    "swehockey_game_lineups",
+)
+
+
+_LINEAGE_FIELDS = frozenset({"scraped_at", "run_id", "source_url", "content_hash"})
+
+
+def _content_hash(rows: list[dict[str, Any]]) -> str:
+    """Fingeravtryck av en matchs rader, utan harstamningsfalt.
+
+    scraped_at, run_id och source_url satts vid laddningen och skiljer sig at
+    mellan korningar aven nar innehallet ar identiskt. De far darfor inte ingaa
+    — annars vore varje hash unik och kontrollen meningslos.
+    """
+    payload = [
+        {k: v for k, v in row.items() if k not in _LINEAGE_FIELDS}
+        for row in rows
+    ]
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
+
 def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
-    """Vilka matcher som redan finns, sa de inte hamtas om i onodan."""
+    """Vad som redan finns i datalagret: vilka matcher, och med vilket innehall."""
     _SCRAPED_GAMES.clear()
+    _GAME_HASHES.clear()
     ids = ",".join(str(int(s)) for s in season_ids if str(s).isdigit())
     if not ids:
         return
@@ -580,6 +614,43 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
     except Exception:
         # Utan svar hamtar vi hellre for mycket an for lite.
         logging.warning("Kunde inte lasa befintliga matcher", exc_info=True)
+
+    # Hashen for den senaste generationen av varje match. Tabeller som annu
+    # saknar kolumnen ger ett fel har; da star ordboken tom for den tabellen
+    # och matcherna skrivs om en gang till, varpa kolumnen finns.
+    for table in _GAME_TABLES:
+        try:
+            rows = client.query(
+                f"""
+                SELECT game_id,
+                       ARRAY_AGG(content_hash ORDER BY scraped_at DESC LIMIT 1)[OFFSET(0)] AS h
+                FROM `{client.project}.{BQ_DATASET}.{table}`
+                WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL
+                GROUP BY game_id
+                """
+            ).result()
+            for r in rows:
+                if r["h"]:
+                    _GAME_HASHES[(table, int(r["game_id"]))] = str(r["h"])
+        except Exception as exc:
+            logging.info("Ingen hash att jamfora mot i %s: %s", table, str(exc)[:120])
+
+
+def _unchanged(table: str, game_id: int, rows: list[dict[str, Any]]) -> bool:
+    """Sant nar matchens innehall ar identiskt med det som redan ligger inne.
+
+    Tabellerna ar append-only. En omhamtning som skriver samma rader igen ger
+    en ny generation som avdupliceringen sedan maste sortera bort — talen blir
+    ratt, men bara sa lange varje lasning kommer ihag att avduplicera. Med fyra
+    korningar om dygnet i tjugoen dagar hade en match kunnat fa atttiofyra
+    generationer. Skriv darfor bara nar rapporten faktiskt andrats.
+    """
+    h = _content_hash(rows)
+    if _GAME_HASHES.get((table, game_id)) == h:
+        return True
+    for row in rows:
+        row["content_hash"] = h
+    return False
 
 
 def _team_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]:
@@ -658,6 +729,8 @@ def _fetch_game_lineups(season_group_id: str, limit: int | None = None) -> tuple
             r["season_group_id"] = int(season_group_id)
             r["match_date"] = game.get("match_date")
             r["source"] = SOURCE
+        if _unchanged("swehockey_game_lineups", int(game["game_id"]), rows):
+            continue
         out.extend(rows)
     return out, f"{BASE_URL}/Game/LineUps/"
 
@@ -678,11 +751,14 @@ def _fetch_game_summary(season_group_id: str, limit: int | None = None) -> tuple
         except Exception:
             logging.exception("Kunde inte tolka sammanfattning for match %s", game["game_id"])
             continue
-        for row in summary["teams"]:
+        teams = summary["teams"]
+        for row in teams:
             row["season_group_id"] = int(season_group_id)
             row["match_date"] = game.get("match_date")
             row["source"] = SOURCE
-            out.append(row)
+        if _unchanged("swehockey_game_summary", int(game["game_id"]), teams):
+            continue
+        out.extend(teams)
     return out, f"{BASE_URL}/Game/Events/"
 
 
@@ -702,13 +778,16 @@ def _fetch_game_goalies(season_group_id: str, limit: int | None = None) -> tuple
         except Exception:
             logging.exception("Kunde inte tolka malvakter for match %s", game["game_id"])
             continue
-        for row in summary["goalies"]:
+        keepers = summary["goalies"]
+        for row in keepers:
             row["season_group_id"] = int(season_group_id)
             row["match_date"] = game.get("match_date")
             row["home_team"] = summary["teams"][0].get("team_name")
             row["away_team"] = summary["teams"][1].get("team_name")
             row["source"] = SOURCE
-            out.append(row)
+        if _unchanged("swehockey_game_goalies", int(game["game_id"]), keepers):
+            continue
+        out.extend(keepers)
     return out, f"{BASE_URL}/Game/Events/"
 
 
@@ -729,6 +808,7 @@ def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[
     ours = _team_games(season_group_id, limit)
     out: list[dict[str, Any]] = []
     failures = 0
+    skipped = 0
     for game in ours:
         gid = int(game["game_id"])
         html = _game_html(gid)
@@ -745,10 +825,15 @@ def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[
             r["season_group_id"] = int(season_group_id)
             r["match_date"] = game.get("match_date")
             r["source"] = SOURCE
+        if _unchanged("swehockey_game_events", gid, rows):
+            skipped += 1
+            continue
         out.extend(rows)
 
     if failures:
         logging.warning("Handelser saknas for %s av %s matcher", failures, len(ours))
+    if skipped:
+        logging.info("Handelser oforandrade for %s av %s matcher", skipped, len(ours))
     return out, f"{BASE_URL}/Game/Events/"
 
 
@@ -1214,10 +1299,10 @@ def run_swehockey_stats_scraper(request):
         active_season_ids = [SWEHOCKEY_SEASON_GROUP_ID]
     
     active_season_ids = sorted(set(active_season_ids), key=int)
-    # Backfill hamtar allt; en vanlig korning bara det som saknas eller kan ha
-    # rattats, och behover darfor veta vad som redan finns.
-    if events_limit is not None:
-        _load_scraped_games(bq_client, active_season_ids)
+    # Backfill hamtar alla matchsidor; en vanlig korning bara de som saknas
+    # eller kan ha rattats. Bada behover veta vad som redan ligger inne — aven
+    # backfill, som annars hade skrivit om en hel sasong identiskt.
+    _load_scraped_games(bq_client, active_season_ids)
     run_logger = BigQueryRunLogger(bq_client)
     run_id = run_logger.start_run(
         pipeline_name=PIPELINE_NAME,

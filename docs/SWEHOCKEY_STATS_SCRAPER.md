@@ -123,8 +123,37 @@ och hämtar bara
 `?events_limit=all` stänger av filtret helt och tar säsongens alla matcher —
 det är vad backfill gör.
 
-Tabellerna är append-only. Utan filtret hämtades de tjugo senaste matcherna om
-vid varje körning, och varje körning la till ännu en generation av samma rader.
+### Skriv bara när rapporten faktiskt ändrats
+
+Tabellerna är append-only, så en omhämtning **lägger till** rader — den ersätter
+inga. Att bara begränsa vilka matcher som hämtas räcker därför inte: med fyra
+körningar om dygnet i 21 dagar hade varje match kunnat få 84 generationer av
+samma rader. Talen hade blivit rätt ändå, eftersom läsningarna deduplicerar på
+`MAX(scraped_at)`, men bara så länge varje läsning kommer ihåg det. Det var
+precis det antagandet som brast när utvisningarna tredubblades.
+
+Varje match får därför en `content_hash`: en SHA-1 över matchens parsade rader,
+per tabell, med härstamningsfälten (`scraped_at`, `run_id`, `source_url`)
+undantagna. Körningen läser hashen för den senaste generationen
+
+```sql
+SELECT game_id,
+       ARRAY_AGG(content_hash ORDER BY scraped_at DESC LIMIT 1)[OFFSET(0)] AS h
+FROM <tabell> WHERE season_group_id IN (...) GROUP BY game_id
+```
+
+och hoppar över matchen om den nya hämtningen ger samma hash. En match som inte
+ändrats kostar alltså en HTTP-hämtning men noll rader. Antalet generationer per
+match blir därmed antalet gånger Swehockey faktiskt rättat rapporten — mätt över
+en säsong en till tre, inte 84.
+
+Det gäller även backfill: en omkörning mot en avslutad säsong skriver bara de
+matcher vars innehåll skiljer sig, vilket är exakt vad man vill efter en
+parserrättning.
+
+Första körningen efter driftsättning saknar kolumnen `content_hash` i
+tabellerna. Hash-frågan misslyckas då, loggas som `INFO`, och matcherna skrivs
+om en gång — varpå kolumnen finns och nästa körning kan jämföra.
 
 ## Avstämning efter varje körning
 
