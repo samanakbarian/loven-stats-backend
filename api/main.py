@@ -2008,6 +2008,12 @@ def get_lines(season: str = None, refresh: bool = False):
                 "players": [name for name, _ in roster.most_common(6)],
             })
 
+        # Hur manga spelare som roterat in utover de tjugo som listas. Raknas
+        # over distinkta namn — samma back har ofta hoppat in i flera femmor,
+        # och en summa av radernas `rotated` hade raknat honom en gang per rad.
+        listed = {name for row in lines for name in row["forwards"] + row["defence"]}
+        everyone = {name for n in tally for name in members.get(n, Counter())}
+
         return {
             "status": "ok",
             "season": active["name"],
@@ -2018,6 +2024,7 @@ def get_lines(season: str = None, refresh: bool = False):
                 "goals_against": sum(v["ga"] for v in tally.values()),
                 "without_line_for": unattributed["for"],
                 "without_line_against": unattributed["against"],
+                "rotated_players": len(everyone - listed),
             },
         }
     except Exception as e:
