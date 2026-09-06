@@ -536,3 +536,23 @@ regressioner.
 
 **Efter en ändring av sorteringsordningen måste facit tas om** — den gamla
 ordningen var godtycklig, så den nya är inte jämförbar rad för rad med den.
+
+### Vad facit täcker
+
+Tio listendpoints plus två enskilda uppslag:
+
+- `/api/v1/player/{namn}` — en spelares säsongsrad, percentiler, EP-länk och
+  matchlogg. Facit använder Dower Nilsson, som med 57 poäng rör flest
+  kodvägar.
+- `/api/v1/match/{game_id}` — en matchrapport: mål med spelarna på isen,
+  utvisningar, periodresultat, publik och tröjnummeruppslaget.
+
+Matchen är `1005615`, Mora–Björklöven 1–2, vald med flit. Den första
+versionen använde `1005612` — MoDo–Östersund, en match vi inte har händelser
+för, eftersom scrapern bara hämtar lagets egna matcher. Facit provade alltså
+bara tomvägen: `counts: {events: 0, goals: 0, penalties: 0}`. En sådan
+kontroll hade sagt grönt även om hela händelseparsningen slutat fungera.
+
+`1005615` har tretton händelser, fyra utvisningar och tre mål — inklusive det
+straffavgörande 65:00-målet som parsern tappade förut. Går det sönder igen
+syns det direkt.

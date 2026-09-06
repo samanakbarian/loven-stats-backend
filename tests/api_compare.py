@@ -26,7 +26,11 @@ ENDPOINTS = [
     "/api/v1/statistics?season=ha_2526&refresh=1",
     "/api/v1/lovenlaget",
     "/api/v1/player/Dower%20Nilsson,%20Liam?season=ha_2526&refresh=1",
-    "/api/v1/match/1005612",
+    # Mora-Bjorkloven 1-2, avgjord pa straffar. Vald med flit: 1005612 var
+    # MoDo-Ostersund, en match vi inte har handelser for, sa facit provade
+    # bara tomvagen. Den har har bade mal, utvisningar, on-ice och det
+    # straffavgorande malet som parsern tidigare tappade.
+    "/api/v1/match/1005615",
 ]
 
 # Falt som skiljer sig mellan tva identiska anrop, eller som andras av sig
