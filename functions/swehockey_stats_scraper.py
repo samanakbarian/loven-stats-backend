@@ -1148,9 +1148,9 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
     # Fangar bade dubbletter, tappade matcher och parserfel — det var precis
     # sa fjorton tomma-mal-mal upptacktes saknas.
     #
-    # Ett undantag: en match som avgjorts pa straffar far ett mal i resultatet
-    # som aldrig star i handelselistan. Sadana matcher har fem periodresultat
-    # i stallet for tre eller fyra, och draget bort har.
+    # Kontrollen drog forst bort ett mal for varje match avgjord pa straffar,
+    # eftersom avgorandet inte fanns i handelselistan. Parsern plockar upp det
+    # numera, sa avdraget gjorde kontrollen fel at andra hallet: 289 mot 283.
     _run(
         "events_goals_match_results",
         f"""
@@ -1168,8 +1168,6 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
             SELECT SUM(
                 CAST(REGEXP_EXTRACT(a.result, r'^\\s*(\\d+)') AS INT64)
                 + CAST(REGEXP_EXTRACT(a.result, r'-\\s*(\\d+)') AS INT64)
-                -- fem periodresultat = forlangning plus straffar
-                - IF(ARRAY_LENGTH(SPLIT(IFNULL(a.period_results, ''), ',')) >= 5, 1, 0)
             ) AS n
             FROM `{proj}.{BQ_DATASET}.swehockey_schedule` a
             INNER JOIN (
@@ -1185,7 +1183,7 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
         )
         SELECT (SELECT n FROM ev) AS a, (SELECT n FROM sc) AS b
         """,
-        "mal i handelserna mot mal i matchresultaten, straffavgoranden borträknade",
+        "mal i handelserna mot mal i matchresultaten",
     )
 
     # Skottsammanfattningen ska ha tva rader per match, en per lag.
@@ -1259,7 +1257,11 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
     )
 
     # Lagets skott i sammanfattningen ar motstandarmalvaktens skott emot.
-    # Tva tabellers oberoende talserier som maste ge samma summa.
+    #
+    # Nastan. Ett skott i tomt mal raknas for laget men mot ingen malvakt, sa
+    # skillnaden per match ar exakt antalet mal i tomt mal. Matt over HA 25/26:
+    # tretton matcher med skillnad, alla tretton med tomma-mal-mal, och
+    # skillnaden lika med antalet sadana mal i var och en.
     _run(
         "summary_shots_match_goalie_shots_against",
         f"""
@@ -1284,11 +1286,22 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
             ) k ON a.game_id = k.g AND a.scraped_at = k.m
             WHERE a.season_group_id IN ({ids})
             GROUP BY a.game_id
+        ),
+        eng AS (
+            SELECT e.game_id, COUNTIF(e.is_empty_net) AS n
+            FROM `{proj}.{BQ_DATASET}.swehockey_game_events` e
+            INNER JOIN (
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
+                WHERE season_group_id IN ({ids}) GROUP BY game_id
+            ) k ON e.game_id = k.g AND e.scraped_at = k.m
+            WHERE e.season_group_id IN ({ids}) AND e.event_type = 'goal'
+            GROUP BY e.game_id
         )
-        SELECT COUNTIF(su.n <> gk.n) AS a, 0 AS b
-        FROM su INNER JOIN gk USING (game_id)
+        SELECT COUNTIF(su.n - gk.n <> IFNULL(eng.n, 0)) AS a, 0 AS b
+        FROM su INNER JOIN gk USING (game_id) LEFT JOIN eng USING (game_id)
         """,
-        "matcher dar lagens skott inte stammer med malvakternas skott emot",
+        "matcher dar skott minus malvakternas skott emot inte ar antalet mal i tomt mal",
     )
 
     return checks

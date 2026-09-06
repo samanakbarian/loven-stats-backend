@@ -447,3 +447,24 @@ för HA 25/26, Björklövens 33 utespelare:
 uppställningssida listar 20–22 spelare per lag där 22 klätt om, och utelämnar
 ibland målvakten. Använd `fact_player_season.games_played` för antal spelade
 matcher.
+
+### Vad avstämningen faktiskt fångade
+
+Första skarpa körningen gav två avvikelser. Båda var riktiga, och den ena var
+kontrollens eget fel:
+
+**`events_goals_match_results` 289 mot 283.** Kontrollen drog bort ett mål för
+varje match avgjord på straffar, eftersom avgörandet inte fanns i
+händelselistan. Sedan lärde sig parsern att läsa `Game Winning Shot` — och då
+räknades målen bort två gånger. Avdraget är borttaget.
+
+**`summary_shots_match_goalie_shots_against` 13 mot 0.** Inte ett fel: ett
+skott i tomt mål räknas för laget men mot ingen målvakt. Skillnaden per match
+är exakt antalet mål i tomt mål. Mätt över HA 25/26: tretton matcher med
+skillnad, alla tretton med tomma-mål-mål, och skillnaden lika med antalet
+sådana mål i var och en. Kontrollen jämför nu mot det talet i stället för mot
+noll.
+
+Poängen med en avstämning är just det här — den påstår ingenting om att datat
+är rätt, den visar var två oberoende tal inte går ihop, och sedan får man
+förklara varför.
