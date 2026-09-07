@@ -33,6 +33,17 @@ Verifierad implementationsstatus och arkitekturgap finns i
   är vanlig SQL i `sql/core_views.sql` och `sql/marts.sql`, deployad med
   `deploy.sh views`. Planera aldrig en feature som *förutsätter* dbt utan att
   först ta migrationen som eget arbete — se feature 25.
+- **Säkerhetsgenomgång 2026-09-07.** API:t har 28 endpoints och **noll
+  skrivande** — inga POST, PUT, DELETE eller PATCH. Blastradien är därmed
+  kostnad och tillgänglighet, aldrig dataintegritet. Ingen SQL-injektion:
+  `season` går genom `ScalarQueryParameter`, `game_id` typas till `int` av
+  FastAPI, och `name` och `team_query` matchas i Python mot redan hämtade rader
+  utan att nå frågan. `sims` är kapat till 20 000. GCS-hinken svarar 403 på
+  publika läsningar. Inga hemligheter i frontendbygget.
+  Två fynd åtgärdades samma dag: `netlify/functions/financial-ai.js` låg live
+  som en oautentiserad AI-proxy mot Gemini med sajtens nyckel, och
+  `functions/find_team.py` bar en API-nyckel i klartext. Båda borttagna.
+  Kvar: se feature 32.
 - **Nyhetsflödet och silly season är två olika saker.** `bygg_nyhetsflode()`
   i `functions/silly_scraper.py` hämtar brett (fem Google News-frågor, 495 råa
   rubriker), märker upp ämne, skriver `raw/news/feed_latest.json` till GCS och
@@ -1197,6 +1208,12 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 22. `WEB-009` Ut med Recharts ur analysfliken; se feature 30. Efter premiaren.
 23. `FEED-004` Klipp pa spelarsidan; se feature 31. Efter premiaren. Fyller
     `links[]` for `kind: "player"` och ar darmed forsta halvan av feature 22.
+24. `SEC-001` Skydda `warmup`, `force=1` och `refresh=true`; satt instanstak pa
+    Cloud Run. Se feature 32. Efter premiaren.
+25. `WEB-010` Uppgradera react-router-dom fran 7.14.2. Tva "high"-radgivningar
+    galler ramverkslaget med serverrendering (`__manifest`-endpointen och CSRF
+    via PUT/PATCH pa dokumentanrop) och ar **inte exploaterbara** i en statisk
+    SPA pa Netlify. Hygien, inte bradska.
 
 ### 30. Ut med Recharts
 
@@ -1314,6 +1331,56 @@ Beroenden och fallgropar:
   och tjock i november.
 - Efternamn som ocksa ar vanliga ord ger falska traffar. Krav pa minst fyra
   tecken finns redan i matningen; det racker inte for alla namn.
+
+### 32. Skydda de dyra vägarna
+
+Typ: Hardening / Kostnadskontroll
+Prioritet: Medium — efter premiaren
+Primart repo: `loven-stats-backend`
+Berorda omraden: `api/main.py`, Cloud Scheduler
+
+Beskrivning:
+Sakerhetsgenomgangen 2026-09-07 hittade ingen lucka som ger nagon tillgang till
+data de inte redan kan lasa — API:t ar oautentiserat med flit och innehallet ar
+publikt. Det som daremot star oppet ar **kostnaden**.
+
+Tre vagar kostar pengar per anrop och kan aropas hur ofta som helst:
+
+- **`refresh=true` pa arton endpoints.** Gar forbi TTL-cachen, sa varje anrop
+  blir en BigQuery-fraga. Den dyraste kombinationen ar
+  `/api/v1/projection?sims=20000&refresh=true` — tjugotusen simuleringar per
+  anrop, utan cache.
+- **`GET /api/v1/warmup`.** Byggd 2026-09-07 for schemalaggaren. Ett anrop
+  utifran blir sju interna, alltsa en forstarkare.
+- **Nyhetsskordningens `?force=1`.** Byggd samma dag sa att en deploy ska kunna
+  tvinga fram en skord. Anropad i loop later den nagon tomma Google News
+  taktkvot — precis det fel vi ratta samma formiddag.
+
+Ingen har hittat nagot av det. Men Netlifys loggar visar att skannrar besoker
+sajten varje timme, och `/.netlify/functions/` visade sig vara en vag de redan
+provar.
+
+Saknas:
+- Ett delat hemligt varde mellan Cloud Scheduler och de tva
+  operationsvagarna (`warmup`, `force`), som en header. Bada anropas bara av
+  oss; ingen manniska behover dem.
+- Ett tak pa `refresh`. Enklast ar att lata den krava samma hemlighet — men da
+  tappar vi mojligheten att felsoka fran en webblasare. Alternativet ar en
+  enkel taktbegransning per IP i minnet, som racker mot slarv men inte mot en
+  medveten angripare.
+- Cloud Runs `--max-instances`, som ar det enda som satter ett tak i kronor
+  oavsett vad som slapper igenom.
+
+Acceptanskriterier:
+- `warmup` och `force=1` svarar 403 utan ratt hemlighet.
+- Schemalaggarjobben fortsatter fungera.
+- `refresh=true` gar inte att anropa obegransat.
+- Cloud Run har ett instanstak.
+- Ingen av andringarna kraver att frontend andras.
+
+Avgransning:
+- Autentisering pa lasvagarna ar **inte** aktuellt. Datan ar publik, sajten ar
+  gratis, och en nyckel i frontendbundlen ar ingen nyckel.
 
 ## Beslutsregler
 
