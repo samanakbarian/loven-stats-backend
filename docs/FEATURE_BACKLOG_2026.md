@@ -1194,6 +1194,57 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 20. `WEB-007` Utvardera Text-TV-lagen efter fem spelade omgangar; se feature 29.
 21. `WEB-008` Skrivbordsanpassning: maxbredd, tvakolumnslage, en typskala som
     vaxer. Efter att designriktningen ar vald.
+22. `WEB-009` Ut med Recharts ur analysfliken; se feature 30. Efter premiaren.
+
+### 30. Ut med Recharts
+
+Typ: Refactor / Prestanda
+Prioritet: Medium
+Primart repo: `slutspel/frontend_v2`
+Berorda omraden: `components/AnalyticsTabs.tsx`, `components/charts/Charts.tsx`
+
+Beskrivning:
+Analysfliken drar in **363 kB Recharts** i en egen chunk (108 kB gzippat) som
+laddas forst nar fliken oppnas. Resten av appen ritar SVG for hand — momentum,
+tornadostaplar, jamforelsestaplar, andelsstaplar — och de kanns snabba. Det ar
+darfor analyserna sticker ut som tröga: det ar inte datan, det ar biblioteket.
+
+Matt 2026-09-07:
+
+| Chunk | Storlek | Gzip |
+|---|---|---|
+| `AreaChart` (Recharts) | 363 kB | ~108 kB |
+| `index` (hela appen) | 372 kB | 113 kB |
+
+Analysfliken laddar alltsa nastan lika mycket kod som hela resten av
+applikationen, for en handfull diagram.
+
+Befintliga byggblock:
+- `components/charts/Charts.tsx` bar redan `Jamforelse`, `Andel` och
+  tornadostapeln, alla handritade och alla mindre an femtio rader.
+- `Momentum` i `Matchrapport.tsx` visar att en skalad axel, periodgranser,
+  yta under kurvan och traffytor for finger gar att gora utan bibliotek.
+
+Saknas:
+- En yt-/linjekomponent med tidsaxel. Det ar den enda formen Recharts anvands
+  till som inte redan finns handritad.
+- Tooltip vid beroring. Recharts loser det generiskt; handritat kraver en
+  traffyta per punkt, som i `Momentum`.
+
+Acceptanskriterier:
+- `recharts` ligger inte kvar i `package.json`.
+- Analysflikens chunk ar under 50 kB.
+- Diagrammen ser likadana ut eller battre, och gar att lasa i grasskala.
+- Ingen ny diagramberoende har tillkommit i stallet.
+
+Avgransning:
+- Detta ar inte en designandring. Ser ett diagram fel ut i dag ska det se
+  likadant fel ut efterat, sa att bytet gar att granska.
+
+Beroenden och fallgropar:
+- Gor det **efter** premiaren. Diagrammen ritas nu mot en tom sasong; det gar
+  inte att se om en omskrivning stammer forran det finns riktiga serier att
+  jamfora mot.
 
 ## Beslutsregler
 
