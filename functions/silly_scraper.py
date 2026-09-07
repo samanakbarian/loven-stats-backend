@@ -740,8 +740,45 @@ def bygg_nyhetsflode() -> list[dict[str, Any]]:
     return out
 
 
+def las_nyheter() -> dict[str, Any]:
+    """Det som redan ligger i bloben. Tom dict om den saknas eller är trasig."""
+    try:
+        client = storage.Client()
+        blob = client.bucket(GCS_BUCKET_NAME).blob(NEWS_BLOB)
+        if not blob.exists():
+            return {}
+        return json.loads(blob.download_as_text()) or {}
+    except Exception:
+        logging.exception("Kunde inte lasa det befintliga nyhetsflodet")
+        return {}
+
+
+def sla_ihop_nyheter(gamla: list[dict[str, Any]], nya: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Union på artikel-id, nyast först, inom tidsfönstret.
+
+    Google News kapar varje svar vid 100 och strypar den som frågar för ofta.
+    En körning som får noll träffar är därför normal drift, inte ett fel — men
+    den får inte radera det som redan hämtats. Unionen gör skörden additiv:
+    en blockerad körning kostar ingenting, och flödet återhämtar sig av sig
+    självt vid nästa lyckade.
+    """
+    per_id: dict[str, dict[str, Any]] = {a["id"]: a for a in gamla if a.get("id")}
+    # Nya raden vinner: uppmärkningen kan ha förbättrats sedan förra körningen.
+    per_id.update({a["id"]: a for a in nya if a.get("id")})
+
+    grans = (datetime.now(timezone.utc) - timedelta(days=NYHET_MAX_DAGAR)).isoformat()
+    kvar = [a for a in per_id.values() if (a.get("ts") or "") >= grans]
+    kvar.sort(key=lambda a: a.get("ts") or "", reverse=True)
+    return kvar[:NYHET_MAX_RADER]
+
+
 def spara_nyheter(items: list[dict[str, Any]]) -> None:
-    """En blob som skrivs över. Historik behovs inte — API:t vill ha senaste."""
+    """En blob som skrivs över. Historiken ligger i BigQuery, inte här."""
+    if not items:
+        # Skulle aldrig hända efter sammanslagningen, men en tom blob är det
+        # enda som kan tomma nyhetssidan — så den skrivs inte.
+        logging.warning("Inga nyheter att spara; behaller befintlig blob")
+        return
     try:
         client = storage.Client()
         blob = client.bucket(GCS_BUCKET_NAME).blob(NEWS_BLOB)
@@ -877,9 +914,26 @@ def run_scraper(request):
     # Nyhetsflodet ar oberoende av silly season-logiken och far inte kunna
     # falla med den, at nagot hall.
     try:
-        nyheter = bygg_nyhetsflode()
-        spara_nyheter(nyheter)
-        landa_nyheter_i_bq(nyheter)
+        befintligt = las_nyheter()
+        gamla = befintligt.get("items") or []
+        # Skorden gar mot fem Google News-fragor. Var halvtimme blir 240 anrop
+        # om dygnet, och det ar sa flodet blev strypt och tomt kl 09:01 den
+        # 7 september. En timme mellan skordarna racker gott for nyheter och
+        # halverar trycket; mellanliggande korningar later bloben vara.
+        senast = befintligt.get("updated_at") or ""
+        farsk = senast >= (datetime.now(timezone.utc) - timedelta(minutes=55)).isoformat()
+        if farsk and gamla:
+            logging.info("Nyhetsflodet skordades %s; hoppar over", senast)
+        else:
+            nya = bygg_nyhetsflode()
+            if not nya:
+                logging.warning("Nyhetsskorden gav noll rader; behaller %d befintliga", len(gamla))
+            else:
+                sammanslaget = sla_ihop_nyheter(gamla, nya)
+                logging.info("Nyhetsflode: %d nya, %d befintliga, %d efter sammanslagning",
+                             len(nya), len(gamla), len(sammanslaget))
+                spara_nyheter(sammanslaget)
+                landa_nyheter_i_bq(nya)
     except Exception:
         logging.exception("Nyhetsflodet misslyckades; silly season ar oberort")
 
