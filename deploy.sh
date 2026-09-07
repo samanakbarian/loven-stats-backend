@@ -348,9 +348,12 @@ if [[ "$TARGET" == "news" ]]; then
     --update-env-vars "GCP_PROJECT=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
     --quiet
 
+  # force=1 gar forbi skordens timspärr. Utan den gor korningen ingenting nar
+  # bloben rakar vara farsk — vilket ar precis nar man just deployat ny kod och
+  # vill se utfallet.
   say "Kör den en gång, annars är GCS-bloben kvar på gårdagens flöde"
   FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/${NEWS_FN}"
-  curl -sS --max-time 560 "$FN_URL" >/dev/null 2>&1 || true
+  curl -sS --max-time 560 "${FN_URL}?force=1" >/dev/null 2>&1 || true
 
   # Flodet ar det enda beviset pa att korningen gjorde nytta. Antal per amne
   # visar ocksa att uppmarkningen fungerar — allt i "klubb" betyder att den

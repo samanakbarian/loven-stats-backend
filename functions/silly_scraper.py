@@ -1009,7 +1009,14 @@ def run_scraper(request):
         # halverar trycket; mellanliggande korningar later bloben vara.
         senast = befintligt.get("updated_at") or ""
         farsk = senast >= (datetime.now(timezone.utc) - timedelta(minutes=55)).isoformat()
-        if farsk and gamla:
+        # ?force=1 gar forbi spärren. Utan den gor en deploy av ny skordekod
+        # ingenting alls om bloben rakar vara farsk, och det ar precis nar man
+        # vill se utfallet. deploy.sh news satter flaggan.
+        try:
+            tvinga = str(request.args.get("force", "")).lower() in ("1", "true", "ja")
+        except Exception:
+            tvinga = False
+        if farsk and gamla and not tvinga:
             logging.info("Nyhetsflodet skordades %s; hoppar over", senast)
         else:
             nya = bygg_nyhetsflode() + hamta_klipp()
