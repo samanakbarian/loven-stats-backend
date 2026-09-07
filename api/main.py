@@ -669,6 +669,192 @@ def get_feed(tag: str = None, types: str = None, limit: int = 60, refresh: bool 
         return {"status": "error", "error": str(e), "items": [], "counts_by_tag": {}}
 
 
+def _namnnyckel(namn: str) -> str:
+    """Namn till jamforbar form, oberoende av ordfoljd och diakritika.
+
+    Swehockey skriver "Possler, Gustav" i statistiken och "Gustav Possler" i
+    trupplistan. Sorterade tokens gor bada till "gustav possler" utan att vi
+    behover veta vilken form som kom varifran.
+    """
+    ren = unicodedata.normalize("NFKD", clean_person(namn) or "")
+    ren = ren.encode("ascii", "ignore").decode().lower()
+    return " ".join(sorted(re.sub(r"[^a-z ]", " ", ren).split()))
+
+
+@app.get("/api/v1/season-preview")
+@cached_ok(cache=stats_cache)
+def get_season_preview(refresh: bool = False):
+    """Infor debutsasongen: vad truppen bar med sig, och vad som vantar.
+
+    Tva berakningar som ingen annan kan gora, for att de kraver bada halvorna:
+    uppflyttningssasongens spelarstatistik pa matchniva OCH den nuvarande
+    truppen, respektive SHL:s sluttabell fran i fjol OCH hela spelprogrammet
+    for i ar.
+
+    Bada raknas har och inte i klienten: det ar tva BigQuery-lasningar och en
+    handfull hopslagningar, och svaret ar nagra kilobyte.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        ut: dict[str, Any] = {"status": "ok"}
+
+        # ── Vad som foljde med upp ──────────────────────────────────────
+        try:
+            shl = lookup_season("shl_2627")
+            ha = lookup_season("ha_2526")
+
+            trupp = [dict(r.items()) for r in bq.query(f"""
+                SELECT a.player_name, a.jersey_number, a.position
+                FROM `{bq.project}.core.roster` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS m FROM `{bq.project}.core.roster`
+                    WHERE season_group_id = {shl["regular"]}
+                ) b ON a.scraped_at = b.m
+                WHERE a.season_group_id = {shl["regular"]}
+                  AND LOWER(a.team_name) LIKE '%rkl%ven%'
+            """).result()]
+
+            ifjol = [dict(r.items()) for r in bq.query(f"""
+                SELECT a.player_name, a.games_played, a.goals, a.assists, a.points, a.team_code
+                FROM `{bq.project}.core.player_season_stats` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS m FROM `{bq.project}.core.player_season_stats`
+                    WHERE season_group_id = {ha["regular"]}
+                ) b ON a.scraped_at = b.m
+                WHERE a.season_group_id = {ha["regular"]}
+                  AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+            """).result()]
+
+            per_namn = {_namnnyckel(r["player_name"]): r for r in ifjol}
+            lag_poang = sum(int(r.get("points") or 0) for r in ifjol)
+            lag_mal = sum(int(r.get("goals") or 0) for r in ifjol)
+
+            kvar, nya = [], []
+            for sp in trupp:
+                forra = per_namn.get(_namnnyckel(sp["player_name"]))
+                rad = {
+                    "name": sp["player_name"],
+                    "number": sp.get("jersey_number"),
+                    "position": sp.get("position"),
+                }
+                if forra:
+                    rad |= {
+                        "games_played": int(forra.get("games_played") or 0),
+                        "goals": int(forra.get("goals") or 0),
+                        "assists": int(forra.get("assists") or 0),
+                        "points": int(forra.get("points") or 0),
+                    }
+                    kvar.append(rad)
+                else:
+                    nya.append(rad)
+
+            kvar.sort(key=lambda r: -r["points"])
+            kvar_poang = sum(r["points"] for r in kvar)
+            kvar_mal = sum(r["goals"] for r in kvar)
+
+            ut["squad"] = {
+                "season_from": ha["name"],
+                "squad_size": len(trupp),
+                "returning": len(kvar),
+                "new": len(nya),
+                # Andelen ar poangen: halva truppen ar utbytt, men tva
+                # tredjedelar av malen foljde med upp.
+                "team_points": lag_poang,
+                "team_goals": lag_mal,
+                "returning_points": kvar_poang,
+                "returning_goals": kvar_mal,
+                "returning_points_pct": round(kvar_poang / lag_poang * 100) if lag_poang else None,
+                "returning_goals_pct": round(kvar_mal / lag_mal * 100) if lag_mal else None,
+                "returning_players": kvar,
+                "new_players": nya,
+            }
+        except Exception as e:
+            logging.exception("season-preview: truppdelen misslyckades")
+            ut["squad"] = {"error": str(e)[:120]}
+
+        # ── Vad som vantar ──────────────────────────────────────────────
+        try:
+            shl = lookup_season("shl_2627")
+            ifjol_shl = lookup_season("shl_2526")
+
+            tabell = {}
+            for r in bq.query(f"""
+                SELECT a.team_name, a.rank, a.points, a.games_played
+                FROM `{bq.project}.core.standings` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS m FROM `{bq.project}.core.standings`
+                    WHERE season_group_id = {ifjol_shl["regular"]}
+                ) b ON a.scraped_at = b.m
+                WHERE a.season_group_id = {ifjol_shl["regular"]}
+            """).result():
+                d = dict(r.items())
+                namn = str(d.get("team_name") or "")
+                # Swehockey staplar fyra tabeller pa samma sida — totalt, hemma,
+                # borta och senaste fem — utan markor. Raden med flest spelade
+                # matcher ar totaltabellen. Samma fel rattades i /standings.
+                bast = tabell.get(namn)
+                if bast is None or (d.get("games_played") or 0) > (bast.get("games_played") or 0):
+                    tabell[namn] = d
+
+            matcher = []
+            for r in bq.query(f"""
+                SELECT match_date, match_time, home_team, away_team, venue
+                FROM `{bq.project}.core.schedule`
+                WHERE season_group_id = {shl["regular"]}
+                  AND (LOWER(home_team) LIKE '%rkl%ven%' OR LOWER(away_team) LIKE '%rkl%ven%')
+                ORDER BY match_date, match_time
+            """).result():
+                d = dict(r.items())
+                hemma = bool(BJK_HOME.search(str(d.get("home_team") or "")))
+                mot = str((d.get("away_team") if hemma else d.get("home_team")) or "")
+                rad_ifjol = tabell.get(mot) or {}
+                matcher.append({
+                    "date": str(d.get("match_date") or "")[:10],
+                    "time": d.get("match_time"),
+                    "opponent": mot,
+                    "is_home": hemma,
+                    "venue": d.get("venue"),
+                    "opponent_rank": rad_ifjol.get("rank"),
+                    "opponent_points": rad_ifjol.get("points"),
+                })
+
+            placeringar = [m["opponent_rank"] for m in matcher if m["opponent_rank"]]
+
+            def snitt(rader):
+                v = [m["opponent_rank"] for m in rader if m["opponent_rank"]]
+                return round(sum(v) / len(v), 1) if v else None
+
+            # Tuffaste atta matcherna i rad, mätt som summa av motstandets
+            # fjolarspoang. Atta ar ungefar en manad och rymmer bade hemma och
+            # borta, sa fonstret sager nagot om formkurvan och inte om en kvall.
+            varst = None
+            if len(matcher) >= 8:
+                i = max(range(len(matcher) - 7),
+                        key=lambda j: sum(m["opponent_points"] or 0 for m in matcher[j:j + 8]))
+                varst = {"from": matcher[i]["date"], "to": matcher[i + 7]["date"],
+                         "average_rank": snitt(matcher[i:i + 8]), "games": matcher[i:i + 8]}
+
+            ut["schedule"] = {
+                "season": shl["name"],
+                "reference_season": ifjol_shl["name"],
+                "games": len(matcher),
+                "average_rank": round(sum(placeringar) / len(placeringar), 1) if placeringar else None,
+                "opening": matcher[:10],
+                "opening_average_rank": snitt(matcher[:10]),
+                "opening_top4": sum(1 for m in matcher[:10] if (m["opponent_rank"] or 99) <= 4),
+                "hardest_stretch": varst,
+                "all": matcher,
+            }
+        except Exception as e:
+            logging.exception("season-preview: schemadelen misslyckades")
+            ut["schedule"] = {"error": str(e)[:120]}
+
+        return ut
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/season-preview")
+        return {"status": "error", "error": str(e)}
+
+
 @app.get("/api/v1/next-match")
 @cached_ok(cache=stats_cache)
 def get_next_match(season: str = None, refresh: bool = False):
