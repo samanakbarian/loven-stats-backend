@@ -528,7 +528,7 @@ feed_cache = TTLCache(maxsize=8, ttl=900)  # 15 min
 # Flodets typer. `generated` ar reserverad for backlogg 21 (notiser raknade ur
 # marten) och far plats i kontraktet redan nu, sa att den kan borja levereras
 # utan att klienten skrivs om.
-FEED_TYPER = ("press", "x", "generated")
+FEED_TYPER = ("press", "video", "x", "generated")
 
 # Snacket ar med for att sidan ska leva mellan matcherna, men det ar inte
 # nyheter och far inte tranga undan dem: en vecka bakat, hogst tolv rader.
@@ -537,14 +537,16 @@ X_MAX_DAGAR = 7
 
 
 def _pressposter(payload: dict) -> list[dict]:
-    """Skordade artiklar till FeedItem."""
+    """Skordade rader till FeedItem — artiklar och klipp i samma blob."""
     ut = []
     for a in payload.get("items") or []:
         if not a.get("url") or not a.get("title"):
             continue
         ut.append({
             "id": a.get("id"),
-            "type": "press",
+            # Skorden satter typen. Aldre rader saknar faltet och ar artiklar.
+            "type": a.get("type") or "press",
+            "thumbnail": a.get("thumbnail"),
             "ts": a.get("ts"),
             "title": a.get("title"),
             "body": None,
@@ -583,6 +585,7 @@ def _xposter(limit: int = X_I_FLODET) -> list[dict]:
             ut.append({
                 "id": f"x-{t.get('id')}",
                 "type": "x",
+                "thumbnail": None,
                 "ts": skapad,
                 "title": text,
                 "body": None,
@@ -623,13 +626,14 @@ def get_feed(tag: str = None, types: str = None, limit: int = 60, refresh: bool 
 
         poster: list[dict] = []
         uppdaterad = None
-        if "press" in valda_typer:
+        # Artiklar och klipp ligger i samma blob och skiljs at pa `type`.
+        if valda_typer & {"press", "video"}:
             bucket = storage.Client().bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(os.environ.get("NEWS_BLOB_NAME", "raw/news/feed_latest.json"))
             if blob.exists():
                 payload = json.loads(blob.download_as_text())
                 uppdaterad = payload.get("updated_at")
-                poster += _pressposter(payload)
+                poster += [p for p in _pressposter(payload) if p["type"] in valda_typer]
         if "x" in valda_typer:
             poster += _xposter()
 

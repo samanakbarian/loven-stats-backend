@@ -772,6 +772,93 @@ def sla_ihop_nyheter(gamla: list[dict[str, Any]], nya: list[dict[str, Any]]) -> 
     return kvar[:NYHET_MAX_RADER]
 
 
+# ── Klipp ────────────────────────────────────────────────────────────────────
+
+# Klubbens egen kanal star pa bjorkloven.com. Den som ligger pa
+# youtube.com/c/BjorklovenOfficiell heter i sjalva verket "Bjorkloven
+# Inofficiell" och ar ett fanprojekt — den tas med, men markt som inofficiell
+# sa att lasaren kan avgora sjalv.
+YOUTUBE_KANALER = (
+    ("UCFKSt_ESvC9VGWzxne3MI9Q", "Björklöven", True),
+    ("UCFDPDW1nPNPOpkYSyiFygjQ", "Björklöven Inofficiell", False),
+)
+
+_ATOM = {
+    "a": "http://www.w3.org/2005/Atom",
+    "m": "http://search.yahoo.com/mrss/",
+    "yt": "http://www.youtube.com/xml/schemas/2015",
+}
+
+
+def hamta_klipp() -> list[dict[str, Any]]:
+    """Videor ur YouTubes RSS-flöden. Ingen API-nyckel, ingen kvot.
+
+    Data API:t hade krävt nyckel, kvot och en hemlighet till att förvalta.
+    Atom-flödet ger de femton senaste med titel, datum, video-id och miniatyr,
+    vilket är precis vad ett flöde behöver.
+
+    Titeln filtreras inte mot lagnamnet som nyheterna gör. Ett klipp som heter
+    "Frasses vits - #2" handlar om Björklöven i kraft av var det ligger, inte
+    vad det heter.
+    """
+    import xml.etree.ElementTree as ET
+
+    ut: list[dict[str, Any]] = []
+    for kanal_id, kalla, officiell in YOUTUBE_KANALER:
+        xml = fetch_url(f"https://www.youtube.com/feeds/videos.xml?channel_id={kanal_id}")
+        if not xml:
+            logging.warning("Inget YouTube-flode for %s", kalla)
+            continue
+        try:
+            rot = ET.fromstring(xml)
+        except ET.ParseError:
+            logging.exception("Kunde inte tolka YouTube-flodet for %s", kalla)
+            continue
+
+        for post in rot.findall("a:entry", _ATOM):
+            vid = post.findtext("yt:videoId", namespaces=_ATOM)
+            titel = (post.findtext("a:title", namespaces=_ATOM) or "").strip()
+            publicerad = post.findtext("a:published", namespaces=_ATOM)
+            if not (vid and titel and publicerad):
+                continue
+            grupp = post.find("m:group", _ATOM)
+            bild = grupp.find("m:thumbnail", _ATOM) if grupp is not None else None
+            ut.append({
+                "id": f"yt-{vid}",
+                "type": "video",
+                "ts": publicerad,
+                "title": titel,
+                # Egen tagg: man filtrerar pa medium har, inte pa amne. "Visa
+                # mig klippen" ar en fraga man faktiskt staller.
+                "tag": "klipp",
+                "source": kalla,
+                "official": officiell,
+                "url": f"https://www.youtube.com/watch?v={vid}",
+                # RSS pekar pa i1-i4.ytimg.com i tur och ordning. i.ytimg.com
+                # ar den kanoniska varden och blir densamma for alla rader,
+                # vilket ger battre cachetraffar och farre varden att lita pa.
+                "thumbnail": (re.sub(r"//i\d+\.ytimg\.com", "//i.ytimg.com", bild.get("url"))
+                              if bild is not None and bild.get("url") else None),
+            })
+
+    # Fankanalen lagger upp samma intervju flera ganger — som teaser, i delar
+    # och i sin helhet. Tre rader om Gote Walitalo i rad ar inte ett flode.
+    # Nyaste vinner, aldre snarlika titlar faller bort.
+    ut.sort(key=lambda a: a["ts"], reverse=True)
+    sedda: set[str] = set()
+    unika = []
+    for k in ut:
+        nyckel = re.sub(r"[^a-z0-9]+", "", k["title"].lower())[:50]
+        if nyckel and nyckel in sedda:
+            continue
+        sedda.add(nyckel)
+        unika.append(k)
+
+    logging.info("Klipp: %d rader (%d fore avduplicering) fran %d kanaler",
+                 len(unika), len(ut), len(YOUTUBE_KANALER))
+    return unika
+
+
 def spara_nyheter(items: list[dict[str, Any]]) -> None:
     """En blob som skrivs över. Historiken ligger i BigQuery, inte här."""
     if not items:
@@ -925,7 +1012,7 @@ def run_scraper(request):
         if farsk and gamla:
             logging.info("Nyhetsflodet skordades %s; hoppar over", senast)
         else:
-            nya = bygg_nyhetsflode()
+            nya = bygg_nyhetsflode() + hamta_klipp()
             if not nya:
                 logging.warning("Nyhetsskorden gav noll rader; behaller %d befintliga", len(gamla))
             else:
