@@ -11,6 +11,8 @@ Classifies articles as:
 Saves results to GCS as JSON for frontend consumption.
 """
 
+from typing import Any
+
 import functions_framework
 import requests
 from bs4 import BeautifulSoup
@@ -18,7 +20,7 @@ import json
 import logging
 import re
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 import os
 from google.cloud import storage
@@ -572,6 +574,244 @@ def process_articles(raw_articles, ai_cache, stats):
 
 # ─── HTTP Entry Point ────────────────────────────────────────────────────────
 
+# ─── Nyhetsflödet ────────────────────────────────────────────────────────────
+#
+# Silly season-logiken ovanför söker på övergångsverb — "förlänger", "klar
+# för", "nyförvärv" — och klassificeraren kastar allt som inte är en övergång.
+# Det fungerar i juni. I september, mitt i seriestarten, ger samma sökning noll
+# träffar, och nyhetssidan föll tillbaka på en handunderhållen baseline från
+# juni: 86 dagar gammal när det upptäcktes.
+#
+# Det här flödet är motsatsen. Det söker brett på laget, behåller allt som är
+# relevant, och märker upp det i stället för att slänga. Ingen LLM behövs —
+# rubriken räcker för att skilja en match från en värvning, och det som inte
+# går att avgöra hamnar under "klubb" i stället för att försvinna.
+
+NEWS_BLOB = os.environ.get("NEWS_BLOB_NAME", "raw/news/feed_latest.json")
+
+# Laget i rubriken. Bara att nämnas i brödtexten räcker inte — Google News
+# returnerar en fjärdedel artiklar som handlar om någon annan och råkar nämna
+# Björklöven på slutet.
+_LAGET = re.compile(r"bj[oö]rkl[oö]ven|\bl[oö]ven\b", re.IGNORECASE)
+
+# Ungdoms- och damlag prövas först, annars taggas en U18-match som "match" och
+# hamnar bland A-lagets rader.
+_UNGDOM = re.compile(r"\bU1[5-9]\b|\bU2[01]\b|\bJ1[89]\b|\bJ20\b|\bdam(er|lag)?\b", re.IGNORECASE)
+_TRUPP = re.compile(
+    r"f[oö]rl[aä]ng|klar f[oö]r|l[aä]mnar|nyf[oö]rv[aä]rv|kontrakt|v[aä]rvar|ansluter|"
+    r"skada|skadad|l[aå]nas|[aå]terv[aä]nder|tr[aä]nare|sportchef|intresse fr[aå]n|provspel|"
+    r"\bklart[:!]|officiellt|[oö]verens med|till bj[oö]rkl[oö]ven|till l[oö]ven|"
+    r"sl[aä]pper.{0,12}spelare|lagkapten|v[aä]nder hem",
+    re.IGNORECASE,
+)
+_MATCH = re.compile(
+    r"seger|f[oö]rlust|besegra|vinst|kross|m[aå]l|straffar|match|premi[aä]r|po[aä]ng|"
+    r"derby|oavgjort|chansl[oö]s|f[oö]rl[aä]ngning|period|lineup|uppst[aä]llning|"
+    r"\bvann\b|\bf[oö]ll\b|\bslog\b|straffl[aä]gg|powerplay|h[oö]jdpunkter|"
+    r"p[aå] tv\b|s[aä]nder|stream|\bslut:|debuter|skr[aä]ll|avgjorde|\bm[oö]t(er|s|te)\b",
+    re.IGNORECASE,
+)
+
+# Rena mötesrubriker bär inget verb alls: "Brynäs IF - IF Björklöven". De känns
+# igen på att båda sidor om strecket ser ut som lagnamn.
+_STRECK = re.compile(r"\s[-–]\s|(?<=\w)–(?=\w)")
+
+
+def _ar_mote(titel: str) -> bool:
+    delar = _STRECK.split(titel, maxsplit=1)
+    if len(delar) != 2:
+        return False
+    return all(d and _LAGFORM.search(d) for d in delar)
+
+
+def _nyhetstagg(titel: str) -> str:
+    """Vad raden handlar om. Ordningen avgör: ungdom före allt annat."""
+    if _UNGDOM.search(titel):
+        return "ungdom"
+    if _TRUPP.search(titel):
+        return "trupp"
+    if _MATCH.search(titel) or _ar_mote(titel):
+        return "match"
+    return "klubb"
+
+
+def _publicerad(text: str) -> str | None:
+    """RFC 822 till ISO. Google News skriver 'Sun, 06 Sep 2026 12:00:00 GMT'."""
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(text).astimezone(timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
+# "IF", "AIK", "Luleå Hockey" — det som gör en ordföljd till ett lagnamn.
+_LAGFORM = re.compile(r"\b(if|ik|hc|bk|sk|hk|hf|is|aik|hockey)\b", re.IGNORECASE)
+
+
+def _utan_kalla(titel: str, kalla: str) -> str:
+    """Google News hänger på ' - Källa' i rubriken. Källan visas separat.
+
+    Alla 495 hämtade rubriker slutade med " - <source>", så suffixet stryks –
+    men inte blint. En matchrubrik är själva mötet: "LINEUP: IF Björklöven -
+    Skellefteå AIK", publicerad av Skellefteå AIK. Där är suffixet halva
+    rubriken. Bindestrecket läses som ett möte bara när båda sidor ser ut som
+    lagnamn; "Uddamålsseger mot Björklöven - Luleå Hockey" har inget lagnamn
+    till vänster och kortas som vanligt.
+    """
+    if not kalla or not titel.endswith(f" - {kalla}"):
+        return titel.strip()
+    kvar = titel[: -len(kalla) - 3].strip()
+    if _LAGFORM.search(kalla) and len(kalla.split()) <= 4 and _LAGFORM.search(kvar):
+        return titel.strip()
+    return kvar
+
+
+# Fem frågor i stället för en. Mätt mot verkligt utfall 2026-09-07 gav den
+# breda frågan 78 träffar; de fyra övriga la till 92, 64, 22 och 48 unika rader
+# ovanpå det — 304 totalt. Google News kapar varje svar vid 100, så bredden
+# kommer av flera frågor, inte av en bättre formulerad.
+NYHETSFRAGOR = (
+    ('"Björklöven"', "news_bred"),
+    ("site:bjorkloven.com", "news_officiell"),
+    ('"IF Björklöven" hockey', "news_hockey"),
+    ("Björklöven SHL", "news_shl"),
+    ("Björklöven Umeå hockey", "news_lokalt"),
+)
+
+# Av de 304 låg 65 inom en månad och 189 var äldre än ett kvartal — mest
+# klubbsidans arkiv. Ett halvår tillbaka håller flödet aktuellt utan att gå
+# tomt under uppehållet mellan säsongerna.
+NYHET_MAX_DAGAR = 180
+NYHET_MAX_RADER = 150
+
+
+def bygg_nyhetsflode() -> list[dict[str, Any]]:
+    """Aktuella nyheter om laget, brett hämtade och uppmärkta."""
+    raw: list[dict[str, Any]] = []
+    for fraga, etikett in NYHETSFRAGOR:
+        raw += fetch_google_news_rss(fraga, label=etikett)
+
+    grans = datetime.now(timezone.utc) - timedelta(days=NYHET_MAX_DAGAR)
+    sedda_url: set[str] = set()
+    sedda_titel: set[str] = set()
+    out: list[dict[str, Any]] = []
+
+    for art in raw:
+        titel_rå = art.get("title") or ""
+        if not _LAGET.search(titel_rå):
+            continue
+        url = art.get("link") or ""
+        kalla = art.get("source_name") or ""
+        titel = _utan_kalla(titel_rå, kalla)
+        # Samma händelse kommer ofta från flera källor med snarlik rubrik.
+        nyckel = re.sub(r"[^a-z0-9]+", "", titel.lower())[:60]
+        if (url and url in sedda_url) or (nyckel and nyckel in sedda_titel):
+            continue
+
+        publicerad = _publicerad(art.get("pub_date") or "")
+        # Utan datum går raden inte att placera i ett flöde som sorteras på tid.
+        if not publicerad:
+            continue
+        try:
+            if datetime.fromisoformat(publicerad) < grans:
+                continue
+        except ValueError:
+            continue
+
+        sedda_url.add(url)
+        sedda_titel.add(nyckel)
+
+        out.append({
+            # Stabilt id över körningar, så klienten kan minnas vad som lästs.
+            "id": hashlib.sha1(url.encode("utf-8")).hexdigest()[:16],
+            "type": "press",
+            "ts": publicerad,
+            "title": titel,
+            "tag": _nyhetstagg(titel),
+            "source": kalla,
+            # Klubbens egen sida väger tyngst och markeras.
+            "official": "bjorkloven.com" in url.lower() or kalla.lower() == "björklöven",
+            "url": url,
+        })
+
+    out.sort(key=lambda a: a.get("ts") or "", reverse=True)
+    out = out[:NYHET_MAX_RADER]
+    logging.info("Nyhetsflode: %d rader av %d raa", len(out), len(raw))
+    return out
+
+
+def spara_nyheter(items: list[dict[str, Any]]) -> None:
+    """En blob som skrivs över. Historik behovs inte — API:t vill ha senaste."""
+    try:
+        client = storage.Client()
+        blob = client.bucket(GCS_BUCKET_NAME).blob(NEWS_BLOB)
+        blob.upload_from_string(
+            json.dumps(
+                {"updated_at": datetime.now(timezone.utc).isoformat(), "items": items},
+                ensure_ascii=False,
+            ),
+            content_type="application/json",
+        )
+        logging.info("Sparade %d nyheter till gs://%s/%s", len(items), GCS_BUCKET_NAME, NEWS_BLOB)
+    except Exception:
+        logging.exception("Kunde inte spara nyhetsflodet")
+
+
+NEWS_BQ_DATASET = os.environ.get("NEWS_BQ_DATASET", "raw_sports")
+NEWS_BQ_TABLE = os.environ.get("NEWS_BQ_TABLE", "news_articles")
+
+
+def landa_nyheter_i_bq(items: list[dict[str, Any]]) -> None:
+    """Samma rader till raw_sports, append-only som allt annat.
+
+    GCS-bloben skrivs över vid varje körning och är därmed ett ögonblick, inte
+    en historik. Utan tabell finns det inget att koppla en nyhet till en spelare
+    eller en match mot (backlogg 21 och 22), och ingen väg att svara på när en
+    uppgift först dök upp. Serveringen läser fortfarande bloben — den här vägen
+    är för analysen, så ett BigQuery-fel får inte fälla skörningen.
+    """
+    if not items:
+        return
+    try:
+        from google.cloud import bigquery
+
+        bq = bigquery.Client(project=PROJECT_ID)
+        tabell = f"{PROJECT_ID}.{NEWS_BQ_DATASET}.{NEWS_BQ_TABLE}"
+        schema = [
+            bigquery.SchemaField("article_id", "STRING"),
+            bigquery.SchemaField("published_at", "TIMESTAMP"),
+            bigquery.SchemaField("title", "STRING"),
+            bigquery.SchemaField("tag", "STRING"),
+            # Utgivaren, inte scraperkällan. `source` betyder "swehockey" i de
+            # andra raw-tabellerna och får inte betyda två saker.
+            bigquery.SchemaField("publisher", "STRING"),
+            bigquery.SchemaField("official", "BOOL"),
+            bigquery.SchemaField("url", "STRING"),
+            bigquery.SchemaField("scraped_at", "TIMESTAMP"),
+        ]
+        bq.create_table(bigquery.Table(tabell, schema=schema), exists_ok=True)
+
+        skordat = datetime.now(timezone.utc).isoformat()
+        rader = [{
+            "article_id": a.get("id"),
+            "published_at": a.get("ts"),
+            "title": a.get("title"),
+            "tag": a.get("tag"),
+            "publisher": a.get("source"),
+            "official": bool(a.get("official")),
+            "url": a.get("url"),
+            "scraped_at": skordat,
+        } for a in items]
+
+        fel = bq.insert_rows_json(tabell, rader)
+        if fel:
+            logging.error("BigQuery avvisade nyhetsrader: %s", fel[:3])
+        else:
+            logging.info("Landade %d nyheter i %s", len(rader), tabell)
+    except Exception:
+        logging.exception("Kunde inte landa nyhetsflodet i BigQuery")
+
+
 @functions_framework.http
 def run_scraper(request):
     """HTTP Cloud Function entry point."""
@@ -633,6 +873,15 @@ def run_scraper(request):
 
     save_to_gcs({"news_feed": unique_articles})
     save_ai_cache(ai_cache)
+
+    # Nyhetsflodet ar oberoende av silly season-logiken och far inte kunna
+    # falla med den, at nagot hall.
+    try:
+        nyheter = bygg_nyhetsflode()
+        spara_nyheter(nyheter)
+        landa_nyheter_i_bq(nyheter)
+    except Exception:
+        logging.exception("Nyhetsflodet misslyckades; silly season ar oberort")
 
     logging.info(
         "Scraper v2 done. articles=%d gemini=%d cache_hits=%d skipped_disabled=%d skipped_budget=%d model=%s",

@@ -121,3 +121,28 @@ FROM (
   FROM `@PROJECT@.raw_sports.swehockey_standings`
 )
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id, snapshot_date);
+
+
+-- ------------------------------------------------------------------ nyheter --
+
+-- Tabellen skapas här av samma skäl som rapporttabellerna ovan: en vy kan inte
+-- byggas över något som inte finns, och nyhetsskörningen kör i en egen
+-- Cloud Function som kan ha kört senast än den här deployen.
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.news_articles` (
+  article_id STRING, published_at TIMESTAMP, title STRING, tag STRING,
+  publisher STRING, official BOOL, url STRING, scraped_at TIMESTAMP
+);
+
+-- Samma artikel ses om vid varje körning, så här räknas den en gång. Att den
+-- setts flera gånger är däremot inte brus: first_seen_at är när uppgiften dök
+-- upp hos oss, vilket är det svar man vill ha när ett rykte ska dateras.
+--
+-- MIN() räknas över hela partitionen innan QUALIFY filtrerar, så det första
+-- tillfället överlever att bara sista generationen behålls.
+CREATE OR REPLACE VIEW `@PROJECT@.core.news` AS
+SELECT
+  * EXCEPT (scraped_at),
+  scraped_at AS last_seen_at,
+  MIN(scraped_at) OVER (PARTITION BY article_id) AS first_seen_at
+FROM `@PROJECT@.raw_sports.news_articles`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY article_id);

@@ -7,6 +7,7 @@
 #   bash deploy.sh            # allt
 #   bash deploy.sh api        # bara API:t
 #   bash deploy.sh scraper    # bara scrapern
+#   bash deploy.sh news       # bara nyhetsskörningen (silly_scraper.py)
 #   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
 #   bash deploy.sh schedule   # sätt schemaläggningen, utan deploy
 #   bash deploy.sh views      # skapa/uppdatera core- och marts-vyerna
@@ -25,6 +26,7 @@ REGION="${REGION:-europe-west1}"
 BUCKET="${GCS_BUCKET:-loven-stats-raw-data-prod}"
 TARGET="${1:-all}"
 BACKFILL_SEASONS="${BACKFILL_SEASONS:-18266,19979}"
+NEWS_FN="${NEWS_FN:-silly-season-scraper}"
 
 say() { printf '\n\033[1;32m▸ %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$1"; exit 1; }
@@ -289,6 +291,52 @@ for c in (d.get('reconciliation') or []):
     extra = '' if ok else f\"  {c.get('observed')} mot {c.get('expected')}  {c.get('note','')}\"
     print(f\"    {mark} {c['name']}{extra}\")
 " || true
+fi
+
+if [[ "$TARGET" == "news" ]]; then
+  # Nyhetsskordningen ar en egen funktion i samma katalog som Swehockey-
+  # scrapern, med en egen entry point. Varken deploy.sh eller
+  # .github/workflows/deploy.yml deployade den tidigare — nyhetskoden kunde
+  # alltsa andras utan att nagot av det nadde produktionen.
+  #
+  # Heter funktionen nagot annat hos dig, satt NEWS_FN. Kolla forst:
+  #   gcloud functions list --regions=europe-west1
+  say "Deployar nyhetsskörningen till Cloud Functions"
+  gcloud functions deploy "$NEWS_FN" \
+    --gen2 \
+    --region "$REGION" \
+    --runtime python311 \
+    --source functions \
+    --entry-point run_scraper \
+    --trigger-http \
+    --allow-unauthenticated \
+    --memory 1024Mi \
+    --timeout 540s \
+    --update-env-vars "GCP_PROJECT=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
+    --quiet
+
+  say "Kör den en gång, annars är GCS-bloben kvar på gårdagens flöde"
+  FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/${NEWS_FN}"
+  curl -sS --max-time 560 "$FN_URL" >/dev/null 2>&1 || true
+
+  # Flodet ar det enda beviset pa att korningen gjorde nytta. Antal per amne
+  # visar ocksa att uppmarkningen fungerar — allt i "klubb" betyder att den
+  # inte gor det.
+  API=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)' 2>/dev/null || echo "")
+  if [[ -n "$API" ]]; then
+    say "Kontrollerar flödet"
+    curl -sS --max-time 60 "${API}/api/v1/feed?limit=1" 2>/dev/null | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print('  kunde inte tolka svaret'); raise SystemExit
+print('  status:', d.get('status','?'), ' uppdaterat:', d.get('updated_at') or '-')
+for k,v in sorted((d.get('counts_by_tag') or {}).items()):
+    print(f'    {k:<8} {v:>4}')
+if d.get('error'): print('  fel:', str(d['error'])[:120])
+" || true
+  fi
+  say "Klart"
+  exit 0
 fi
 
 if [[ "$TARGET" == "backfill" ]]; then

@@ -33,12 +33,15 @@ Verifierad implementationsstatus och arkitekturgap finns i
   är vanlig SQL i `sql/core_views.sql` och `sql/marts.sql`, deployad med
   `deploy.sh views`. Planera aldrig en feature som *förutsätter* dbt utan att
   först ta migrationen som eget arbete — se feature 25.
-- **Nyheterna ligger inte i BigQuery.** `functions/silly_scraper.py` skriver
-  JSON-snapshots till GCS (`raw/silly_season/scraped_*.json`), och
-  `GET /api/silly-season` läser nyaste bloben vid anrop och slår ihop den med
-  en hårdkodad baseline i `silly_season_data.py`. Klassificeringen sker med
-  Gemini 2.5 Flash via Vertex, med tak på 15 anrop per körning och
-  artikelcache i GCS. Frontend läser API:t live, inte en exporterad fil.
+- **Nyhetsflödet och silly season är två olika saker.** `bygg_nyhetsflode()`
+  i `functions/silly_scraper.py` hämtar brett (fem Google News-frågor, 495 råa
+  rubriker), märker upp ämne, skriver `raw/news/feed_latest.json` till GCS och
+  landar samma rader i `raw_sports.news_articles`. `GET /api/v1/feed` serverar
+  dem som `FeedItem`. Silly season-delen av samma funktion söker fortfarande på
+  övergångsverb, klassificerar med Gemini 2.5 Flash via Vertex (tak 15 anrop per
+  körning, artikelcache i GCS) och betjänar `GET /api/silly-season` och den
+  hårdkodade baselinen i `silly_season_data.py`. Nyhetssidan läser inte längre
+  den vägen; se feature 23.
 - `slutspel/frontend_v2` anropar aven `/api/v1/current-state` och
   `/api/v1/sportradar/results`, som finns i gamla Node-servern men inte i
   FastAPI-backenden.
@@ -726,8 +729,10 @@ Befintliga byggblock:
 - `core.schedule` ger datum och motstandare per match.
 
 Saknas:
-- Steget maste ligga **efter** att nyheterna landat i BigQuery — idag finns de
-  bara som JSON i GCS. Se feature 23; den ar en forutsattning.
+- ~~Steget maste ligga **efter** att nyheterna landat i BigQuery.~~ Klart
+  2026-09-07: `raw_sports.news_articles` skrivs av nyhetsskordningen och
+  `core.news` avduplicerar pa `article_id`. `links[]` finns redan i
+  `FeedItem`-kontraktet och ar tom tills den har featuren fyller den.
 - En datumbegransad trupp. Det ar den svara delen, inte namnmatchningen: en
   medieomnamning ar inte en trupphandelse, och en spelare kan skrivas om efter
   att ha lamnat. Utan datumfonster kopplas en avskedsartikel till en spelare
@@ -745,28 +750,60 @@ Acceptanskriterier:
 - En trav ger `player_id`; en miss loggas och matchas inte manuellt.
 - Ingen nyhet kopplas till en spelare som inte var i truppen vid publiceringen.
 
-### 23. Ett flodeskontrakt: `FeedItem`
+### 23. Ett flodeskontrakt: `FeedItem` — KLAR 2026-09-07
 
 Typ: Refactor / Arkitektur
-Prioritet: Hog
 Primart repo: bada
-Berorda omraden: `GET /api/silly-season`, `GET /api/v1/x-feed`, `Nyheter.tsx`
+Berorda omraden: `functions/silly_scraper.py`, `sql/core_views.sql`,
+`GET /api/v1/feed`, `Nyheter.tsx`, `deploy.sh`, `.github/workflows/deploy.yml`
 
-Beskrivning:
-Frontend ska lasa **en** lista av `FeedItem { id, type, ts, title, body?, tag,
-links[], sources[] }` dar `type` ar `story | generated | press | x`. Renderingen
-valjs pa `type`; allt arbete sker i pipelinen, inte i React.
+Det som utlöste omtaget: nyhetssidan visade innehåll daterat **13 juni** den
+7 september — 86 dagar gammalt. `GET /api/silly-season` gav
+`scrapedArticles: 0` och föll tillbaka på den handunderhållna baselinen i
+`silly_season_data.py`. Orsaken var inte ett fel utan en avgränsning: båda
+Google News-frågorna var hårdfiltrerade på övergångsverb
+(`"Björklöven" (förlänger OR klar för OR lämnar OR ...)`) och
+`classify_article` kastade allt som inte var en övergång. En silly
+season-maskin som kördes i september. Källan var hela tiden rik: en bred
+fråga på `"Björklöven"` gav 100 aktuella artiklar samma dag.
 
-Motivet ar konkret: `GET /api/silly-season` laser nyaste GCS-bloben vid anrop
-och slar ihop den med en hardkodad Python-baseline i `silly_season_data.py`.
-Den sammanslagningen ar dar komplexiteten sitter, och den ar osynlig for
-frontend som anda maste kanna bada formerna.
+Levererat:
+- **Bred skörning.** Fem frågor i stället för två — Google News kapar varje
+  svar vid 100, så bredden kommer av flera frågor. Mätt 2026-09-07: 495 råa
+  rubriker, 304 unika som nämner laget i rubriken, 150 inom halvåret.
+- **Ämnesuppmärkning** i stället för filtrering: `match`, `trupp`, `ungdom`,
+  `klubb`. Ungdom prövas först, annars hamnar en U18-match bland A-lagets
+  rader. Utfall: match 44, trupp 45, klubb 53, ungdom 8.
+- **Rubriker som överlever.** Google hänger på `" - Källa"` på alla 495
+  rubriker, men `"LINEUP: IF Björklöven - Skellefteå AIK"` publicerad av
+  Skellefteå AIK slutar likadant utan att vara ett suffix. Strecket läses som
+  ett möte bara när båda sidor ser ut som lagnamn.
+- **`raw_sports.news_articles` + `core.news`.** Append-only som allt annat,
+  avduplicerat på `article_id`. `first_seen_at` överlever avdupliceringen och
+  svarar på när en uppgift först dök upp hos oss.
+- **`GET /api/v1/feed`** serverar `FeedItem { id, type, ts, title, body?, tag,
+  links[], sources[] }` för `press` och `x` i samma lista. Serveringen läser
+  GCS-bloben; tabellen finns för länkning och historik och ligger inte i en
+  varm läsväg.
+- **`Nyheter.tsx` läser en lista och väljer rendering på `type`.** Dagrubriker,
+  "för 20 minuter sedan", officiell källa märkt, ämnesfilter med antal.
+- **Deployväg.** Varken `deploy.sh` eller CI deployade nyhetsfunktionen —
+  nyhetskoden kunde ändras utan att något nådde produktionen. Nu finns
+  `bash deploy.sh news` och ett CI-steg som aktiveras av repovariabeln
+  `NEWS_FUNCTION_NAME`.
+- **`--set-env-vars` bytt mot `--update-env-vars` i workflowen.** Det förra
+  ersätter hela uppsättningen; `X_BEARER_TOKEN` försvann en gång på exakt det
+  sättet och varje push till `master` som rörde `api/` hade gjort om det.
 
-Saknas:
-- Att nyheterna faktiskt skrivs till BigQuery i stallet for att bara ligga som
-  JSON-snapshots i GCS. Utan det finns ingen tabell for feature 21 och 22 att
-  lasa eller skriva till.
-- En enda endpoint som serverar alla fyra typerna.
+Kvar:
+- `links[]` är alltid tom. Fältet finns i kontraktet så att klienten inte
+  behöver ändras när feature 22 fyller det.
+- `type: "generated"` är reserverad för feature 21 och levereras inte än.
+- Baselinen i `silly_season_data.py` lever kvar bakom `GET /api/silly-season`.
+  Nyhetssidan använder den bara som reserv under deployfönstret mellan Netlify
+  och den handdeployade backenden, och det ska tas bort när backend är ute.
+- Uppmärkningen är regelbaserad. Den räcker för fyra ämnen; ska den skilja
+  rykte från bekräftat behövs det strukturerade LLM-anropet i feature 22.
 
 Avgransning — vad som **inte** ska goras:
 - Fables forslag att exportera `feed.json` till GCS och trigga en Netlify build
@@ -774,12 +811,6 @@ Avgransning — vad som **inte** ska goras:
   TTL-cache; en andra serveringsvag lagger till ett inaktualitetsfonster utan
   att losa nagot. Cloud Run-kostnaden ar inget problem idag. Tas upp igen forst
   om den blir det.
-
-Acceptanskriterier:
-- `Nyheter.tsx` laser en lista och valjer rendering pa `type`.
-- Baselinen i `silly_season_data.py` ar antingen borta eller en rad i samma
-  tabell som allt annat.
-- Gamla svarsformen kan tas bort utan att sidan slutar fungera.
 
 ### 24. Matchrapporten vidare — KLAR 2026-09-06
 
@@ -1148,8 +1179,11 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 8. `ML-001` Modellregister och metadata-schema för ML/simuleringar.
 9. `SIM-001` Team strength rating v1 och SHL Monte Carlo simulator v1.
 10. `FEED-001` `marts.generated_events` med `event_key` och tre notistyper.
-11. `FEED-002` Nyheterna till BigQuery, som forutsattning for `FeedItem`.
-12. `FEED-003` `FeedItem`-kontrakt och en endpoint for hela flodet.
+11. ~~`FEED-002` Nyheterna till BigQuery~~ — klar 2026-09-07,
+    `raw_sports.news_articles` och `core.news`.
+12. ~~`FEED-003` `FeedItem`-kontrakt och en endpoint for hela flodet~~ — klar
+    2026-09-07, `GET /api/v1/feed` med `press` och `x`. `generated` vantar pa
+    FEED-001.
 13. `DATA-003` Hela seriens matcher i tva nivaer; se feature 26.
 14. `LIVE-001` Mat nar Swehockey satter matchlanken, pa premiaren 19 september.
 15. `LIVE-002` Cloud Function + GCS-blob + `GET /api/v1/live`, niva 1.

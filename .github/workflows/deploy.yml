@@ -7,6 +7,10 @@ name: Deploy backend
 # lagrad någonstans — varken i repot eller som GitHub-secret.
 #
 # Uppsättning krävs en gång, se docs/DEPLOY.md.
+#
+# Miljövariabler sätts med --update-env-vars, aldrig --set-env-vars. Det
+# senare ersätter hela uppsättningen: en deploy som bara nämner två variabler
+# raderar resten. X_BEARER_TOKEN försvann på exakt det sättet.
 
 on:
   push:
@@ -23,7 +27,7 @@ on:
         required: true
         default: 'both'
         type: choice
-        options: [both, api, scraper]
+        options: [both, api, scraper, news]
 
 env:
   PROJECT_ID: granskaren-d51a1
@@ -57,7 +61,7 @@ jobs:
             --source api \
             --region "$REGION" \
             --allow-unauthenticated \
-            --set-env-vars "BQ_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET" \
+            --update-env-vars "BQ_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET" \
             --quiet
 
       - name: Deploya Swehockey-scrapern
@@ -73,7 +77,31 @@ jobs:
             --allow-unauthenticated \
             --memory 1024Mi \
             --timeout 300s \
-            --set-env-vars "GCP_PROJECT=$PROJECT_ID,GCS_BUCKET=$GCS_BUCKET,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961" \
+            --update-env-vars "GCP_PROJECT=$PROJECT_ID,GCS_BUCKET=$GCS_BUCKET,SWEHOCKEY_TEAM_ID=1139,SWEHOCKEY_SEASON_GROUP_ID=20961" \
+            --quiet
+
+      # Nyhetsskörningen är en egen funktion med egen entry point och
+      # deployades tidigare inte alls — nyhetskoden kunde ändras utan att något
+      # av det nådde produktionen. Namnet gissas inte: sätt repovariabeln
+      # NEWS_FUNCTION_NAME (Settings → Secrets and variables → Actions →
+      # Variables) till namnet `gcloud functions list` visar, annars hoppas
+      # steget över.
+      - name: Deploya nyhetsskörningen
+        if: |
+          (github.event_name == 'push' || inputs.target == 'both' || inputs.target == 'news')
+          && vars.NEWS_FUNCTION_NAME != ''
+        run: |
+          gcloud functions deploy "${{ vars.NEWS_FUNCTION_NAME }}" \
+            --gen2 \
+            --region "$REGION" \
+            --runtime python311 \
+            --source functions \
+            --entry-point run_scraper \
+            --trigger-http \
+            --allow-unauthenticated \
+            --memory 1024Mi \
+            --timeout 540s \
+            --update-env-vars "GCP_PROJECT=$PROJECT_ID,GCS_BUCKET_NAME=$GCS_BUCKET" \
             --quiet
 
       - name: Kontrollera att API:t svarar

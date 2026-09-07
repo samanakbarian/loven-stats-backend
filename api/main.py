@@ -489,6 +489,145 @@ def get_standings(season: str = None, refresh: bool = False):
         return {"status": "error", "error": str(e), "standings": []}
 
 
+feed_cache = TTLCache(maxsize=8, ttl=900)  # 15 min
+
+# Flodets typer. `generated` ar reserverad for backlogg 21 (notiser raknade ur
+# marten) och far plats i kontraktet redan nu, sa att den kan borja levereras
+# utan att klienten skrivs om.
+FEED_TYPER = ("press", "x", "generated")
+
+# Snacket ar med for att sidan ska leva mellan matcherna, men det ar inte
+# nyheter och far inte tranga undan dem: en vecka bakat, hogst tolv rader.
+X_I_FLODET = 12
+X_MAX_DAGAR = 7
+
+
+def _pressposter(payload: dict) -> list[dict]:
+    """Skordade artiklar till FeedItem."""
+    ut = []
+    for a in payload.get("items") or []:
+        if not a.get("url") or not a.get("title"):
+            continue
+        ut.append({
+            "id": a.get("id"),
+            "type": "press",
+            "ts": a.get("ts"),
+            "title": a.get("title"),
+            "body": None,
+            "tag": a.get("tag") or "klubb",
+            # Lankningen till spelare och match ar backlogg 22 och kraver att
+            # nyheterna lasts ur BigQuery. Faltet finns sa att klienten inte
+            # behover andras nar den dagen kommer.
+            "links": [],
+            "sources": [{
+                "name": a.get("source") or "",
+                "url": a.get("url"),
+                "official": bool(a.get("official")),
+            }],
+        })
+    return ut
+
+
+def _xposter(limit: int = X_I_FLODET) -> list[dict]:
+    """Fanssnacket till FeedItem. Bara ur cachen — flodet far inte kosta ett
+    X-anrop, och en tom cache ar ett tomt avsnitt, inte ett fel."""
+    try:
+        payload = _load_x_cache() or {}
+        grans = datetime.now(timezone.utc) - timedelta(days=X_MAX_DAGAR)
+        ut = []
+        for t in payload.get("items") or []:
+            text = (t.get("text") or "").strip()
+            skapad = t.get("created_at")
+            if not text or not skapad:
+                continue
+            try:
+                if datetime.fromisoformat(str(skapad).replace("Z", "+00:00")) < grans:
+                    continue
+            except ValueError:
+                continue
+            anvandare = t.get("author_username") or ""
+            ut.append({
+                "id": f"x-{t.get('id')}",
+                "type": "x",
+                "ts": skapad,
+                "title": text,
+                "body": None,
+                "tag": "snack",
+                "links": [],
+                "sources": [{
+                    "name": f"@{anvandare}" if anvandare else "X",
+                    "url": t.get("url"),
+                    "official": False,
+                }],
+            })
+        ut.sort(key=lambda a: a["ts"], reverse=True)
+        return ut[:limit]
+    except Exception:
+        logging.warning("Kunde inte lasa X-cachen till flodet", exc_info=True)
+        return []
+
+
+@app.get("/api/v1/feed")
+@cached_ok(cache=feed_cache)
+def get_feed(tag: str = None, types: str = None, limit: int = 60, refresh: bool = False):
+    """Ett flode, en lista, en rendering per typ.
+
+    Ersatter `/api/silly-season` som sidans kalla. Den senare soker pa
+    overgangsverb och kastar allt som inte ar en overgang — riktigt i juni, men
+    i september gav samma sokning noll traffar och sidan foll tillbaka pa en
+    handunderhallen baseline fran den 13 juni. Den har hamtar brett och marker
+    upp i stallet.
+
+    Serveringen laser GCS-bloben, inte BigQuery. Bloben skrivs vid varje
+    skorning och racker till ett flode; tabellen finns for lankning och
+    historik (backlogg 21 och 22) och ska inte ligga i en varm lasvag.
+    """
+    try:
+        from google.cloud import storage
+
+        valda_typer = {t.strip() for t in (types or "").split(",") if t.strip()} or set(FEED_TYPER)
+
+        poster: list[dict] = []
+        uppdaterad = None
+        if "press" in valda_typer:
+            bucket = storage.Client().bucket(GCS_BUCKET_NAME)
+            blob = bucket.blob(os.environ.get("NEWS_BLOB_NAME", "raw/news/feed_latest.json"))
+            if blob.exists():
+                payload = json.loads(blob.download_as_text())
+                uppdaterad = payload.get("updated_at")
+                poster += _pressposter(payload)
+        if "x" in valda_typer:
+            poster += _xposter()
+
+        poster.sort(key=lambda a: a.get("ts") or "", reverse=True)
+
+        # Raknas fore filter och kapning, sa flikarna kan visa antal utan att
+        # hamta om.
+        antal: dict[str, int] = {}
+        for a in poster:
+            antal[a["tag"]] = antal.get(a["tag"], 0) + 1
+
+        if tag:
+            valda = {t.strip() for t in tag.split(",") if t.strip()}
+            poster = [a for a in poster if a["tag"] in valda]
+
+        if not poster and uppdaterad is None:
+            return {"status": "empty", "items": [], "updated_at": None,
+                    "counts_by_tag": {}, "count": 0,
+                    "error": "Flodet har inte skordats an."}
+
+        return {
+            "status": "ok",
+            "updated_at": uppdaterad,
+            "count": len(poster),
+            "counts_by_tag": antal,
+            "items": poster[: max(1, min(int(limit), 200))],
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/feed")
+        return {"status": "error", "error": str(e), "items": [], "counts_by_tag": {}}
+
+
 @app.get("/api/v1/next-match")
 @cached_ok(cache=stats_cache)
 def get_next_match(season: str = None, refresh: bool = False):
