@@ -9,7 +9,7 @@
 #   bash deploy.sh scraper    # bara scrapern
 #   bash deploy.sh news       # bara nyhetsskörningen (silly_scraper.py)
 #   bash deploy.sh backfill   # hämta om avslutade säsonger, utan deploy
-#   bash deploy.sh schedule   # sätt schemaläggningen, utan deploy
+#   bash deploy.sh schedule   # sätt schemaläggningen + varmhållningen, utan deploy
 #   bash deploy.sh views      # skapa/uppdatera core- och marts-vyerna
 #   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
 #
@@ -158,6 +158,39 @@ if [[ "$TARGET" == "schedule" ]]; then
   fi
   gcloud scheduler jobs describe swehockey-stats-scraper-job --location "$REGION" \
     --format='value[separator="  "](schedule, timeZone, state, scheduleTime)'
+
+  # Varmhallningen. Cacherna i API:t har sex timmars TTL men ligger i
+  # processminnet, och Cloud Run skalar ner till noll efter en kvarts stillhet.
+  # Pa en sajt utan trafik dor cachen darfor langt fore sin TTL: matt i
+  # produktionen tog /statistics 3,7 sekunder kall mot 0,7 varm, /match 4,9 mot
+  # 0,7. Var tionde minut haller bade containern och cachen vid liv.
+  #
+  # Billigare an min-instances=1, som kostar dygnet runt aven nar ingen tittar.
+  API_URL=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)' 2>/dev/null || echo "")
+  if [[ -n "$API_URL" ]]; then
+    say "Sätter varmhållningen: var tionde minut"
+    if gcloud scheduler jobs describe loven-api-warmup --location "$REGION" >/dev/null 2>&1; then
+      gcloud scheduler jobs update http loven-api-warmup \
+        --location "$REGION" --schedule "*/10 * * * *" --time-zone "Europe/Stockholm" \
+        --uri "${API_URL}/api/v1/warmup" --http-method GET --attempt-deadline 300s --quiet
+    else
+      gcloud scheduler jobs create http loven-api-warmup \
+        --location "$REGION" --schedule "*/10 * * * *" --time-zone "Europe/Stockholm" \
+        --uri "${API_URL}/api/v1/warmup" --http-method GET --attempt-deadline 300s --quiet
+    fi
+
+    # Kor den en gang direkt, sa att effekten syns nu och inte om tio minuter.
+    say "Värmer cacherna"
+    curl -sS --max-time 300 "${API_URL}/api/v1/warmup" 2>/dev/null | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print('  kunde inte tolka svaret'); raise SystemExit
+for vag,r in (d.get('varmda') or {}).items():
+    if 'fel' in r: print(f\"    FEL {vag:<28} {r['fel']}\")
+    else:          print(f\"    ok  {vag:<28} HTTP {r['http']}  {r['sek']:>5} s\")
+" || true
+  fi
+
   say "Klart"
   exit 0
 fi

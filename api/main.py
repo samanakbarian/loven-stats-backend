@@ -14,6 +14,7 @@ from google.cloud import bigquery
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 import functools
+import time
 
 from cachetools import cached, TTLCache
 from cachetools.keys import hashkey
@@ -487,6 +488,39 @@ def get_standings(season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/standings")
         return {"status": "error", "error": str(e), "standings": []}
+
+
+@app.get("/api/v1/warmup")
+def warmup():
+    """Fyller cacherna sa att besokaren slipper gora det.
+
+    Cacherna har sex timmars TTL men ligger i processminnet, och Cloud Run
+    skalar ner till noll efter en kvarts stillhet. Pa en sajt utan trafik dor
+    darfor cachen langt fore sin TTL, och matningen visar vad det kostar:
+    /statistics tog 3,7 sekunder kall mot 0,7 varm, /match 4,9 mot 0,7.
+
+    Anropen gar till 127.0.0.1 i stallet for den publika adressen. Det haller
+    dem inne i containern — ingen utgaende trafik, och framforallt garanterat
+    samma instans, vilket ar hela poangen nar cachen ar processlokal.
+    """
+    port = os.environ.get("PORT", "8080")
+    ut: dict[str, Any] = {}
+    for vag in (
+        "/api/v1/statistics",
+        "/api/v1/analytics",
+        "/api/v1/next-match",
+        "/api/v1/standings",
+        "/api/v1/lovenlaget",
+        "/api/v1/seasons",
+        "/api/v1/feed?limit=200",
+    ):
+        t0 = time.perf_counter()
+        try:
+            r = requests.get(f"http://127.0.0.1:{port}{vag}", timeout=120)
+            ut[vag] = {"http": r.status_code, "sek": round(time.perf_counter() - t0, 2)}
+        except Exception as e:
+            ut[vag] = {"fel": str(e)[:90]}
+    return {"status": "ok", "varmda": ut}
 
 
 feed_cache = TTLCache(maxsize=8, ttl=900)  # 15 min
