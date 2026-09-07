@@ -325,11 +325,15 @@ if [[ "$TARGET" == "news" ]]; then
   API=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)' 2>/dev/null || echo "")
   if [[ -n "$API" ]]; then
     say "Kontrollerar flödet"
-    curl -sS --max-time 60 "${API}/api/v1/feed?limit=1" 2>/dev/null | python3 -c "
+    # limit=200 och refresh=true, bada av noden: antalen raknas efter kapningen,
+    # sa limit=1 rapporterade "1 rad" oavsett hur manga som fanns — och utan
+    # refresh svarar API:t ur sin femtonminuterscache, alltsa med laget fore
+    # korningen vi just gjorde.
+    curl -sS --max-time 90 "${API}/api/v1/feed?limit=200&refresh=true" 2>/dev/null | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: print('  kunde inte tolka svaret'); raise SystemExit
-print('  status:', d.get('status','?'), ' uppdaterat:', d.get('updated_at') or '-')
+print('  status:', d.get('status','?'), ' uppdaterat:', d.get('updated_at') or '-', ' rader:', d.get('count', 0))
 for k,v in sorted((d.get('counts_by_tag') or {}).items()):
     print(f'    {k:<8} {v:>4}')
 if d.get('error'): print('  fel:', str(d['error'])[:120])
