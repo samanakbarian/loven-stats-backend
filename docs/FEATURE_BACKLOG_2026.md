@@ -1195,6 +1195,8 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 21. `WEB-008` Skrivbordsanpassning: maxbredd, tvakolumnslage, en typskala som
     vaxer. Efter att designriktningen ar vald.
 22. `WEB-009` Ut med Recharts ur analysfliken; se feature 30. Efter premiaren.
+23. `FEED-004` Klipp pa spelarsidan; se feature 31. Efter premiaren. Fyller
+    `links[]` for `kind: "player"` och ar darmed forsta halvan av feature 22.
 
 ### 30. Ut med Recharts
 
@@ -1245,6 +1247,73 @@ Beroenden och fallgropar:
 - Gor det **efter** premiaren. Diagrammen ritas nu mot en tom sasong; det gar
   inte att se om en omskrivning stammer forran det finns riktiga serier att
   jamfora mot.
+
+### 31. Klipp pa spelarsidan
+
+Typ: Feature / Frontend + entitetslankning
+Prioritet: Medium — efter premiaren
+Primart repo: bada
+Berorda omraden: `pages/Spelare.tsx`, `functions/silly_scraper.py`, `GET /api/v1/feed`
+
+Beskrivning:
+Klubbens YouTube-kanal bar spelarnas roster: "Lucas Wallmark: 'Det ar nagot jag
+alltid dromt om'". Titeln namner spelaren, och truppen finns i `core.roster`.
+Kopplas de ihop kan spelarsidan visa bade siffrorna och personen — det ar den
+funktion ingen annan Bjorklovensajt har.
+
+Befintliga byggblock:
+- Klippen skordas redan (feature 23-utbyggnaden, 2026-09-07) och ligger som
+  `type: "video"` i samma `FeedItem`-lista som allt annat, med miniatyr.
+- Klippkomponenten i `Nyheter.tsx` bar redan fasaden: miniatyr tills nagon
+  trycker play, sedan `youtube-nocookie`. Den ateranvands rakt av.
+- `links[]` finns i `FeedItem`-kontraktet och ar tomt tills nagon fyller det.
+  Det ar det har som ska fylla det for `kind: "player"`.
+
+Matt tackning 2026-09-07 (forsasong):
+
+| | |
+|---|---|
+| Klipp kopplade till en spelare | **5 av 26** |
+| Spelare med minst ett klipp | **4 av 25** |
+
+Fordelat pa Frans Tuohimaa (2, som "Frasse"), Lucas Wallmark, Lukas
+Ekestahl-Jonsson och Christopher Didomenico.
+
+Namnmatchningen maste ga pa **efternamn**, inte helt namn:
+- Klubben skriver "Lucas Ekestahl Jonsson", truppen "Lukas Ekestahl-Jonsson".
+- Klubben skriver "Chris DiDomenico", truppen "Christopher Didomenico".
+- Bindestreck ar ett efternamn med tva delar, inte tva namn.
+- En liten smeknamnstabell behovs: "Frasse" star inte i nagon trupplista.
+
+Foreslagen design:
+- En **vagrat svepbar remsa** direkt under spelarens hero, fore
+  sasongsstatistiken. 186 px per kort, `scroll-snap`, samma fasad och samma
+  markning av fankanalen som i flodet.
+- Ett kort per klipp hade skjutit ner statistiken — sidans faktiska arende —
+  flera skarmar. En remsa kostar en skarmhojd oavsett antal.
+- **Sektionen ska forsvinna helt nar den ar tom.** Ingen rubrik, inget "inga
+  klipp an", ingen tom ruta. Med dagens tackning ser 21 av 25 spelare aldrig
+  att funktionen finns, och det ar ratt: en tom rubrik ar ett lofte som bryts
+  varje gang.
+
+Acceptanskriterier:
+- Ett klipp vars titel namner en spelare i truppen syns pa den spelarens sida.
+- En spelare utan klipp far ingen sektion alls, inte en tom.
+- Ingen koppling till en spelare som inte fanns i truppen nar klippet
+  publicerades — samma datumfonster som feature 22 kraver.
+- Klipp om tranare, sportchef och legender kopplas inte till nagon spelare.
+  Rahimi, Ohman, Bogren, Dunder, Walitalo och Okvist ar alla i flodet i dag.
+- Inget YouTube-anrop sker forran nagon trycker play.
+
+Beroenden och fallgropar:
+- **Gor det efter premiaren.** Matchningen ska stallas in mot riktig kadens,
+  inte mot forsasongens fyra traffar, och spelarsidorna ar nollstallda tills
+  det finns matcher att komplettera.
+- Tackningen vaxer av sig sjalv: RSS ger bara de femton senaste per kanal,
+  medan skorden ar additiv med ett halvarsfonster. Funktionen ar tunn i dag
+  och tjock i november.
+- Efternamn som ocksa ar vanliga ord ger falska traffar. Krav pa minst fyra
+  tecken finns redan i matningen; det racker inte for alla namn.
 
 ## Beslutsregler
 
