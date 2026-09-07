@@ -3182,6 +3182,11 @@ def get_analytics(season: str = None, refresh: bool = False):
                 "pts": pts,
                 "cumPts": cum_pts,
                 "isHome": bjk_home,
+                # Vinster i forlangning bar samma res som vinster i ordinarie
+                # tid, sa de gar inte att skilja at nedstroms. Flaggan behovs
+                # for att otw ska kunna raknas — den var initierad men aldrig
+                # okad, alltsa alltid noll.
+                "beyond": is_ot,
                 "gf": bjk_gf,
                 "ga": bjk_ga,
             })
@@ -3199,7 +3204,10 @@ def get_analytics(season: str = None, refresh: bool = False):
             s["ga"] += t["ga"]
             s["pts"] += t["pts"]
             if t["result"] == "W":
-                s["w"] += 1
+                # w ar vinster i ordinarie tid, otw efter forlangning eller
+                # straffar. Forut lag bada i w och otw var alltid noll, sa en
+                # rad som "18-5" av 26 matcher tappade tre matcher.
+                s["otw" if t["beyond"] else "w"] += 1
             elif t["result"] == "L":
                 s["l"] += 1
             elif t["result"] == "OTL":
