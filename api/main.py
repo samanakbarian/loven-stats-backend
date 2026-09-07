@@ -600,9 +600,12 @@ def get_feed(tag: str = None, types: str = None, limit: int = 60, refresh: bool 
             poster += _xposter()
 
         poster.sort(key=lambda a: a.get("ts") or "", reverse=True)
+        poster = poster[: max(1, min(int(limit), 200))]
 
-        # Raknas fore filter och kapning, sa flikarna kan visa antal utan att
-        # hamta om.
+        # Raknas efter kapningen men fore amnesfiltret. Efter, for att en flik
+        # som sager 45 maste ge 45 rader — raknades de fore skulle summan av
+        # flikarna overstiga vad klienten faktiskt fatt. Fore filtret, for att
+        # flikarna ska ga att visa utan att hamta om.
         antal: dict[str, int] = {}
         for a in poster:
             antal[a["tag"]] = antal.get(a["tag"], 0) + 1
@@ -621,7 +624,7 @@ def get_feed(tag: str = None, types: str = None, limit: int = 60, refresh: bool 
             "updated_at": uppdaterad,
             "count": len(poster),
             "counts_by_tag": antal,
-            "items": poster[: max(1, min(int(limit), 200))],
+            "items": poster,
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/feed")
