@@ -14,6 +14,7 @@ from google.cloud import bigquery
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 import functools
+import threading
 import time
 
 from cachetools import cached, TTLCache
@@ -513,6 +514,7 @@ def warmup():
         "/api/v1/lovenlaget",
         "/api/v1/seasons",
         "/api/v1/feed?limit=200",
+        "/api/v1/x-feed",
     ):
         t0 = time.perf_counter()
         try:
@@ -5249,9 +5251,18 @@ def _fetch_x_recent(query: str, max_results: int):
         return {"items": [], "error": "x_fetch_failed"}
 
 
+_gcs_client = None
+
+def _get_gcs_client():
+    global _gcs_client
+    if _gcs_client is None:
+        _gcs_client = storage.Client()
+    return _gcs_client
+
+
 def _load_x_cache():
     try:
-        storage_client = storage.Client()
+        storage_client = _get_gcs_client()
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(X_CACHE_BLOB)
         if not blob.exists():
@@ -5265,7 +5276,7 @@ def _load_x_cache():
 
 def _save_x_cache(payload):
     try:
-        storage_client = storage.Client()
+        storage_client = _get_gcs_client()
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(X_CACHE_BLOB)
         blob.upload_from_string(json.dumps(payload, ensure_ascii=False), content_type="application/json")
@@ -5273,7 +5284,12 @@ def _save_x_cache(payload):
         logging.warning(f"Could not save X cache: {e}")
 
 
+_x_bq_tables_ensured = False
+
 def _ensure_x_bq_tables(client: bigquery.Client):
+    global _x_bq_tables_ensured
+    if _x_bq_tables_ensured:
+        return
     dataset_ref = bigquery.Dataset(f"{client.project}.{X_BQ_DATASET}")
     dataset_ref.location = "europe-west1"
     client.create_dataset(dataset_ref, exists_ok=True)
@@ -5313,6 +5329,7 @@ def _ensure_x_bq_tables(client: bigquery.Client):
         bigquery.SchemaField("cache_minutes", "INT64"),
     ]
     client.create_table(bigquery.Table(runs_table_id, schema=runs_schema), exists_ok=True)
+    _x_bq_tables_ensured = True
 
 
 def _persist_x_payload_to_bq(payload: dict):
@@ -5624,11 +5641,15 @@ def _build_x_payload(query: str, max_results: int):
     return payload
 
 
+def _fetch_x_items_only(query: str, max_results: int):
+    fetched = _fetch_x_recent(query, max_results)
+    return fetched.get("items", []), fetched.get("error")
+
+
 def _build_x_payload_with_fallback(max_results: int):
-    primary = _build_x_payload(X_QUERY_DEFAULT, max_results)
-    primary_items = primary.get("items", []) or []
-    official = _build_x_payload(X_QUERY_OFFICIAL_DEFAULT, max_results)
-    official_items = official.get("items", []) or []
+    primary_items, primary_error = _fetch_x_items_only(X_QUERY_DEFAULT, max_results)
+    official_items, official_error = _fetch_x_items_only(X_QUERY_OFFICIAL_DEFAULT, max_results)
+
     primary_age_hours = _latest_item_age_hours(primary_items)
     needs_fallback = (
         len(primary_items) == 0
@@ -5638,9 +5659,7 @@ def _build_x_payload_with_fallback(max_results: int):
     fallback_items = []
     fallback_error = None
     if needs_fallback:
-        fallback = _build_x_payload(X_QUERY_BROAD_DEFAULT, max_results)
-        fallback_items = fallback.get("items", []) or []
-        fallback_error = fallback.get("meta", {}).get("error")
+        fallback_items, fallback_error = _fetch_x_items_only(X_QUERY_BROAD_DEFAULT, max_results)
 
     merged = []
     seen = set()
@@ -5657,7 +5676,6 @@ def _build_x_payload_with_fallback(max_results: int):
     )
     merged = merged[:max_results]
 
-    # Single batch LLM call for sentiment classification (cost-efficient).
     merged, sentiment_meta = _x_apply_batch_llm_sentiment(merged)
 
     counts = {"positive": 0, "neutral": 0, "negative": 0}
@@ -5681,7 +5699,7 @@ def _build_x_payload_with_fallback(max_results: int):
         "meta": {
             "provider": "x_api_v2_recent_search",
             "generated_at": datetime.utcnow().isoformat() + "Z",
-            "error": primary.get("meta", {}).get("error") or fallback_error or official.get("meta", {}).get("error"),
+            "error": primary_error or fallback_error or official_error,
             "cache_minutes": X_CACHE_MINUTES,
             "ai_summary_ready": bool(ai_summary.get("summary")),
             "query_mode": "fallback_merged" if needs_fallback else "primary_plus_official",
@@ -5714,7 +5732,7 @@ def get_x_feed(force_refresh: bool = Query(False)):
     payload.setdefault("meta", {})
     payload["meta"]["from_cache"] = False
     payload["meta"]["latest_item_age_hours"] = _latest_item_age_hours(payload.get("items", []))
-    _persist_x_payload_to_bq(payload)
+    threading.Thread(target=_persist_x_payload_to_bq, args=(payload,), daemon=True).start()
     _save_x_cache(payload)
     return JSONResponse(
         content=payload,
