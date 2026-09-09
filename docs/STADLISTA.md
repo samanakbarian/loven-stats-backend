@@ -2,8 +2,8 @@
 
 Sammanställd 2026-09-09. **Inget är borttaget än** — det här är underlaget.
 
-Av 226 spårade filer ligger 125 löst i rotkatalogen som sediment från
-felsökningssessioner: 114 `.py` och 12 data- och utdatafiler. Det är 55 procent
+Av 226 spårade filer ligger 127 löst i rotkatalogen som sediment från
+felsökningssessioner: 113 `.py` och 14 data- och utdatafiler. Det är 56 procent
 av repot. Ingen av dem ingår i någon körväg.
 
 Städningen är avsiktligt lågt prioriterad — den ska göras EFTER premiären
@@ -77,7 +77,7 @@ när frontendbygget gick sönder 8 september och deployen stod still ett dygn.
 **Skriptet ska bort, men idén ska tas vidare** som ett riktigt test innan det
 kastas.
 
-## Ta bort: 12 data- och utdatafiler
+## Ta bort: 14 data- och utdatafiler
 
 Utdrag och terminalutskrifter, alla från maj–juni 2026:
 `analytics.json`, `analytics_2.json`, `analytics_3.json`, `prod_out.json`
@@ -109,7 +109,7 @@ cd ~/loven-stats-backend && git rm clean_bq.py del_bq.py fix_bq.py fix_bq2.py fi
 ## Hela städningen, efter premiären
 
 ```
-cd ~/loven-stats-backend && git rm $(git ls-files '*.py' | grep -v / | grep -v '^backfill_season\.py$') $(git ls-files | grep -v / | grep -E '\.(json|txt|html)$' | grep -v package) && git commit -m "Rensa rotkatalogen: 125 filer utan körväg" && git push origin master
+cd ~/loven-stats-backend && git rm $(git ls-files '*.py' | grep -v / | grep -v '^backfill_season\.py$') $(git ls-files | grep -v / | grep -E '\.(json|txt|html)$' | grep -v package) && git commit -m "Rensa rotkatalogen: 127 filer utan körväg" && git push origin master
 ```
 
 Historiken finns kvar i git, så ingenting går förlorat.
