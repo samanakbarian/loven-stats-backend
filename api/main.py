@@ -30,7 +30,17 @@ app = FastAPI(
 )
 
 analytics_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
-stats_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
+# stats_cache delas av fjorton endpoints pa sasongsniva. Med maxsize=10 rackte
+# den inte till dem: LRU:n slog ut poster langt fore sextimmars-TTL:n, och
+# varje utslagen post var en ny BigQuery-fraga nasta gang. Talet ar nu antalet
+# endpoints gangar en handfull sasonger, med luft.
+stats_cache = TTLCache(maxsize=120, ttl=21600) # 6 hours caching
+# Spelare och matcher har en nyckel per OBJEKT, inte per sasong — trettio
+# spelare och femtiotva matcher per sasong. De lag tidigare i stats_cache och
+# spolade ur den: tre besokta spelarsidor rackte for att slaa ut tabellen,
+# statistiken och allt annat. Egna cachar gor att de inte kan ata av varandra.
+player_cache = TTLCache(maxsize=200, ttl=21600) # 6 hours caching
+match_cache = TTLCache(maxsize=300, ttl=21600) # 6 hours caching
 silly_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
 xfeed_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
 
@@ -278,7 +288,16 @@ def lookup_season(season_key=None):
     return result
 
 @app.get("/api/v1/seasons")
-def get_seasons():
+@cached_ok(cache=stats_cache)
+def get_seasons(refresh: bool = False):
+    """Sasongerna i valjaren, med flaggan for om laget spelar i dem.
+
+    Endpointen anropas vid varje sidladdning och korde tva BigQuery-fragor per
+    anrop, varav den andra laser hela core.schedule: LOWER() pa bada lagfalten
+    gor att varken klustring eller partitionering kan anvandas. Utan cache
+    rackte det att anropa den i loop for att driva upp fakturan — ingen flagga
+    behovdes. Se SEC-006 for fragan i sig; den ska inte behova stallas alls.
+    """
     bq = bigquery.Client(project=BQ_PROJECT_ID or None)
     rows = [dict(r.items()) for r in bq.query(
         f"""
@@ -1683,7 +1702,7 @@ def _goalie_profile(bq, keeper: dict, active: dict, season_ids: str, wanted: str
 
 
 @app.get("/api/v1/player/{name}")
-@cached_ok(cache=stats_cache)
+@cached_ok(cache=player_cache)
 def get_player(name: str, season: str = None, refresh: bool = False):
     """En spelares sasong, match for match.
 
@@ -3097,7 +3116,7 @@ def get_swings(season: str = None, refresh: bool = False):
 
 
 @app.get("/api/v1/match/{game_id}")
-@cached_ok(cache=stats_cache)
+@cached_ok(cache=match_cache)
 def get_match(game_id: int):
     """Alla handelser for en enskild match.
 

@@ -12,6 +12,7 @@
 #   bash deploy.sh schedule   # sätt schemaläggningen + varmhållningen, utan deploy
 #   bash deploy.sh views      # skapa/uppdatera core- och marts-vyerna
 #   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
+#   bash deploy.sh budget    # budgetlarm på projektet, utan deploy
 #
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
 # fält som lagts till i efterhand — game_id, periodresultat, publik, trupp.
@@ -192,6 +193,62 @@ for vag,r in (d.get('varmda') or {}).items():
   fi
 
   say "Klart"
+  exit 0
+fi
+
+if [[ "$TARGET" == "budget" ]]; then
+  # Ett budgetlarm MEDDELAR, det STOPPAR ingenting. Skillnaden är värd att
+  # hålla isär: larmet är en brandvarnare, inte en sprinkler. Det som faktiskt
+  # kapar spendet är en dygnskvot på BigQuery, och den sätts i konsolen —
+  # påminnelsen står längst ned här.
+  say "Sätter budgetlarm för $PROJECT_ID"
+
+  BUDGET_AMOUNT="${BUDGET_AMOUNT:-200SEK}"
+  BUDGET_NAME="${BUDGET_NAME:-loven-stats}"
+
+  # Faktureringskontot står inte i koden — det hämtas ur projektet, så att
+  # skriptet inte bär ett konto-id som ändå bara gäller en installation.
+  BILLING=$(gcloud billing projects describe "$PROJECT_ID" \
+    --format='value(billingAccountName)' 2>/dev/null | sed 's#billingAccounts/##')
+  if [[ -z "$BILLING" ]]; then
+    fail "Hittade inget faktureringskonto för $PROJECT_ID. Kör 'gcloud billing projects describe $PROJECT_ID' och se vad den säger."
+  fi
+  say "Faktureringskonto: $BILLING"
+
+  # Budgets ligger under en egen API som inte är på som standard.
+  gcloud services enable billingbudgets.googleapis.com --quiet 2>/dev/null || true
+
+  # Finns budgeten redan görs ingenting. Att köra om målet ska vara ofarligt.
+  BEFINTLIG=$(gcloud billing budgets list --billing-account="$BILLING" \
+    --filter="displayName=$BUDGET_NAME" --format='value(name)' 2>/dev/null | head -1)
+  if [[ -n "$BEFINTLIG" ]]; then
+    say "Budgeten \"$BUDGET_NAME\" finns redan — rör den inte"
+  else
+    gcloud billing budgets create \
+      --billing-account="$BILLING" \
+      --display-name="$BUDGET_NAME" \
+      --budget-amount="$BUDGET_AMOUNT" \
+      --filter-projects="projects/${PROJECT_ID}" \
+      --threshold-rule=percent=0.5 \
+      --threshold-rule=percent=0.9 \
+      --threshold-rule=percent=1.0 \
+      --quiet
+    say "Budget \"$BUDGET_NAME\" skapad på $BUDGET_AMOUNT med larm vid 50/90/100 %"
+  fi
+
+  cat <<'NOTIS'
+
+  Larmet mejlar. Det stänger ingenting av.
+
+  Det enda som faktiskt kapar spendet är en dygnskvot på BigQuery:
+    Console -> IAM & Admin -> Quotas -> sök "BigQuery API"
+    -> "Query usage per day" -> Edit Quotas
+
+  Sätt den på en nivå du känner igen från en normal vecka. Den bryter
+  frågorna när taket nås, vilket är precis vad man vill ha en natt då
+  någon hittar en oskyddad väg.
+
+NOTIS
   exit 0
 fi
 

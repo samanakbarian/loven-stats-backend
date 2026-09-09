@@ -1228,7 +1228,14 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
     `except Exception as e: return {"error": str(e)}`, vilket kan ge
     BQ-projektnamn och SQL-fragment till klienten. Logga internt, svara
     generiskt.
-29. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
+29. `SEC-006` Sluta skanna `core.schedule` for `has_team_data` i
+    `/api/v1/seasons`. Fragan gor `LOWER(home_team) LIKE '%rkl%ven%'` pa bada
+    lagfalten, sa varken klustring eller partitionering biter och hela tabellen
+    lases. Ratt fix ar ett falt i `core.season` som scrapern fyller, inte en
+    `LIKE` vid varje anrop. Cachen (2026-09-09) gjorde den till ett fatal
+    fragor per dygn i stallet for en per sidladdning, sa det bradskar inte
+    langre — men den ska inte ligga kvar.
+30. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
     `ScalarQueryParameter` genomgaende. Ingen av dem ar injicerbar i dag —
     `season` gar via `lookup_season()` som parameteriserar, och det som
     interpoleras ar heltals-id ur databasen — men monstret ar fragilt: nasta
@@ -1397,6 +1404,22 @@ Gjort 2026-09-09:
   gjorde den gamla konfigurationen vard att byta. CORS laggs till sist i
   kedjan sa att aven ett 429 bar sina huvuden och gar att lasa i webblasaren.
 - **`--max-instances 10`** pa Cloud Run i `deploy.sh`.
+- **`/api/v1/seasons` cachas** (2026-09-09). Den saknade cache helt och korde
+  tva BQ-fragor per anrop, varav en laser hela `core.schedule`. Ingen flagga
+  behovdes for att utnyttja den — endpointen ligger dessutom i sidladdningen,
+  sa den var den billigaste vagen till fakturan. Se SEC-006 for fragan i sig.
+- **Cacharna dimensionerades om** (2026-09-09). `stats_cache` var `maxsize=10`
+  och delades av femton endpoints, tva av dem med en nyckel per OBJEKT:
+  `get_player` per spelare och `get_match` per match. Matt: en besokare som
+  oppnade sextio spelarsidor slog ut tabellposten, som darmed kostade en ny
+  BQ-fraga. Sextimmars-TTL:n naddes i praktiken sallan — LRU:n hann fore.
+  Spelare och matcher har nu egna cachar (200 respektive 300) och
+  `stats_cache` rymmer 120.
+
+  Det ar varre an det later: hela poangen med en cache ar att den haller, och
+  den har hade i praktiken inte gjort det pa nagon endpoint sedan
+  spelarsidorna kom till. Att lagga pa en dekorator utan att ratta storleken
+  hade sett ut som en fix utan att vara en.
 
 Saknas:
 - Ett delat hemligt varde mellan Cloud Scheduler och de tva
