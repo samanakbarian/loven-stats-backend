@@ -1208,12 +1208,32 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 22. `WEB-009` Ut med Recharts ur analysfliken; se feature 30. Efter premiaren.
 23. `FEED-004` Klipp pa spelarsidan; se feature 31. Efter premiaren. Fyller
     `links[]` for `kind: "player"` och ar darmed forsta halvan av feature 22.
-24. `SEC-001` Skydda `warmup`, `force=1` och `refresh=true`; satt instanstak pa
-    Cloud Run. Se feature 32. Efter premiaren.
+24. `SEC-001` Skydda `warmup` och `force=1` med ett delat hemligt varde. Se
+    feature 32. Efter premiaren. Taktbegransningen, CORS-listan, `sims`-taket
+    och instanstaket ar gjorda 2026-09-09; det har ar vad som star kvar.
 25. `WEB-010` Uppgradera react-router-dom fran 7.14.2. Tva "high"-radgivningar
     galler ramverkslaget med serverrendering (`__manifest`-endpointen och CSRF
     via PUT/PATCH pa dokumentanrop) och ar **inte exploaterbara** i en statisk
     SPA pa Netlify. Hygien, inte bradska.
+26. `SEC-002` Ta bort `--allow-unauthenticated` fran scrapern och
+    nyhetsskordningen i `deploy.sh`. Bada anropas av Cloud Scheduler med ett
+    tjanstekonto; ingen manniska behover dem, och scrapern skriver till
+    BigQuery. API:t ska daremot fortsatta vara oppet. Hor ihop med SEC-001 —
+    gors lampligen samtidigt.
+27. `SEC-003` Skicka Sportradar-nyckeln som header i stallet for query-parameter
+    (`functions/sportradar_ingest.py:21`, `functions/main.py:44`). Som
+    query-parameter hamnar den i atkomstloggar och felmeddelanden. Lag
+    prioritet: integrationen ar vilande och nyckeln ar en utgangen trial.
+28. `SEC-004` Sluta lacka interna detaljer i felsvar. Flera endpoints gor
+    `except Exception as e: return {"error": str(e)}`, vilket kan ge
+    BQ-projektnamn och SQL-fragment till klienten. Logga internt, svara
+    generiskt.
+29. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
+    `ScalarQueryParameter` genomgaende. Ingen av dem ar injicerbar i dag —
+    `season` gar via `lookup_season()` som parameteriserar, och det som
+    interpoleras ar heltals-id ur databasen — men monstret ar fragilt: nasta
+    utvecklare som interpolerar en ra strang far en injektion utan att nagot
+    sager ifran. Hygien, inte bradska.
 
 ### 30. Ut med Recharts
 
@@ -1360,23 +1380,44 @@ Ingen har hittat nagot av det. Men Netlifys loggar visar att skannrar besoker
 sajten varje timme, och `/.netlify/functions/` visade sig vara en vag de redan
 provar.
 
+Gjort 2026-09-09:
+- **Taktbegransning per IP** i `api/main.py`, i processminnet: 120 anrop i
+  minuten allmant, och 12 i timmen for anrop som bar `refresh=true` eller
+  `force_refresh=true`. Ett tiotal i timmen racker for att felsoka fran en
+  webblasare men inte for att koras i loop. Loopback och `/api/v1/health` ar
+  undantagna — varmningen anropar sig sjalv over 127.0.0.1 och hade annars
+  atit av sitt eget tak. Sista posten i `X-Forwarded-For` galler, eftersom
+  det ar den enda anroparen inte kan valja at oss.
+- **`sims` fick golv och tak** (200–20000). Utan dem kunde en anropare be om
+  hur manga simuleringar som helst, och varje varde ar dessutom en egen
+  cachenyckel — `sims=1,2,3,...` i loop var en cachemiss varje gang.
+- **CORS-listan stangdes** till sida377.se plus Netlifys
+  forhandsvisningsadresser. `allow_credentials` ar av: API:t satter aldrig en
+  cookie, och kombinationen `allow_origins=["*"]` med credentials var det som
+  gjorde den gamla konfigurationen vard att byta. CORS laggs till sist i
+  kedjan sa att aven ett 429 bar sina huvuden och gar att lasa i webblasaren.
+- **`--max-instances 10`** pa Cloud Run i `deploy.sh`.
+
 Saknas:
 - Ett delat hemligt varde mellan Cloud Scheduler och de tva
   operationsvagarna (`warmup`, `force`), som en header. Bada anropas bara av
-  oss; ingen manniska behover dem.
-- Ett tak pa `refresh`. Enklast ar att lata den krava samma hemlighet — men da
-  tappar vi mojligheten att felsoka fran en webblasare. Alternativet ar en
-  enkel taktbegransning per IP i minnet, som racker mot slarv men inte mot en
-  medveten angripare.
-- Cloud Runs `--max-instances`, som ar det enda som satter ett tak i kronor
-  oavsett vad som slapper igenom.
+  oss; ingen manniska behover dem. Taktbegransningen racker sa lange — ett
+  anrop till `warmup` blir fortfarande sju interna, men inte hur manga som
+  helst.
 
 Acceptanskriterier:
+- ~~`refresh=true` gar inte att anropa obegransat.~~ Klart.
+- ~~Cloud Run har ett instanstak.~~ Klart.
+- ~~Ingen av andringarna kraver att frontend andras.~~ Klart — frontend har
+  aldrig anvant `refresh`, och sida377.se star pa CORS-listan.
 - `warmup` och `force=1` svarar 403 utan ratt hemlighet.
 - Schemalaggarjobben fortsatter fungera.
-- `refresh=true` gar inte att anropa obegransat.
-- Cloud Run har ett instanstak.
-- Ingen av andringarna kraver att frontend andras.
+
+Fallgrop nar hemligheten kommer:
+Taktbegransningen ligger i processminnet och galler darmed per Cloud
+Run-instans. Med `--max-instances 10` kan en anropare som traffar olika
+instanser fa tio ganger taket. Det ar medvetet — det verkliga taket i kronor
+ar instansgransen, inte rakningen.
 
 Avgransning:
 - Autentisering pa lasvagarna ar **inte** aktuellt. Datan ar publik, sajten ar

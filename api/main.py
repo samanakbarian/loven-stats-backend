@@ -6,7 +6,7 @@ import eliteprospects
 import random
 import requests
 import unicodedata
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import storage
@@ -34,12 +34,118 @@ stats_cache = TTLCache(maxsize=10, ttl=21600) # 6 hours caching
 silly_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
 xfeed_cache = TTLCache(maxsize=5, ttl=1800) # 30 mins caching
 
-# TillÃ¥t CORS fÃ¶r frontend
+# -- Taktbegransning --
+#
+# API:t ar oautentiserat med flit: datan ar publik och en nyckel i en
+# frontendbundle vore ingen nyckel. Det som star oppet ar i stallet
+# KOSTNADEN — varje anrop som gar forbi cachen blir en BigQuery-fraga.
+#
+# Rakningen ligger i processminnet och galler darmed per Cloud Run-instans,
+# inte globalt, och X-Forwarded-For gar att forfalska. Det racker mot
+# skannrar och slarv, inte mot nagon som verkligen vill. Det enda taket i
+# kronor ar --max-instances i deploy.sh.
+RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", "120"))
+# refresh=true kringgar cachen och kostar en BQ-fraga per anrop. Ett tiotal i
+# timmen racker for att felsoka fran en webblasare men inte for att koras i
+# loop. Frontend anvander aldrig flaggan.
+RATE_LIMIT_REFRESH_PER_HOUR = int(os.environ.get("RATE_LIMIT_REFRESH_PER_HOUR", "12"))
+
+_rate_lock = threading.Lock()
+_rate_buckets: dict[str, tuple[float, int]] = {}
+
+# Vad FastAPI raknar som sant i en bool-parameter.
+_SANNA_VARDEN = {"1", "true", "yes", "on"}
+
+
+def _rate_ok(nyckel: str, tak: int, fonster: float) -> bool:
+    """Sant nar anropet ryms i sitt fonster. Fast fonster, inte glidande."""
+    nu = time.time()
+    with _rate_lock:
+        # Utan stadning vaxer ordboken med varje ny IP tills processen startas
+        # om. Grasen ar generos: en hink som inte rorts pa en timme ar dod
+        # oavsett vilket fonster den raknade i.
+        if len(_rate_buckets) > 10000:
+            for k, (start, _) in list(_rate_buckets.items()):
+                if nu - start >= 3600:
+                    del _rate_buckets[k]
+
+        start, antal = _rate_buckets.get(nyckel, (0.0, 0))
+        if nu - start >= fonster:
+            _rate_buckets[nyckel] = (nu, 1)
+            return True
+        if antal >= tak:
+            return False
+        _rate_buckets[nyckel] = (start, antal + 1)
+        return True
+
+
+def _klient_ip(request: Request) -> str:
+    """Anroparens adress, sa gott den gar att veta.
+
+    Cloud Run lagger den riktiga adressen SIST i X-Forwarded-For och behaller
+    det klienten sjalv skickade fore den. Sista posten ar darfor den enda som
+    anroparen inte kan valja at oss.
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[-1].strip()
+    return request.client.host if request.client else "okand"
+
+
+@app.middleware("http")
+async def taktbegransa(request: Request, call_next):
+    ip = _klient_ip(request)
+    # Varmningen anropar sig sjalv over 127.0.0.1 — atta vagar i rad, som
+    # annars hade atit av sitt eget tak. Halsokontrollen far aldrig fa 429.
+    if ip in ("127.0.0.1", "::1") or request.url.path in ("/", "/api/v1/health"):
+        return await call_next(request)
+
+    q = request.query_params
+    forbi_cachen = any(
+        (q.get(flagga) or "").lower() in _SANNA_VARDEN
+        for flagga in ("refresh", "force_refresh")
+    )
+    if forbi_cachen and not _rate_ok(f"refresh:{ip}", RATE_LIMIT_REFRESH_PER_HOUR, 3600):
+        return JSONResponse(
+            {"status": "error", "error": "For manga anrop med refresh. Forsok igen senare."},
+            status_code=429,
+            headers={"Retry-After": "3600"},
+        )
+    if not _rate_ok(ip, RATE_LIMIT_PER_MIN, 60):
+        return JSONResponse(
+            {"status": "error", "error": "For manga anrop. Forsok igen om en stund."},
+            status_code=429,
+            headers={"Retry-After": "60"},
+        )
+    return await call_next(request)
+
+
+# -- CORS --
+#
+# Frontend ligger pa sida377.se. Netlify ger varje deploy en egen adress under
+# netlify.app, och de behovs for att granska en andring innan den gar live.
+# Ovriga origins har inget arende hit.
+#
+# CORS laggs till SIST och blir darmed ytterst i kedjan, sa att aven ett 429
+# fran taktbegransningen bar sina CORS-huvuden och gar att lasa i webblasaren.
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "ALLOWED_ORIGINS", "https://sida377.se,https://www.sida377.se"
+    ).split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Byt till Netlify-domÃ¤nen i produktion
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://[a-z0-9-]+\.netlify\.app",
+    # API:t laser bara publik data och satter aldrig en cookie. Utan
+    # credentials kan en frammande origin inte lana besokarens session — och
+    # kombinationen allow_origins=["*"] med credentials var det som gjorde
+    # den gamla konfigurationen vard att byta.
+    allow_credentials=False,
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
@@ -1851,7 +1957,15 @@ def get_player(name: str, season: str = None, refresh: bool = False):
 
 @app.get("/api/v1/projection")
 @cached_ok(cache=analytics_cache)
-def get_projection(season: str = None, sims: int = 5000, refresh: bool = False):
+def get_projection(
+    season: str = None,
+    # Varje simulering spelar resten av sasongen match for match, sa kostnaden
+    # vaxer linjart med talet. Femtusen racker for att andelarna ska ligga
+    # stilla mellan korningar; taket finns for att ingen ska kunna be om
+    # miljoner. Utan ge/le fanns varken golv eller tak.
+    sims: int = Query(default=5000, ge=200, le=20000),
+    refresh: bool = False,
+):
     """Slutplacering simulerad match for match over det som aterstar.
 
     Elo raknas ur spelade matcher, och de matcher som inte spelats simuleras
