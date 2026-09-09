@@ -139,7 +139,12 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"https://[a-z0-9-]+\.netlify\.app",
+    # Netlifys forhandsvisningar, plus dev-servern: `npm run dev` kor mot det
+    # skarpa API:t fran localhost, och utan den har raden svarar varje anrop
+    # med ett CORS-fel i stallet for data. Att slappa in localhost kostar
+    # ingenting — en angripare kan inte fa nagon annans webblasare att skicka
+    # den originen, och svaren ar publika oavsett.
+    allow_origin_regex=r"https://[a-z0-9-]+\.netlify\.app|http://(localhost|127\.0\.0\.1):\d+",
     # API:t laser bara publik data och satter aldrig en cookie. Utan
     # credentials kan en frammande origin inte lana besokarens session — och
     # kombinationen allow_origins=["*"] med credentials var det som gjorde
