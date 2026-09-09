@@ -180,6 +180,27 @@ if [[ "$TARGET" == "schedule" ]]; then
         --uri "${API_URL}/api/v1/warmup" --http-method GET --attempt-deadline 300s --quiet
     fi
 
+    # Omhämtningen efter varje skörning. Varmhållningen ovan HÅLLER cachen vid
+    # liv men byter inte ut den: en TTLCache räknar sina sex timmar från att
+    # posten skrevs, inte från senaste läsningen. Utan det här jobbet ligger
+    # alltså nya matchsiffror i BigQuery medan API:t fortsätter servera det som
+    # råkade hamna i cachen före skörden — upp till sex timmar på en matchkväll,
+    # vilket är precis när någon faktiskt tittar.
+    #
+    # Kvart i, alltså femton minuter efter scraperns :30. Funktionen har 300 s
+    # timeout, så den är klar med god marginal.
+    REFRESH_CRON="${REFRESH_CRON:-45 0,7,18,22 * * *}"
+    say "Sätter omhämtningen efter skörden: $REFRESH_CRON"
+    if gcloud scheduler jobs describe loven-api-refresh --location "$REGION" >/dev/null 2>&1; then
+      gcloud scheduler jobs update http loven-api-refresh \
+        --location "$REGION" --schedule "$REFRESH_CRON" --time-zone "Europe/Stockholm" \
+        --uri "${API_URL}/api/v1/warmup?refresh=1" --http-method GET --attempt-deadline 300s --quiet
+    else
+      gcloud scheduler jobs create http loven-api-refresh \
+        --location "$REGION" --schedule "$REFRESH_CRON" --time-zone "Europe/Stockholm" \
+        --uri "${API_URL}/api/v1/warmup?refresh=1" --http-method GET --attempt-deadline 300s --quiet
+    fi
+
     # Kor den en gang direkt, sa att effekten syns nu och inte om tio minuter.
     say "Värmer cacherna"
     curl -sS --max-time 300 "${API_URL}/api/v1/warmup" 2>/dev/null | python3 -c "

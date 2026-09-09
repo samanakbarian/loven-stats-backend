@@ -245,13 +245,23 @@ def health_check():
 
 
 # â”€â”€ Season lookup â”€â”€
-_season_cache = {}
+# TTL, inte en vanlig dict. Uppslaget fylldes en gang per process och tomdes
+# aldrig. Normalt hade instansen dott och startat om av sig sjalv, men
+# varmhallningen var tionde minut haller den vid liv dygnet runt — sa en
+# sasongsandring i BigQuery, som grundserie till slutspel, hade inte slagit
+# igenom forran nasta deploy. En timme ar snabbt nog for ett byte som sker ett
+# par ganger om aret, och fragan ar liten.
+_season_cache = TTLCache(maxsize=32, ttl=3600)
 
 def lookup_season(season_key=None):
     """Lookup season config from BQ. Caches results."""
     cache_key = season_key or "__active__"
-    if cache_key in _season_cache:
+    # try/except i stallet for `in`: posten kan hinna ga ut mellan kontrollen
+    # och hamtningen nu nar cachen har en TTL.
+    try:
         return _season_cache[cache_key]
+    except KeyError:
+        pass
     
     bq = bigquery.Client(project=BQ_PROJECT_ID or None)
     proj = bq.project
@@ -621,8 +631,26 @@ def get_standings(season: str = None, refresh: bool = False):
         return {"status": "error", "error": str(e), "standings": []}
 
 
+# Vagarna varmhallningen ror. Andra kolumnen sager om en tvingad omhamtning
+# ska skickas med. De fem forsta bygger pa Swehockey-skorden och ar det som
+# blir inaktuellt nar en match spelats. feed och x-feed hamtar fran
+# nyhetsskorden respektive X, har egna kadenser och egna kvoter — att tvinga
+# dem fyra ganger om dygnet hade brant anrop utan att ge nyare data.
+# lovenlaget har ingen cache alls och laser darfor redan farskt.
+_VARMNINGSVAGAR = (
+    ("/api/v1/statistics", True),
+    ("/api/v1/analytics", True),
+    ("/api/v1/next-match", True),
+    ("/api/v1/standings", True),
+    ("/api/v1/seasons", True),
+    ("/api/v1/lovenlaget", False),
+    ("/api/v1/feed?limit=200", False),
+    ("/api/v1/x-feed", False),
+)
+
+
 @app.get("/api/v1/warmup")
-def warmup():
+def warmup(refresh: bool = False):
     """Fyller cacherna sa att besokaren slipper gora det.
 
     Cacherna har sex timmars TTL men ligger i processminnet, och Cloud Run
@@ -633,26 +661,31 @@ def warmup():
     Anropen gar till 127.0.0.1 i stallet for den publika adressen. Det haller
     dem inne i containern — ingen utgaende trafik, och framforallt garanterat
     samma instans, vilket ar hela poangen nar cachen ar processlokal.
+
+    Med ?refresh=1 tvingas cachen om i stallet for att bara hallas varm. Det
+    ar vad schemalaggaren anropar kvart i efter varje skorning. Utan den ligger
+    nya matchsiffror i BigQuery medan API:t fortsatter servera det som rakade
+    hamna i cachen fore skorden: en TTLCache raknar sex timmar fran att posten
+    SKREVS, inte fran senaste lasningen, sa en varmhallning utan refresh
+    forlanger inte livet men byter heller inte ut innehallet. Pa en matchkvall
+    blev det upp till sex timmar med formatchsiffror.
+
+    De interna anropen gar over loopback och raknas darfor inte av
+    taktbegransningen.
     """
     port = os.environ.get("PORT", "8080")
     ut: dict[str, Any] = {}
-    for vag in (
-        "/api/v1/statistics",
-        "/api/v1/analytics",
-        "/api/v1/next-match",
-        "/api/v1/standings",
-        "/api/v1/lovenlaget",
-        "/api/v1/seasons",
-        "/api/v1/feed?limit=200",
-        "/api/v1/x-feed",
-    ):
+    for vag, foljer_skorden in _VARMNINGSVAGAR:
+        url = f"http://127.0.0.1:{port}{vag}"
+        if refresh and foljer_skorden:
+            url += ("&" if "?" in vag else "?") + "refresh=true"
         t0 = time.perf_counter()
         try:
-            r = requests.get(f"http://127.0.0.1:{port}{vag}", timeout=120)
+            r = requests.get(url, timeout=120)
             ut[vag] = {"http": r.status_code, "sek": round(time.perf_counter() - t0, 2)}
         except Exception as e:
             ut[vag] = {"fel": str(e)[:90]}
-    return {"status": "ok", "varmda": ut}
+    return {"status": "ok", "uppdaterad": refresh, "varmda": ut}
 
 
 feed_cache = TTLCache(maxsize=8, ttl=900)  # 15 min

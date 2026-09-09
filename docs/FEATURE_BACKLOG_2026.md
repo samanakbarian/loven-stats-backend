@@ -1428,6 +1428,11 @@ Saknas:
   anrop till `warmup` blir fortfarande sju interna, men inte hur manga som
   helst.
 
+  OBS sedan 2026-09-09: `warmup` anropas nu av TVA schemalagda jobb —
+  `loven-api-warmup` var tionde minut och `loven-api-refresh` kvart i efter
+  varje skorning, den senare med `?refresh=1`. Hemligheten maste laggas pa
+  bada, annars slutar den ena fungera tyst.
+
 Acceptanskriterier:
 - ~~`refresh=true` gar inte att anropa obegransat.~~ Klart.
 - ~~Cloud Run har ett instanstak.~~ Klart.
