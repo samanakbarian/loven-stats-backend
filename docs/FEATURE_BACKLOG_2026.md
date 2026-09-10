@@ -1235,7 +1235,9 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
     `LIKE` vid varje anrop. Cachen (2026-09-09) gjorde den till ett fatal
     fragor per dygn i stallet for en per sidladdning, sa det bradskar inte
     langre — men den ska inte ligga kvar.
-30. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
+30. `ARCH-001` Serveringslager mellan datalagret och webben; se feature 33.
+    Efter premiaren, och efter att premiarkvallens verkliga last ar matt.
+31. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
     `ScalarQueryParameter` genomgaende. Ingen av dem ar injicerbar i dag —
     `season` gar via `lookup_season()` som parameteriserar, och det som
     interpoleras ar heltals-id ur databasen — men monstret ar fragilt: nasta
@@ -1450,6 +1452,78 @@ ar instansgransen, inte rakningen.
 Avgransning:
 - Autentisering pa lasvagarna ar **inte** aktuellt. Datan ar publik, sajten ar
   gratis, och en nyckel i frontendbundlen ar ingen nyckel.
+
+### 33. Serveringslager mellan datalagret och webben
+
+Typ: Arkitektur / Prestanda
+Prioritet: Medium — efter premiaren
+Primart repo: `loven-stats-backend`
+Berorda omraden: `api/main.py`, `functions/swehockey_stats_scraper.py`, GCS
+
+Beskrivning:
+Datalagret ar genomtankt: append-only ratabeller, avdupliceringsvyer i core,
+marts ovanpa, avstamningskontroller som jamfor harledda tal mot kallans egna,
+och en inkrementell skord med innehallshashning och ETag. Den delen holler.
+
+Lasvagen ar det inte. Den har vuxit endpoint for endpoint utan ett beslut om
+hur den ska fungera, och det syns: `stats_cache` var `maxsize=10` delad av
+femton endpoints — ett tal fran nar det fanns tre — och `/api/v1/seasons`
+saknade cache helt. Bada rattades 9 september, men bada var symtom.
+
+**Gransen gar inte vid datamangd.** En hel sasong ar tiotusentals rader;
+BigQuery marker inte att den finns. Gransen gar vid LASARE MED KALLA CACHAR.
+Cachen ligger i processminnet, alltsa per Cloud Run-instans, och forsvinner nar
+instansen skalas ned. En kvall da nagon delar sajten brett: tio instanser, var
+och en med tom cache, alla staller samma fragor till BigQuery. Vid attio
+besokare om dygnet marks det inte. Vid femtusen pa en kvall gor det det.
+
+Att `warmup` maste finnas ar sjalva symtomet — man bygger inte ett jobb som var
+tionde minut haller en cache vid liv om cachen sitter pa ratt stalle.
+
+Grundproblemet: BigQuery har en fast avgift per fraga (jobbskapande, planering,
+utskick) pa ett par tiondelar oavsett datamangd. Det ar en analysmotor, och den
+star i lasvagen. Matt 10 september: en kall matchrapport tog 2,4 sekunder aven
+efter att atta fragor gjorts om till en parallell vag. Samma container och
+natverk serverar `/api/v1/feed` ur en GCS-blob pa 0,85 sekunder — med
+bearbetning inraknad.
+
+Saknas:
+- Ett forberakningssteg efter skorden som bygger svaren for de entiteter som
+  faktiskt andrats, och skriver dem som blobar. Scrapern vet redan vilka
+  matcher som ar nya eller rattade — `_content_hash` finns.
+- Endpoints som laser bloben nar den finns och faller tillbaka pa BigQuery nar
+  den saknas, sa infasningen kan ske en endpoint i taget.
+- Ett satt att tvinga fram en ombyggnad nar SVARETS FORM andras. En ny kolumn
+  eller en rattad berakning gor alla befintliga blobar inaktuella utan att
+  innehallet i BigQuery andrats, och da hjalper ingen innehallshash. Samma
+  behov som `force=1` i nyhetsskorden.
+
+Borja med `/api/v1/match/{id}`: den ar dyrast per anrop, har en cachenyckel per
+match — sa missen ar normalfallet — och en spelad match andras inte, bortsett
+fran rattelser inom `REFRESH_DAYS`. Den ar med andra ord den enklaste att gora
+statisk och den som vinner mest.
+
+Acceptanskriterier:
+- En kall matchrapport svarar under en halv sekund.
+- Antalet BigQuery-fragor vaxer inte med antalet besokare.
+- Endpoints utan blob fungerar precis som i dag.
+- En andring i svarets form gar att rulla ut utan att gamla blobar ligger kvar.
+- Frontend behover inte andras.
+
+Avgransning:
+- En delad cache (Memorystore) loser samma problem men kostar dygnet runt och
+  loser inte kostnaden per fraga. Blobar ar billigare och passar datan, som ar
+  oforanderlig efter att matchen spelats.
+- Att flytta HELA lasvagen ar inte malet. Endpoints som redan ar snabba, eller
+  som beror pa nagot som andras ofta, far sta kvar pa BigQuery.
+- Gor det inte fore premiaren. Den verkliga lasten den 19 september ar den
+  forsta riktiga matpunkten, och den bor styra dimensioneringen i stallet for
+  en gissning.
+
+Fallgrop:
+Blobar som hamnar ur synk med BigQuery ar tyst fel — sidan visar nagot som ser
+riktigt ut men ar gammalt. Skriv `generated_at` i varje blob och lat svaret
+bara den vidare, sa gar det att se utifran nar nagot slutat uppdateras.
 
 ## Beslutsregler
 
