@@ -206,7 +206,7 @@ squad_cache = TTLCache(maxsize=16, ttl=21600)   # 6 hours caching
 league_cache = TTLCache(maxsize=16, ttl=21600)  # 6 hours caching
 
 
-def fraga_parallellt(bq, fragor: dict[str, str]) -> dict[str, list[dict]]:
+def fraga_parallellt(bq, fragor: dict[str, str], strikt: bool = False) -> dict[str, list[dict]]:
     """Kor flera BigQuery-fragor samtidigt, och ger raderna per namn.
 
     BigQuery har en fast avgift per fraga — jobbskapande, planering, utskick —
@@ -215,9 +215,13 @@ def fraga_parallellt(bq, fragor: dict[str, str]) -> dict[str, list[dict]]:
     matt 5,9 sekunder kall mot 0,2 varm, alltsa nastan uteslutande vantan.
     Samtidigt blir samma arbete en rundresa i stallet for atta.
 
-    En fraga som failar faller inte de ovriga — den ger en tom lista och loggas.
-    Anroparen hanterar redan tomt resultat, eftersom varje fraga tidigare lag i
-    sitt eget try-block. bigquery.Client ar tradsaker.
+    `strikt` avgor vad ett fel betyder, och det maste matcha vad anroparen hade
+    innan. Anropare vars fragor lag i VAR SITT try-block tal en tom lista och
+    kor vidare (strikt=False). Anropare dar ett fel bubblade upp till ett
+    felsvar maste fortsatta gora det (strikt=True) — annars renderas sidan med
+    nollor och SER riktig ut, vilket ar samre an ett synligt fel.
+
+    bigquery.Client ar tradsaker.
     """
     ut: dict[str, list[dict]] = {namn: [] for namn in fragor}
     if not fragor:
@@ -233,6 +237,8 @@ def fraga_parallellt(bq, fragor: dict[str, str]) -> dict[str, list[dict]]:
             try:
                 ut[namn] = f.result()
             except Exception:
+                if strikt:
+                    raise
                 logging.warning("Fragan %s gick inte att kora", namn, exc_info=True)
     return ut
 
@@ -3643,15 +3649,16 @@ def get_analytics(season: str = None, refresh: bool = False):
         active = lookup_season(season)
         REGULAR_ID = active["regular"]
 
-        schedule = q(f"SELECT a.* FROM `{proj}.core.schedule` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.schedule` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID} ORDER BY a.match_date")
-        players = q(f"SELECT a.* FROM `{proj}.core.player_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.player_season_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
-        goalies = q(f"SELECT a.* FROM `{proj}.core.goalie_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.goalie_season_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
-        standings = q(f"SELECT a.* FROM `{proj}.core.standings` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.standings` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}")
-
-        # Find the SHL season whose start_date is closest to the current HA season,
-        # but only among seasons that actually have goalie data loaded.
-        # Two-step: (1) get seasons with data, (2) pick closest to REGULAR_ID's start_date.
-        shl_with_data = q(f"""
+        # Tolv fragor i foljd kostade fjorton sekunder kall — nastan allt vantan
+        # pa BigQuerys fasta avgift per fraga, inte raknande. De faller i tva
+        # vagor: forst allt som bara behover REGULAR_ID, sedan det som behover
+        # svaret fran den forsta.
+        _v1 = fraga_parallellt(bq, strikt=True, fragor={
+            "schedule": f"SELECT a.* FROM `{proj}.core.schedule` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.schedule` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID} ORDER BY a.match_date",
+            "players": f"SELECT a.* FROM `{proj}.core.player_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.player_season_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}",
+            "goalies": f"SELECT a.* FROM `{proj}.core.goalie_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.goalie_season_stats` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}",
+            "standings": f"SELECT a.* FROM `{proj}.core.standings` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.standings` WHERE season_group_id = {REGULAR_ID}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {REGULAR_ID}",
+            "shl_with_data": f"""
             SELECT s.regular_season_id, s.start_date
             FROM `{proj}.core.season` s
             WHERE LOWER(s.league) = 'shl'
@@ -3660,46 +3667,43 @@ def get_analytics(season: str = None, refresh: bool = False):
                 WHERE g.season_group_id = s.regular_season_id
               )
             ORDER BY s.start_date DESC
-        """)
-        ha_start_rows = q(f"""
+        """,
+            "ha_start_rows": f"""
             SELECT start_date FROM `{proj}.core.season`
             WHERE regular_season_id = {REGULAR_ID}
-        """)
+        """,
+        })
+        schedule = _v1["schedule"]
+        players = _v1["players"]
+        goalies = _v1["goalies"]
+        standings = _v1["standings"]
+        shl_with_data = _v1["shl_with_data"]
+        ha_start_rows = _v1["ha_start_rows"]
+
         ha_start = ha_start_rows[0]["start_date"] if ha_start_rows else None
         shl_regular_id = None
         if shl_with_data:
             if ha_start:
                 def _date_diff(row):
-                    import datetime
                     s = row.get("start_date")
-                    if s is None:
+                    if s is None or not hasattr(s, "toordinal"):
                         return 99999
-                    if hasattr(s, "toordinal"):
-                        return abs(s.toordinal() - ha_start.toordinal())
-                    return 99999
+                    return abs(s.toordinal() - ha_start.toordinal())
                 best = min(shl_with_data, key=_date_diff)
             else:
                 best = shl_with_data[0]
             shl_regular_id = best["regular_season_id"]
 
-        shl_players = []
-        shl_goalies = []
+        # Andra vagen. Handelserna hamtas bara for matcher i den har seriens
+        # spelschema, sa andra ligors handelser inte dras in.
+        sched_game_ids = [str(g["game_id"]) for g in schedule if g.get("game_id")]
+        game_ids_str = ", ".join(sched_game_ids)
+        _fragor2: dict[str, str] = {}
         if shl_regular_id:
-            shl_players = q(f"SELECT a.* FROM `{proj}.core.player_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.player_season_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
-            shl_goalies = q(f"SELECT a.* FROM `{proj}.core.goalie_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.goalie_season_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}")
-
-        
-        # Only query events for games in the current regular season schedule to avoid loading other leagues' events
-        sched_game_ids = [str(g['game_id']) for g in schedule if g.get("game_id")]
+            _fragor2["shl_players"] = f"SELECT a.* FROM `{proj}.core.player_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.player_season_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}"
+            _fragor2["shl_goalies"] = f"SELECT a.* FROM `{proj}.core.goalie_season_stats` a INNER JOIN (SELECT MAX(scraped_at) as max_s FROM `{proj}.core.goalie_season_stats` WHERE season_group_id = {shl_regular_id}) b ON a.scraped_at = b.max_s WHERE a.season_group_id = {shl_regular_id}"
         if sched_game_ids:
-            game_ids_str = ", ".join(sched_game_ids)
-            # Handelsetabellen ar append-only: varje skorning lagger till en ny
-            # uppsattning rader. Utan att forst valja senaste korningen per
-            # match summeras alla generationer — utvisningarna tredubblades nar
-            # samma sasong hade skorats tre ganger, och samma fel drabbade
-            # specialteam och nar malen faller.
-            events = q(
-                f"""
+            _fragor2["events"] = f"""
                 SELECT e.*
                 FROM `{proj}.core.game_events` e
                 INNER JOIN (
@@ -3710,9 +3714,10 @@ def get_analytics(season: str = None, refresh: bool = False):
                 ) m ON e.game_id = m.game_id AND e.scraped_at = m.max_s
                 WHERE e.game_id IN ({game_ids_str})
                 """
-            )
-        else:
-            events = []
+        _v2 = fraga_parallellt(bq, _fragor2, strikt=True)
+        shl_players = _v2.get("shl_players", [])
+        shl_goalies = _v2.get("shl_goalies", [])
+        events = _v2.get("events", [])
 
 
 
