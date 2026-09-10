@@ -1507,6 +1507,34 @@ match — sa missen ar normalfallet — och en spelad match andras inte, bortset
 fran rattelser inom `REFRESH_DAYS`. Den ar med andra ord den enklaste att gora
 statisk och den som vinner mest.
 
+### `/api/v1/analytics` ar INTE nasta kandidat — den ska refaktoreras forst
+
+Endpointen tog 14,3 sekunder kall. Fragorna parallelliserades 10 september och
+den gick till 10,4 — alltsa satt bara fyra sekunder i frageköerna. Aterstoden
+ar Python.
+
+Jamforelsen som avgor saken: `/api/v1/statistics` laser i stort sett samma
+tabeller SEKVENTIELLT och klarar sig pa 3,2 sekunder. `/api/v1/analytics` laser
+samma sak PARALLELLT och tar 11. Skillnaden ar de sjutton modulerna som raknas
+i Python.
+
+Och koden sager varfor: **tolv separata loopar over `events`**, plus nastlade
+`players` x `shl_players` och `goalies` x `shl_goalies`. Raderna 515-520 i
+funktionen ar sex fulla genomlopningar av samma trettontusen rader i foljd, en
+per aggregat. Trettontusen rader ska inte ta tio sekunder — de lases bara om
+och om igen.
+
+Att forberakna det vore att lagga ett lock over tolv onodiga scan. Fel ordning.
+Refaktorera forst — ett pass over `events` som fyller alla aggregat, i stallet
+for tolv — och mat om. Blir det under en sekund behovs ingen forberakning alls
+for den har endpointen.
+
+**Forutsattningen ar ett gyllene-mastar-test.** Sjutton moduler, 1599 rader,
+noll tester. Innan nagon ror koden: spara svaret for ett par sasonger som JSON,
+refaktorera, och jamfor svaret mot det sparade. Utan det gar det inte att veta
+om en siffra tyst andrades — och det galler oavsett vem eller vad som skriver
+om koden.
+
 Acceptanskriterier:
 - En kall matchrapport svarar under en halv sekund.
 - Antalet BigQuery-fragor vaxer inte med antalet besokare.

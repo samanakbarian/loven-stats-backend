@@ -357,15 +357,18 @@ fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   say "Deployar API:t till Cloud Run"
-  # --max-instances är det enda som sätter ett tak i kronor oavsett vad som
-  # släpper igenom taktbegränsningen i api/main.py. Sajten har ett hundratal
-  # riktiga besökare i veckan; tio instanser är gott om luft för en
-  # premiärkväll och samtidigt ett golv mot en skenande räkning.
+  # --max-instances sätter taket i kronor, men styr också CACHETRÄFFEN.
+  # Cacherna ligger i processminnet, alltså per instans, och varmhållningen
+  # värmer bara den instans som råkar ta emot anropet. Med tio instanser mötte
+  # många besökare en kall cache i onödan — och en kall /api/v1/analytics tog
+  # elva sekunder. Tre instanser rymmer 240 samtidiga anrop med Cloud Runs
+  # förvalda concurrency, vilket räcker med god marginal för en premiärkväll,
+  # och gör att de flesta besökare landar på en varm instans.
   gcloud run deploy loven-stats-api \
     --source api \
     --region "$REGION" \
     --allow-unauthenticated \
-    --max-instances "${MAX_INSTANCES:-10}" \
+    --max-instances "${MAX_INSTANCES:-3}" \
     --update-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
     --quiet
 fi
