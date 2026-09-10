@@ -1,0 +1,2882 @@
+{
+ "modules": {
+  "age_curve": {
+   "goalies": [
+    {
+     "adj_proj_gaa": 0.66,
+     "adj_proj_sv_pct": -1.0,
+     "age": 35,
+     "base_proj_gaa": 0.6,
+     "base_proj_sv_pct": 0,
+     "ha_sv_pct": 0,
+     "multiplier_pct": -10,
+     "name": "Frans Tuohimaa",
+     "readiness": "RED",
+     "trajectory": "VETERANRISK"
+    },
+    {
+     "adj_proj_gaa": 2.65,
+     "adj_proj_sv_pct": 90.5,
+     "age": 27,
+     "base_proj_gaa": 2.65,
+     "base_proj_sv_pct": 90.5,
+     "ha_sv_pct": 92.5,
+     "multiplier_pct": 0,
+     "name": "Lassi Lehtinen 🆕",
+     "readiness": "AMBER",
+     "trajectory": "PEAK PRIME"
+    }
+   ],
+   "skaters": [
+    {
+     "adj_proj_ppg": 0.28,
+     "age": 30,
+     "base_proj_ppg": 0.3,
+     "ha_ppg": 0.5,
+     "multiplier_pct": -8,
+     "name": "Lucas Ekeståhl-Jonsson",
+     "position": "LD",
+     "readiness": "AMBER",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.23,
+     "age": 23,
+     "base_proj_ppg": 0.21,
+     "ha_ppg": 0.35,
+     "multiplier_pct": 8,
+     "name": "Topi Niemelä",
+     "position": "RD",
+     "readiness": "AMBER",
+     "trajectory": "TILLVÃ„XT"
+    },
+    {
+     "adj_proj_ppg": 0.12,
+     "age": 28,
+     "base_proj_ppg": 0.12,
+     "ha_ppg": 0.2,
+     "multiplier_pct": 0,
+     "name": "Emil Alba",
+     "position": "LW",
+     "readiness": "RED",
+     "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.02,
+     "age": 36,
+     "base_proj_ppg": 0.03,
+     "ha_ppg": 0.04,
+     "multiplier_pct": -22,
+     "name": "Daniel Brodin",
+     "position": "RW",
+     "readiness": "RED",
+     "trajectory": "VETERANRISK"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 26,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 0,
+     "name": "Linus Cronholm",
+     "position": "LD",
+     "readiness": "RED",
+     "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 29,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -8,
+     "name": "Marcus Björk",
+     "position": "RD",
+     "readiness": "RED",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 26,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 0,
+     "name": "Anton Malmström",
+     "position": "LD",
+     "readiness": "RED",
+     "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.46,
+     "age": 31,
+     "base_proj_ppg": 0.5,
+     "ha_ppg": 0.8333333333333334,
+     "multiplier_pct": -8,
+     "name": "Lucas Wallmark (Utland)",
+     "position": "CE",
+     "readiness": "AMBER",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 30,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -8,
+     "name": "Axel Ottosson",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 35,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -22,
+     "name": "Marcus Nilsson (SHL/Exempt)",
+     "position": "LW",
+     "readiness": "RED",
+     "trajectory": "VETERANRISK"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 21,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 15,
+     "name": "Philip Hemyr",
+     "position": "RW",
+     "readiness": "RED",
+     "trajectory": "UTVECKLING"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 32,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -8,
+     "name": "Gustav Possler",
+     "position": "RW",
+     "readiness": "RED",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 30,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -8,
+     "name": "Albin Lundin",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 30,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -8,
+     "name": "Fredrik Forsberg (SHL/Exempt)",
+     "position": "RW",
+     "readiness": "RED",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 24,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 0,
+     "name": "Oscar Tellström",
+     "position": "LW",
+     "readiness": "RED",
+     "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 26,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 0,
+     "name": "Lenni Killinen",
+     "position": "LW",
+     "readiness": "RED",
+     "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 21,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 15,
+     "name": "Gustaf Kangas",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "UTVECKLING"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 34,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": -22,
+     "name": "Joel Mustonen",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "VETERANRISK"
+    },
+    {
+     "adj_proj_ppg": 0.0,
+     "age": 26,
+     "base_proj_ppg": 0.0,
+     "ha_ppg": 0.0,
+     "multiplier_pct": 0,
+     "name": "Jacob Olofsson",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.39,
+     "age": 37,
+     "base_proj_ppg": 0.5,
+     "ha_ppg": 0.8333333333333334,
+     "multiplier_pct": -22,
+     "name": "Chris DiDomenico (Utland)",
+     "position": "CE",
+     "readiness": "AMBER",
+     "trajectory": "VETERANRISK"
+    },
+    {
+     "adj_proj_ppg": 0.5,
+     "age": 24,
+     "base_proj_ppg": 0.5,
+     "ha_ppg": 0.8333333333333334,
+     "multiplier_pct": 0,
+     "name": "Tristen Robins (Utland)",
+     "position": "CE",
+     "readiness": "GREEN",
+     "trajectory": "PEAK PRIME"
+    }
+   ]
+  },
+  "attendance": {
+   "avg": 0,
+   "home_games": 0,
+   "max": 0,
+   "min": 0,
+   "total": 0,
+   "trend": []
+  },
+  "form": [],
+  "game_state": {
+   "game_types": {
+    "one_goal": {
+     "l": 0,
+     "w": 0
+    },
+    "three_plus_goals": {
+     "l": 0,
+     "w": 0
+    },
+    "two_goals": {
+     "l": 0,
+     "w": 0
+    }
+   },
+   "lead_after_1": {
+    "l": 0,
+    "otl": 0,
+    "w": 0
+   },
+   "lead_after_2": {
+    "l": 0,
+    "otl": 0,
+    "w": 0
+   },
+   "tied_after_1": {
+    "l": 0,
+    "otl": 0,
+    "w": 0
+   },
+   "tied_after_2": {
+    "l": 0,
+    "otl": 0,
+    "w": 0
+   },
+   "trail_after_1": {
+    "l": 0,
+    "otl": 0,
+    "w": 0
+   },
+   "trail_after_2": {
+    "l": 0,
+    "otl": 0,
+    "w": 0
+   }
+  },
+  "goalie_radar": [
+   {
+    "gaa": 0,
+    "gp": 0,
+    "gsaa": 0,
+    "losses": 0,
+    "name": "Frans Tuohimaa",
+    "percentiles": {
+     "gaa": 50,
+     "sv_pct": 50,
+     "win_pct": 50
+    },
+    "saves_per_gp": 0,
+    "shutouts": 0,
+    "sv_pct": 0,
+    "win_pct": 0,
+    "wins": 0
+   },
+   {
+    "_is_shl_source": false,
+    "gaa": 3.29,
+    "gp": 22,
+    "gsaa": -15.4,
+    "losses": 12,
+    "name": "Lassi Lehtinen",
+    "percentiles": {
+     "gaa": 0,
+     "sv_pct": 4,
+     "win_pct": 100
+    },
+    "saves_per_gp": 18.8,
+    "shutouts": 2,
+    "sv_pct": 86.76,
+    "win_pct": null,
+    "wins": 7
+   },
+   {
+    "gaa": 0,
+    "gp": 0,
+    "gsaa": 0,
+    "losses": 0,
+    "name": "Olle Eriksson Ek",
+    "percentiles": {
+     "gaa": 50,
+     "sv_pct": 50,
+     "win_pct": 50
+    },
+    "saves_per_gp": 0,
+    "shutouts": 0,
+    "sv_pct": 0,
+    "win_pct": 0,
+    "wins": 0
+   },
+   {
+    "gaa": 0,
+    "gp": 0,
+    "gsaa": 0,
+    "losses": 0,
+    "name": "Melwin Asp-Cassåsen",
+    "percentiles": {
+     "gaa": 50,
+     "sv_pct": 50,
+     "win_pct": 50
+    },
+    "saves_per_gp": 0,
+    "shutouts": 0,
+    "sv_pct": 0,
+    "win_pct": 0,
+    "wins": 0
+   }
+  ],
+  "h2h": [],
+  "penalty_breakdown": {
+   "by_period": [
+    {
+     "count": 0,
+     "period": 1
+    },
+    {
+     "count": 0,
+     "period": 2
+    },
+    {
+     "count": 0,
+     "period": 3
+    },
+    {
+     "count": 0,
+     "period": 4
+    }
+   ],
+   "by_type": [],
+   "most_penalized": []
+  },
+  "periods": [
+   {
+    "diff": 0,
+    "ga": 0,
+    "games": 0,
+    "gf": 0,
+    "label": "P1",
+    "period": 1
+   },
+   {
+    "diff": 0,
+    "ga": 0,
+    "games": 0,
+    "gf": 0,
+    "label": "P2",
+    "period": 2
+   },
+   {
+    "diff": 0,
+    "ga": 0,
+    "games": 0,
+    "gf": 0,
+    "label": "P3",
+    "period": 3
+   }
+  ],
+  "player_impact": [
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.365,
+    "assists": 19,
+    "g_per_gp": 0.135,
+    "goals": 7,
+    "gp": 52,
+    "name": "Lucas Ekeståhl-Jonsson",
+    "number": 0,
+    "p_per_gp": 0.5,
+    "pim_per_gp": 0.423,
+    "plus_minus": "-3",
+    "points": 26,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": 0.008,
+     "ppg_diff": 0.158
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.269,
+    "assists": 14,
+    "g_per_gp": 0.077,
+    "goals": 4,
+    "gp": 52,
+    "name": "Topi Niemelä",
+    "number": 0,
+    "p_per_gp": 0.346,
+    "pim_per_gp": 0.269,
+    "plus_minus": "-7",
+    "points": 18,
+    "position": "RD",
+    "vs_league": {
+     "gpg_diff": -0.05,
+     "ppg_diff": 0.004
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.208,
+    "assists": 10,
+    "g_per_gp": 0.125,
+    "goals": 6,
+    "gp": 48,
+    "name": "Liam Dower-Nilsson",
+    "number": 0,
+    "p_per_gp": 0.333,
+    "pim_per_gp": 0.208,
+    "plus_minus": "7",
+    "points": 16,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": -0.002,
+     "ppg_diff": -0.009
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.156,
+    "assists": 7,
+    "g_per_gp": 0.044,
+    "goals": 2,
+    "gp": 45,
+    "name": "Emil Alba",
+    "number": 0,
+    "p_per_gp": 0.2,
+    "pim_per_gp": 0.778,
+    "plus_minus": "-8",
+    "points": 9,
+    "position": "LW",
+    "vs_league": {
+     "gpg_diff": -0.083,
+     "ppg_diff": -0.142
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.118,
+    "goals": 2,
+    "gp": 17,
+    "name": "Jakob Ihs-Wozniak",
+    "number": 0,
+    "p_per_gp": 0.118,
+    "pim_per_gp": 0.118,
+    "plus_minus": "-4",
+    "points": 2,
+    "position": "LW",
+    "vs_league": {
+     "gpg_diff": -0.009,
+     "ppg_diff": -0.224
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.042,
+    "goals": 1,
+    "gp": 24,
+    "name": "Daniel Brodin",
+    "number": 0,
+    "p_per_gp": 0.042,
+    "pim_per_gp": 0.0,
+    "plus_minus": "-8",
+    "points": 1,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": -0.085,
+     "ppg_diff": -0.3
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Linus Cronholm",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Marcus Björk",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Anton Malmström",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Lucas Wallmark",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Axel Ottosson",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Marcus Nilsson",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LW",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Philip Hemyr",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Gustav Possler",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Albin Lundin",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Fredrik Forsberg",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Oscar Tellström",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LW",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Lenni Killinen",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LW",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Gustaf Kangas",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Joel Mustonen",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Jacob Olofsson",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Chris DiDomenico",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Tristen Robins",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Olli Vainio",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Lucas Nordsäter",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Mathew Maione",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Tim Theocharidis",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "RD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.0,
+    "assists": 0,
+    "g_per_gp": 0.0,
+    "goals": 0,
+    "gp": 52,
+    "name": "Oliwer Sjöström",
+    "number": 0,
+    "p_per_gp": 0.0,
+    "pim_per_gp": 0.0,
+    "plus_minus": "0",
+    "points": 0,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": -0.127,
+     "ppg_diff": -0.342
+    }
+   }
+  ],
+  "predictions": {
+   "chemistry": [],
+   "elo_history": [
+    {
+     "date": "Idag",
+     "elo": 1500
+    }
+   ],
+   "first_goal_impact": {
+    "conceded_first": {
+     "l": 0,
+     "otl": 0,
+     "w": 0
+    },
+    "scored_first": {
+     "l": 0,
+     "otl": 0,
+     "w": 0
+    }
+   },
+   "next_game": null,
+   "projected_standings": [
+    {
+     "current_points": 108,
+     "current_rank": 1,
+     "is_bjk": false,
+     "projected_points": 108,
+     "projected_rank": 1,
+     "team": "Skellefteå AIK"
+    },
+    {
+     "current_points": 101,
+     "current_rank": 2,
+     "is_bjk": false,
+     "projected_points": 101,
+     "projected_rank": 2,
+     "team": "Frölunda HC"
+    },
+    {
+     "current_points": 94,
+     "current_rank": 3,
+     "is_bjk": false,
+     "projected_points": 94,
+     "projected_rank": 3,
+     "team": "Växjö Lakers HC"
+    },
+    {
+     "current_points": 93,
+     "current_rank": 4,
+     "is_bjk": false,
+     "projected_points": 93,
+     "projected_rank": 4,
+     "team": "Rögle BK"
+    },
+    {
+     "current_points": 80,
+     "current_rank": 5,
+     "is_bjk": false,
+     "projected_points": 80,
+     "projected_rank": 5,
+     "team": "Färjestad BK"
+    },
+    {
+     "current_points": 78,
+     "current_rank": 6,
+     "is_bjk": false,
+     "projected_points": 78,
+     "projected_rank": 6,
+     "team": "Brynäs IF"
+    },
+    {
+     "current_points": 77,
+     "current_rank": 7,
+     "is_bjk": false,
+     "projected_points": 77,
+     "projected_rank": 7,
+     "team": "Luleå HF"
+    },
+    {
+     "current_points": 77,
+     "current_rank": 8,
+     "is_bjk": false,
+     "projected_points": 77,
+     "projected_rank": 8,
+     "team": "IF Malmö Redhawks"
+    },
+    {
+     "current_points": 73,
+     "current_rank": 9,
+     "is_bjk": false,
+     "projected_points": 73,
+     "projected_rank": 9,
+     "team": "Djurgårdens IF"
+    },
+    {
+     "current_points": 66,
+     "current_rank": 10,
+     "is_bjk": false,
+     "projected_points": 66,
+     "projected_rank": 10,
+     "team": "Örebro HK"
+    },
+    {
+     "current_points": 64,
+     "current_rank": 11,
+     "is_bjk": false,
+     "projected_points": 64,
+     "projected_rank": 11,
+     "team": "Linköping HC"
+    },
+    {
+     "current_points": 63,
+     "current_rank": 12,
+     "is_bjk": false,
+     "projected_points": 63,
+     "projected_rank": 12,
+     "team": "Timrå IK"
+    },
+    {
+     "current_points": 59,
+     "current_rank": 13,
+     "is_bjk": false,
+     "projected_points": 59,
+     "projected_rank": 13,
+     "team": "HV 71"
+    },
+    {
+     "current_points": 59,
+     "current_rank": 14,
+     "is_bjk": false,
+     "projected_points": 59,
+     "projected_rank": 14,
+     "team": "Leksands IF"
+    }
+   ],
+   "pythagorean": [
+    {
+     "diff": 108,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 108,
+     "team": "Skellefteå AIK"
+    },
+    {
+     "diff": 101,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 101,
+     "team": "Frölunda HC"
+    },
+    {
+     "diff": 94,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 94,
+     "team": "Växjö Lakers HC"
+    },
+    {
+     "diff": 93,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 93,
+     "team": "Rögle BK"
+    },
+    {
+     "diff": 80,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 80,
+     "team": "Färjestad BK"
+    },
+    {
+     "diff": 78,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 78,
+     "team": "Brynäs IF"
+    },
+    {
+     "diff": 77,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 77,
+     "team": "Luleå HF"
+    },
+    {
+     "diff": 77,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 77,
+     "team": "IF Malmö Redhawks"
+    },
+    {
+     "diff": 73,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 73,
+     "team": "Djurgårdens IF"
+    },
+    {
+     "diff": 66,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 66,
+     "team": "Örebro HK"
+    },
+    {
+     "diff": 64,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 64,
+     "team": "Linköping HC"
+    },
+    {
+     "diff": 63,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 63,
+     "team": "Timrå IK"
+    },
+    {
+     "diff": 59,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 59,
+     "team": "HV 71"
+    },
+    {
+     "diff": 59,
+     "exp_pts": 0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 59,
+     "team": "Leksands IF"
+    }
+   ],
+   "scoring_timeline": [
+    {
+     "ga": 0,
+     "gf": 0,
+     "interval": "0-10"
+    },
+    {
+     "ga": 0,
+     "gf": 0,
+     "interval": "10-20"
+    },
+    {
+     "ga": 0,
+     "gf": 0,
+     "interval": "20-30"
+    },
+    {
+     "ga": 0,
+     "gf": 0,
+     "interval": "30-40"
+    },
+    {
+     "ga": 0,
+     "gf": 0,
+     "interval": "40-50"
+    },
+    {
+     "ga": 0,
+     "gf": 0,
+     "interval": "50-60"
+    }
+   ]
+  },
+  "shl_projected_table": {
+   "bjk_summary": {
+    "playout_risk_pct": 48,
+    "projected_points": 46,
+    "projected_points_p10": 36,
+    "projected_points_p50": 46,
+    "projected_points_p90": 56,
+    "projected_rank": 14,
+    "projected_rank_p10": 11,
+    "projected_rank_p50": 14,
+    "projected_rank_p90": 14,
+    "top6_chance_pct": 22
+   },
+   "data_quality": "ok",
+   "method": "Team-strength blend (historic SHL baseline + BJK roster projection)",
+   "season": "SHL 2026/27 (preseason)",
+   "table": [
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 106,
+     "projected_points_p10": 96,
+     "projected_points_p50": 106,
+     "projected_points_p90": 110,
+     "projected_rank": 1,
+     "projected_rank_p10": 1,
+     "projected_rank_p50": 1,
+     "projected_rank_p90": 3,
+     "team": "Skellefteå AIK",
+     "tier": "Topplag",
+     "top6_chance_pct": 96
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 100,
+     "projected_points_p10": 90,
+     "projected_points_p50": 100,
+     "projected_points_p90": 110,
+     "projected_rank": 2,
+     "projected_rank_p10": 1,
+     "projected_rank_p50": 2,
+     "projected_rank_p90": 4,
+     "team": "Frölunda HC",
+     "tier": "Topplag",
+     "top6_chance_pct": 94
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 94,
+     "projected_points_p10": 84,
+     "projected_points_p50": 94,
+     "projected_points_p90": 104,
+     "projected_rank": 3,
+     "projected_rank_p10": 1,
+     "projected_rank_p50": 3,
+     "projected_rank_p90": 5,
+     "team": "Växjö Lakers HC",
+     "tier": "Topplag",
+     "top6_chance_pct": 88
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 92,
+     "projected_points_p10": 82,
+     "projected_points_p50": 92,
+     "projected_points_p90": 102,
+     "projected_rank": 4,
+     "projected_rank_p10": 2,
+     "projected_rank_p50": 4,
+     "projected_rank_p90": 6,
+     "team": "Rögle BK",
+     "tier": "Topplag",
+     "top6_chance_pct": 82
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 81,
+     "projected_points_p10": 71,
+     "projected_points_p50": 81,
+     "projected_points_p90": 91,
+     "projected_rank": 5,
+     "projected_rank_p10": 3,
+     "projected_rank_p50": 5,
+     "projected_rank_p90": 7,
+     "team": "Färjestad BK",
+     "tier": "Slutspel",
+     "top6_chance_pct": 76
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 78,
+     "projected_points_p10": 68,
+     "projected_points_p50": 78,
+     "projected_points_p90": 88,
+     "projected_rank": 6,
+     "projected_rank_p10": 4,
+     "projected_rank_p50": 6,
+     "projected_rank_p90": 8,
+     "team": "Brynäs IF",
+     "tier": "Slutspel",
+     "top6_chance_pct": 70
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 77,
+     "projected_points_p10": 67,
+     "projected_points_p50": 77,
+     "projected_points_p90": 87,
+     "projected_rank": 7,
+     "projected_rank_p10": 4,
+     "projected_rank_p50": 7,
+     "projected_rank_p90": 10,
+     "team": "Luleå HF",
+     "tier": "Slutspel",
+     "top6_chance_pct": 64
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 2,
+     "projected_points": 76,
+     "projected_points_p10": 66,
+     "projected_points_p50": 76,
+     "projected_points_p90": 86,
+     "projected_rank": 8,
+     "projected_rank_p10": 5,
+     "projected_rank_p50": 8,
+     "projected_rank_p90": 11,
+     "team": "IF Malmö Redhawks",
+     "tier": "Slutspel",
+     "top6_chance_pct": 58
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 8,
+     "projected_points": 72,
+     "projected_points_p10": 62,
+     "projected_points_p50": 72,
+     "projected_points_p90": 82,
+     "projected_rank": 9,
+     "projected_rank_p10": 6,
+     "projected_rank_p50": 9,
+     "projected_rank_p90": 12,
+     "team": "Djurgårdens IF",
+     "tier": "Slutspel",
+     "top6_chance_pct": 52
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 16,
+     "projected_points": 66,
+     "projected_points_p10": 56,
+     "projected_points_p50": 66,
+     "projected_points_p90": 76,
+     "projected_rank": 10,
+     "projected_rank_p10": 7,
+     "projected_rank_p50": 10,
+     "projected_rank_p90": 13,
+     "team": "Örebro HK",
+     "tier": "Slutspel",
+     "top6_chance_pct": 46
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 24,
+     "projected_points": 63,
+     "projected_points_p10": 53,
+     "projected_points_p50": 63,
+     "projected_points_p90": 73,
+     "projected_rank": 11,
+     "projected_rank_p10": 8,
+     "projected_rank_p50": 11,
+     "projected_rank_p90": 14,
+     "team": "Linköping HC",
+     "tier": "Riskzon",
+     "top6_chance_pct": 40
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 32,
+     "projected_points": 61,
+     "projected_points_p10": 51,
+     "projected_points_p50": 61,
+     "projected_points_p90": 71,
+     "projected_rank": 12,
+     "projected_rank_p10": 9,
+     "projected_rank_p50": 12,
+     "projected_rank_p90": 14,
+     "team": "Timrå IK",
+     "tier": "Riskzon",
+     "top6_chance_pct": 34
+    },
+    {
+     "is_bjk": false,
+     "playout_risk_pct": 40,
+     "projected_points": 57,
+     "projected_points_p10": 47,
+     "projected_points_p50": 57,
+     "projected_points_p90": 67,
+     "projected_rank": 13,
+     "projected_rank_p10": 10,
+     "projected_rank_p50": 13,
+     "projected_rank_p90": 14,
+     "team": "HV 71",
+     "tier": "Riskzon",
+     "top6_chance_pct": 28
+    },
+    {
+     "is_bjk": true,
+     "playout_risk_pct": 48,
+     "projected_points": 46,
+     "projected_points_p10": 36,
+     "projected_points_p50": 46,
+     "projected_points_p90": 56,
+     "projected_rank": 14,
+     "projected_rank_p10": 11,
+     "projected_rank_p50": 14,
+     "projected_rank_p90": 14,
+     "team": "IF Björklöven",
+     "tier": "Riskzon",
+     "top6_chance_pct": 22
+    }
+   ]
+  },
+  "shl_transition": {
+   "benchmarks": {
+    "goalie_sv": {
+     "current": 86.76,
+     "diff": -3.2,
+     "target": 90.0
+    },
+    "pk_pct": {
+     "current": 0.0,
+     "diff": -77.0,
+     "target": 77.0
+    },
+    "pp_pct": {
+     "current": 0.0,
+     "diff": -18.0,
+     "target": 18.0
+    },
+    "special_teams_index": {
+     "current": 0.0,
+     "diff": -95.0,
+     "target": 95.0
+    }
+   },
+   "goalies": [
+    {
+     "ha_sv_pct": 0,
+     "name": "Frans Tuohimaa",
+     "proj_gaa": 0.6,
+     "proj_sv_pct": 0,
+     "readiness": "RED"
+    },
+    {
+     "ha_sv_pct": 92.5,
+     "name": "Lassi Lehtinen 🆕",
+     "proj_gaa": 2.65,
+     "proj_sv_pct": 90.5,
+     "readiness": "AMBER"
+    }
+   ],
+   "skaters": [
+    {
+     "ha_ppg": 0.5,
+     "name": "Lucas Ekeståhl-Jonsson",
+     "position": "LD",
+     "proj_ppg": 0.3,
+     "readiness": "AMBER"
+    },
+    {
+     "ha_ppg": 0.35,
+     "name": "Topi Niemelä",
+     "position": "RD",
+     "proj_ppg": 0.21,
+     "readiness": "AMBER"
+    },
+    {
+     "ha_ppg": 0.2,
+     "name": "Emil Alba",
+     "position": "LW",
+     "proj_ppg": 0.12,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.04,
+     "name": "Daniel Brodin",
+     "position": "RW",
+     "proj_ppg": 0.03,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Linus Cronholm",
+     "position": "LD",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Marcus Björk",
+     "position": "RD",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Anton Malmström",
+     "position": "LD",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.8333333333333334,
+     "name": "Lucas Wallmark (Utland)",
+     "position": "CE",
+     "proj_ppg": 0.5,
+     "readiness": "GREEN"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Axel Ottosson",
+     "position": "CE",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Marcus Nilsson (SHL/Exempt)",
+     "position": "LW",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Philip Hemyr",
+     "position": "RW",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Gustav Possler",
+     "position": "RW",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Albin Lundin",
+     "position": "CE",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Fredrik Forsberg (SHL/Exempt)",
+     "position": "RW",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Oscar Tellström",
+     "position": "LW",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Lenni Killinen",
+     "position": "LW",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Gustaf Kangas",
+     "position": "CE",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Joel Mustonen",
+     "position": "CE",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.0,
+     "name": "Jacob Olofsson",
+     "position": "CE",
+     "proj_ppg": 0.0,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.8333333333333334,
+     "name": "Chris DiDomenico (Utland)",
+     "position": "CE",
+     "proj_ppg": 0.5,
+     "readiness": "GREEN"
+    },
+    {
+     "ha_ppg": 0.8333333333333334,
+     "name": "Tristen Robins (Utland)",
+     "position": "CE",
+     "proj_ppg": 0.5,
+     "readiness": "GREEN"
+    }
+   ]
+  },
+  "silly_season": {
+   "baseline": {
+    "confirmed_departures": [
+     {
+      "age": 27,
+      "date": "2026-04-29",
+      "name": "Olle Eriksson Ek",
+      "note": "Bekräftad flytt till KHL",
+      "number": 31,
+      "pos": "GK",
+      "source": "bjorkloven.com",
+      "to": "Jokerit (KHL)"
+     },
+     {
+      "age": 21,
+      "date": "2026-04-29",
+      "name": "Melwin Asp-Cassåsen",
+      "note": "Andramålvakt, lämnar inför SHL",
+      "number": null,
+      "pos": "GK",
+      "source": "bjorkloven.com",
+      "to": "Okänt"
+     },
+     {
+      "age": 32,
+      "date": "2026-04-29",
+      "name": "Olli Vainio",
+      "note": "Bekräftad till AIK",
+      "number": 6,
+      "pos": "RD",
+      "source": "bjorkloven.com",
+      "to": "AIK"
+     },
+     {
+      "age": 27,
+      "date": "2026-04-29",
+      "name": "Lucas Nordsäter",
+      "note": "Följer inte med till SHL",
+      "number": 8,
+      "pos": "RD",
+      "source": "bjorkloven.com",
+      "to": "Okänt"
+     },
+     {
+      "age": 35,
+      "date": "2026-04-29",
+      "name": "Mathew Maione",
+      "note": "Följer inte med till SHL",
+      "number": 28,
+      "pos": "LD",
+      "source": "bjorkloven.com",
+      "to": "Okänt"
+     },
+     {
+      "age": 27,
+      "date": "2026-04-29",
+      "name": "Tim Theocharidis",
+      "note": "Följer inte med till SHL",
+      "number": null,
+      "pos": "RD",
+      "source": "bjorkloven.com",
+      "to": "Okänt"
+     },
+     {
+      "age": 23,
+      "date": "2026-04-30",
+      "name": "Liam Dower-Nilsson",
+      "note": "Officiellt klar, 2-årskontrakt",
+      "number": 19,
+      "pos": "RW",
+      "source": "frolundahockey.com",
+      "to": "Frölunda HC"
+     },
+     {
+      "age": 20,
+      "date": "2026-04-29",
+      "name": "Oliwer Sjöström",
+      "note": "Återvänder till moderklubben (lån slut)",
+      "number": 26,
+      "pos": "LD",
+      "source": "bjorkloven.com",
+      "to": "Luleå HF"
+     },
+     {
+      "age": 19,
+      "date": "2026-04-29",
+      "name": "Jakob Ihs-Wozniak",
+      "note": "Återvänder till moderklubben (lån slut)",
+      "number": 89,
+      "pos": "LW",
+      "source": "bjorkloven.com",
+      "to": "Luleå HF"
+     }
+    ],
+    "confirmed_extensions": [
+     {
+      "age": 34,
+      "contractUntil": "2027",
+      "date": "2026-05-18",
+      "name": "Joel Mustonen",
+      "note": "Förlängning bekräftad",
+      "number": 39,
+      "pos": "CE",
+      "source": "bjorkloven.com",
+      "years": 1
+     },
+     {
+      "age": 30,
+      "contractUntil": "2028",
+      "date": "2026-04-25",
+      "name": "Axel Ottosson",
+      "note": "Lagkapten, nytt tvåårskontrakt",
+      "number": 18,
+      "pos": "CE",
+      "source": "bjorkloven.com",
+      "years": 2
+     },
+     {
+      "age": 24,
+      "contractUntil": "2028",
+      "date": "2025-12-20",
+      "name": "Oscar Tellström",
+      "note": "Förlängde i december 2025",
+      "number": 91,
+      "pos": "LW",
+      "source": "bjorkloven.com",
+      "years": 2
+     },
+     {
+      "age": 26,
+      "contractUntil": "2028",
+      "date": "2025-12-20",
+      "name": "Anton Malmström",
+      "note": "Förlängde i december 2025",
+      "number": 64,
+      "pos": "LD",
+      "source": "bjorkloven.com",
+      "years": 2
+     },
+     {
+      "age": 21,
+      "contractUntil": "2028",
+      "date": "2026-01-30",
+      "name": "Gustaf Kangas",
+      "note": "Förlängde i januari 2026",
+      "number": 17,
+      "pos": "CE",
+      "source": "bjorkloven.com",
+      "years": 2
+     },
+     {
+      "age": 26,
+      "contractUntil": "2027",
+      "date": "2026-01-14",
+      "name": "Lenni Killinen",
+      "note": "Förlängde i januari 2026",
+      "number": 37,
+      "pos": "LW",
+      "source": "hockeysverige.se",
+      "years": 1
+     },
+     {
+      "age": 32,
+      "contractUntil": "2028",
+      "date": "2025-12-07",
+      "name": "Gustav Possler",
+      "note": "Förlängde dec 2025, stannar till 2028",
+      "number": 71,
+      "pos": "RW",
+      "source": "bjorkloven.com",
+      "years": 2
+     },
+     {
+      "age": 26,
+      "contractUntil": "2027",
+      "date": "2025-04-11",
+      "name": "Linus Cronholm",
+      "note": "Förlängde till 2026/27",
+      "number": 24,
+      "pos": "LD",
+      "source": "bjorkloven.com",
+      "years": 1
+     }
+    ],
+    "confirmed_signings": [
+     {
+      "age": 31,
+      "contractUntil": "2032",
+      "date": "2026-04-26",
+      "from": "HC Fribourg-Gottéron",
+      "name": "Lucas Wallmark",
+      "note": "Moderklubbens stora värvning, 6-årskontrakt",
+      "number": null,
+      "pos": "CE",
+      "rumor_pct": 100,
+      "source": "hockeysverige.se",
+      "years": 6
+     },
+     {
+      "age": 23,
+      "contractUntil": "2028",
+      "date": "2026-05-17",
+      "from": "Malmö Redhawks",
+      "name": "Topi Niemelä",
+      "note": "Nyförvärv från Malmö",
+      "number": null,
+      "pos": "RD",
+      "rumor_pct": 100,
+      "source": "pt.se",
+      "years": 2
+     },
+     {
+      "age": 37,
+      "contractUntil": "2027",
+      "date": "2026-05-20",
+      "from": "HC Ambrì-Piotta",
+      "name": "Chris DiDomenico",
+      "note": "Klar för Björklöven, värvad från Schweiz",
+      "number": null,
+      "pos": "CE",
+      "rumor_pct": 100,
+      "source": "bjorkloven.com",
+      "years": 1
+     },
+     {
+      "age": 24,
+      "contractUntil": "2027",
+      "date": "2026-06-01",
+      "from": "Rytíři Kladno",
+      "name": "Tristen Robins",
+      "note": "Kanadensisk center, från tjeckiska ligan",
+      "number": null,
+      "pos": "CE",
+      "rumor_pct": 100,
+      "source": "bjorkloven.com",
+      "years": 1
+     },
+     {
+      "age": 27,
+      "contractUntil": "2027",
+      "date": "2026-06-11",
+      "from": "HV71",
+      "name": "Lassi Lehtinen",
+      "note": "Finsk målvakt från HV71, ettårskontrakt",
+      "number": null,
+      "pos": "GK",
+      "rumor_pct": 100,
+      "shl_projection": {
+       "ha_sv_pct": 92.5,
+       "proj_gaa": 2.65,
+       "proj_sv_pct": 90.5
+      },
+      "source": "bjorkloven.com",
+      "years": 1
+     },
+     {
+      "age": 28,
+      "contractUntil": "2027",
+      "date": "2026-06-12",
+      "from": "Färjestad BK",
+      "name": "Emil Alba",
+      "note": "Fysisk tvåvägsforward från Färjestad, ettårskontrakt",
+      "number": null,
+      "pos": "LW",
+      "rumor_pct": 100,
+      "source": "bjorkloven.com",
+      "years": 1
+     },
+     {
+      "age": 30,
+      "contractUntil": "2029",
+      "date": "2026-06-13",
+      "from": "Rögle BK",
+      "name": "Lucas Ekeståhl-Jonsson",
+      "note": "Återvänder hem. Treårskontrakt",
+      "number": null,
+      "pos": "LD",
+      "rumor_pct": 100,
+      "source": "bjorkloven.com",
+      "years": 3
+     }
+    ],
+    "expiring_contracts": [
+     {
+      "age": 36,
+      "name": "Daniel Brodin",
+      "number": 34,
+      "pos": "RW",
+      "rumor_pct": 0,
+      "rumor_to": null,
+      "source": "hockeynews.se",
+      "status": "UTGÅENDE"
+     },
+     {
+      "age": 26,
+      "name": "Jacob Olofsson",
+      "number": 32,
+      "pos": "CE",
+      "rumor_pct": 0,
+      "rumor_to": null,
+      "source": "hockeynews.se",
+      "status": "UTGÅENDE"
+     }
+    ],
+    "headline": "Två tunga värvningar presenterade – SHL-bygget växer",
+    "hot_rumors_in": [],
+    "hot_rumors_out": [],
+    "last_manual_update": "2026-06-13T02:00:00Z",
+    "league": "SHL",
+    "news_feed": [
+     {
+      "body": "Björklöven kan idag meddela att Lucas Ekeståhl-Jonsson återvänder till klubben. Den offensivt skicklige backen har skrivit på ett treårskontrakt som sträcker sig över säsongen 2028/2029.",
+      "date": "2026-06-13",
+      "id": "base-new-ekestahl",
+      "priority": "breaking",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAT_NYFÖRVÄRV",
+      "time": "14:00",
+      "title": "Lucas Ekeståhl-Jonsson återvänder hem till Björklöven"
+     },
+     {
+      "body": "Forwarden Emil Alba ansluter från Färjestad BK på ett ettårskontrakt. Den fysiske tvåvägsforwarden förstärker Löven inför SHL-säsongen.",
+      "date": "2026-06-12",
+      "id": "base-new-alba",
+      "priority": "breaking",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAT_NYFÖRVÄRV",
+      "time": "12:00",
+      "title": "Emil Alba klar för Björklöven"
+     },
+     {
+      "body": "Finske målvakten Lassi Lehtinen ansluter från HV71 på ett ettårskontrakt. Lehtinen fyller målvaktsbehovet efter att Olle Eriksson Ek lämnade för KHL.",
+      "date": "2026-06-11",
+      "id": "base-new-lehtinen",
+      "priority": "breaking",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAT_NYFÖRVÄRV",
+      "time": "10:00",
+      "title": "Lassi Lehtinen klar för Björklöven"
+     },
+     {
+      "body": "Björklöven fortsätter att förstärka truppen inför kommande säsong. Nu står det klart att den kanadensiske forwarden Tristen Robins ansluter från tjeckiska ligan.",
+      "date": "2026-06-01",
+      "id": "base-new-1",
+      "priority": "breaking",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAT_NYFÖRVÄRV",
+      "time": "14:00",
+      "title": "Tristen Robins klar för Björklöven"
+     },
+     {
+      "body": "Rutinerad kanadensisk spets ansluter till lagbygget från schweiziska HC Ambrì-Piotta. DiDomenico väntas ta en bärande roll i SHL-comebacken.",
+      "date": "2026-05-20",
+      "id": "base-new-2",
+      "priority": "breaking",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAT_NYFÖRVÄRV",
+      "time": "10:00",
+      "title": "Chris DiDomenico ansluter till Björklöven"
+     },
+     {
+      "body": "Efter beskedet att han lämnar Rögle uppges nu Lucas Ekeståhl Jonsson vara överens med moderklubben Björklöven om ett framtida avtal.",
+      "date": "2026-05-15",
+      "id": "base-new-3",
+      "priority": "high",
+      "source": "expressen.se",
+      "tag": "HETT_RYKTE",
+      "time": "12:00",
+      "title": "Lucas Ekeståhl Jonsson närmar sig Löven"
+     },
+     {
+      "body": "Liam Dower-Nilsson har skrivit på ett tvåårskontrakt med Frölunda HC. Han lämnar Björklöven efter en stark slutspelssäsong.",
+      "date": "2026-04-30",
+      "id": "base-1",
+      "priority": "high",
+      "source": "frolundahockey.com",
+      "tag": "BEKRÄFTAD_FÖRLUST",
+      "time": "16:00",
+      "title": "OFFICIELLT: Dower-Nilsson klar för Frölunda"
+     },
+     {
+      "body": "Björklöven tackar av nio spelare som inte följer med upp till SHL: Eriksson Ek, Asp-Cassåsen, Vainio, Nordsäter, Maione, Theocharidis, Dower-Nilsson, Sjöström och Ihs-Wozniak.",
+      "date": "2026-04-29",
+      "id": "base-2",
+      "priority": "high",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAD_FÖRLUST",
+      "time": "18:00",
+      "title": "Nio spelare lämnar Björklöven"
+     },
+     {
+      "body": "Den 31-årige centern har skrivit på ett 6-årskontrakt med sin moderklubb. Wallmark återvänder från HC Fribourg-Gottéron i Schweiz.",
+      "date": "2026-04-27",
+      "id": "base-5",
+      "priority": "high",
+      "source": "bjorkloven.com",
+      "tag": "BEKRÄFTAT_NYFÖRVÄRV",
+      "time": "14:30",
+      "title": "OFFICIELLT: Lucas Wallmark klar för Löven!"
+     },
+     {
+      "body": "Axel Ottosson har skrivit på ett nytt tvåårskontrakt med Björklöven. Lagkaptenen följer med klubben upp i SHL.",
+      "date": "2026-04-25",
+      "id": "base-6",
+      "priority": "normal",
+      "source": "bjorkloven.com",
+      "tag": "KONTRAKTSFÖRLÄNGNING",
+      "time": "10:00",
+      "title": "Kapten Ottosson förlänger — 2 år till"
+     }
+    ],
+    "rink_positions": {
+     "defense_pairs": [
+      {
+       "ld": {
+        "number": 24,
+        "player": "Linus Cronholm",
+        "status": "FÖRLÄNGD"
+       },
+       "rd": {
+        "number": 47,
+        "player": "Marcus Björk",
+        "status": "SIGNERAD"
+       }
+      },
+      {
+       "ld": {
+        "number": 64,
+        "player": "Anton Malmström",
+        "status": "FÖRLÄNGD"
+       },
+       "rd": {
+        "number": null,
+        "player": "Topi Niemelä",
+        "status": "NYFÖRVÄRV"
+       }
+      },
+      {
+       "ld": {
+        "number": null,
+        "player": "Lucas Ekeståhl-Jonsson",
+        "status": "NYFÖRVÄRV"
+       },
+       "rd": {
+        "player": null,
+        "rumors": [
+         "Nyförvärv"
+        ],
+        "status": "VAKANT"
+       }
+      }
+     ],
+     "forward_lines": [
+      {
+       "ce": {
+        "number": null,
+        "player": "Lucas Wallmark",
+        "status": "NYFÖRVÄRV"
+       },
+       "lw": {
+        "number": 10,
+        "player": "Marcus Nilsson",
+        "status": "SIGNERAD"
+       },
+       "rw": {
+        "number": 71,
+        "player": "Gustav Possler",
+        "status": "FÖRLÄNGD"
+       }
+      },
+      {
+       "ce": {
+        "number": 18,
+        "player": "Axel Ottosson",
+        "status": "FÖRLÄNGD"
+       },
+       "lw": {
+        "number": 91,
+        "player": "Oscar Tellström",
+        "status": "FÖRLÄNGD"
+       },
+       "rw": {
+        "number": 56,
+        "player": "Fredrik Forsberg",
+        "status": "SIGNERAD"
+       }
+      },
+      {
+       "ce": {
+        "number": null,
+        "player": "Chris DiDomenico",
+        "status": "NYFÖRVÄRV"
+       },
+       "lw": {
+        "number": null,
+        "player": "Emil Alba",
+        "status": "NYFÖRVÄRV"
+       },
+       "rw": {
+        "number": null,
+        "player": "Tristen Robins",
+        "status": "NYFÖRVÄRV"
+       }
+      },
+      {
+       "ce": {
+        "number": 39,
+        "player": "Joel Mustonen",
+        "status": "FÖRLÄNGD"
+       },
+       "lw": {
+        "number": 37,
+        "player": "Lenni Killinen",
+        "status": "FÖRLÄNGD"
+       },
+       "rw": {
+        "number": 33,
+        "player": "Albin Lundin",
+        "status": "SIGNERAD"
+       }
+      }
+     ],
+     "goalies": [
+      {
+       "number": 50,
+       "player": "Frans Tuohimaa",
+       "slot": "GK1",
+       "status": "SIGNERAD"
+      },
+      {
+       "number": null,
+       "player": "Lassi Lehtinen",
+       "slot": "GK2",
+       "status": "NYFÖRVÄRV"
+      }
+     ]
+    },
+    "roster": [
+     {
+      "age": 35,
+      "contractUntil": "2027",
+      "name": "Frans Tuohimaa",
+      "note": "Förstamålvakt",
+      "number": 50,
+      "pos": "GK",
+      "status": "SIGNERAD"
+     },
+     {
+      "age": 27,
+      "contractUntil": "2027",
+      "name": "Lassi Lehtinen",
+      "note": "Nyförvärv från HV71",
+      "number": null,
+      "pos": "GK",
+      "status": "NYFÖRVÄRV"
+     },
+     {
+      "age": 26,
+      "contractUntil": "2027",
+      "name": "Linus Cronholm",
+      "note": "Förlängde april 2025",
+      "number": 24,
+      "pos": "LD",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 29,
+      "contractUntil": "2027",
+      "name": "Marcus Björk",
+      "note": "",
+      "number": 47,
+      "pos": "RD",
+      "status": "SIGNERAD"
+     },
+     {
+      "age": 26,
+      "contractUntil": "2028",
+      "name": "Anton Malmström",
+      "note": "Förlängde dec 2025",
+      "number": 64,
+      "pos": "LD",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 23,
+      "contractUntil": "2028",
+      "name": "Topi Niemelä",
+      "note": "Nyförvärv från Malmö",
+      "number": null,
+      "pos": "RD",
+      "status": "NYFÖRVÄRV"
+     },
+     {
+      "age": 31,
+      "contractUntil": "2032",
+      "name": "Lucas Wallmark",
+      "note": "6-årskontrakt, moderklubb",
+      "number": null,
+      "pos": "CE",
+      "status": "NYFÖRVÄRV"
+     },
+     {
+      "age": 30,
+      "contractUntil": "2028",
+      "name": "Axel Ottosson",
+      "note": "Kapten, tvåårskontrakt",
+      "number": 18,
+      "pos": "CE",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 35,
+      "contractUntil": "2027",
+      "name": "Marcus Nilsson",
+      "note": "",
+      "number": 10,
+      "pos": "LW",
+      "status": "SIGNERAD"
+     },
+     {
+      "age": 21,
+      "contractUntil": "2027",
+      "name": "Philip Hemyr",
+      "note": "",
+      "number": null,
+      "pos": "RW",
+      "status": "SIGNERAD"
+     },
+     {
+      "age": 32,
+      "contractUntil": "2028",
+      "name": "Gustav Possler",
+      "note": "Förlängde dec 2025",
+      "number": 71,
+      "pos": "RW",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 30,
+      "contractUntil": "2027",
+      "name": "Albin Lundin",
+      "note": "",
+      "number": 33,
+      "pos": "CE",
+      "status": "SIGNERAD"
+     },
+     {
+      "age": 30,
+      "contractUntil": "2027",
+      "name": "Fredrik Forsberg",
+      "note": "",
+      "number": 56,
+      "pos": "RW",
+      "status": "SIGNERAD"
+     },
+     {
+      "age": 24,
+      "contractUntil": "2028",
+      "name": "Oscar Tellström",
+      "note": "Förlängde dec 2025",
+      "number": 91,
+      "pos": "LW",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 26,
+      "contractUntil": "2027",
+      "name": "Lenni Killinen",
+      "note": "Förlängde jan 2026",
+      "number": 37,
+      "pos": "LW",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 21,
+      "contractUntil": "2028",
+      "name": "Gustaf Kangas",
+      "note": "Förlängde jan 2026",
+      "number": 17,
+      "pos": "CE",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 36,
+      "contractUntil": "2026",
+      "name": "Daniel Brodin",
+      "note": "",
+      "number": 34,
+      "pos": "RW",
+      "status": "UTGÅENDE"
+     },
+     {
+      "age": 34,
+      "contractUntil": "2027",
+      "name": "Joel Mustonen",
+      "note": "Förlängd",
+      "number": 39,
+      "pos": "CE",
+      "status": "FÖRLÄNGD"
+     },
+     {
+      "age": 26,
+      "contractUntil": "2026",
+      "name": "Jacob Olofsson",
+      "note": "",
+      "number": 32,
+      "pos": "CE",
+      "status": "UTGÅENDE"
+     },
+     {
+      "age": 37,
+      "contractUntil": "2027",
+      "name": "Chris DiDomenico",
+      "note": "Nyförvärv från Schweiz",
+      "number": null,
+      "pos": "CE",
+      "status": "NYFÖRVÄRV"
+     },
+     {
+      "age": 24,
+      "contractUntil": "2027",
+      "name": "Tristen Robins",
+      "note": "Nyförvärv från Tjeckien",
+      "number": null,
+      "pos": "CE",
+      "status": "NYFÖRVÄRV"
+     },
+     {
+      "age": 28,
+      "contractUntil": "2027",
+      "name": "Emil Alba",
+      "note": "Nyförvärv från Färjestad",
+      "number": null,
+      "pos": "LW",
+      "status": "NYFÖRVÄRV"
+     },
+     {
+      "age": 30,
+      "contractUntil": "2029",
+      "name": "Lucas Ekeståhl-Jonsson",
+      "note": "Nyförvärv från Rögle",
+      "number": null,
+      "pos": "LD",
+      "status": "NYFÖRVÄRV"
+     }
+    ],
+    "season": "2026/2027"
+   },
+   "shl_projected_table": {
+    "bjk_summary": {
+     "playout_risk_pct": 48,
+     "projected_points": 46,
+     "projected_points_p10": 36,
+     "projected_points_p50": 46,
+     "projected_points_p90": 56,
+     "projected_rank": 14,
+     "projected_rank_p10": 11,
+     "projected_rank_p50": 14,
+     "projected_rank_p90": 14,
+     "top6_chance_pct": 22
+    },
+    "data_quality": "ok",
+    "method": "Team-strength blend (historic SHL baseline + BJK roster projection)",
+    "season": "SHL 2026/27 (preseason)",
+    "table": [
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 106,
+      "projected_points_p10": 96,
+      "projected_points_p50": 106,
+      "projected_points_p90": 110,
+      "projected_rank": 1,
+      "projected_rank_p10": 1,
+      "projected_rank_p50": 1,
+      "projected_rank_p90": 3,
+      "team": "Skellefteå AIK",
+      "tier": "Topplag",
+      "top6_chance_pct": 96
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 100,
+      "projected_points_p10": 90,
+      "projected_points_p50": 100,
+      "projected_points_p90": 110,
+      "projected_rank": 2,
+      "projected_rank_p10": 1,
+      "projected_rank_p50": 2,
+      "projected_rank_p90": 4,
+      "team": "Frölunda HC",
+      "tier": "Topplag",
+      "top6_chance_pct": 94
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 94,
+      "projected_points_p10": 84,
+      "projected_points_p50": 94,
+      "projected_points_p90": 104,
+      "projected_rank": 3,
+      "projected_rank_p10": 1,
+      "projected_rank_p50": 3,
+      "projected_rank_p90": 5,
+      "team": "Växjö Lakers HC",
+      "tier": "Topplag",
+      "top6_chance_pct": 88
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 92,
+      "projected_points_p10": 82,
+      "projected_points_p50": 92,
+      "projected_points_p90": 102,
+      "projected_rank": 4,
+      "projected_rank_p10": 2,
+      "projected_rank_p50": 4,
+      "projected_rank_p90": 6,
+      "team": "Rögle BK",
+      "tier": "Topplag",
+      "top6_chance_pct": 82
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 81,
+      "projected_points_p10": 71,
+      "projected_points_p50": 81,
+      "projected_points_p90": 91,
+      "projected_rank": 5,
+      "projected_rank_p10": 3,
+      "projected_rank_p50": 5,
+      "projected_rank_p90": 7,
+      "team": "Färjestad BK",
+      "tier": "Slutspel",
+      "top6_chance_pct": 76
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 78,
+      "projected_points_p10": 68,
+      "projected_points_p50": 78,
+      "projected_points_p90": 88,
+      "projected_rank": 6,
+      "projected_rank_p10": 4,
+      "projected_rank_p50": 6,
+      "projected_rank_p90": 8,
+      "team": "Brynäs IF",
+      "tier": "Slutspel",
+      "top6_chance_pct": 70
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 77,
+      "projected_points_p10": 67,
+      "projected_points_p50": 77,
+      "projected_points_p90": 87,
+      "projected_rank": 7,
+      "projected_rank_p10": 4,
+      "projected_rank_p50": 7,
+      "projected_rank_p90": 10,
+      "team": "Luleå HF",
+      "tier": "Slutspel",
+      "top6_chance_pct": 64
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 2,
+      "projected_points": 76,
+      "projected_points_p10": 66,
+      "projected_points_p50": 76,
+      "projected_points_p90": 86,
+      "projected_rank": 8,
+      "projected_rank_p10": 5,
+      "projected_rank_p50": 8,
+      "projected_rank_p90": 11,
+      "team": "IF Malmö Redhawks",
+      "tier": "Slutspel",
+      "top6_chance_pct": 58
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 8,
+      "projected_points": 72,
+      "projected_points_p10": 62,
+      "projected_points_p50": 72,
+      "projected_points_p90": 82,
+      "projected_rank": 9,
+      "projected_rank_p10": 6,
+      "projected_rank_p50": 9,
+      "projected_rank_p90": 12,
+      "team": "Djurgårdens IF",
+      "tier": "Slutspel",
+      "top6_chance_pct": 52
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 16,
+      "projected_points": 66,
+      "projected_points_p10": 56,
+      "projected_points_p50": 66,
+      "projected_points_p90": 76,
+      "projected_rank": 10,
+      "projected_rank_p10": 7,
+      "projected_rank_p50": 10,
+      "projected_rank_p90": 13,
+      "team": "Örebro HK",
+      "tier": "Slutspel",
+      "top6_chance_pct": 46
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 24,
+      "projected_points": 63,
+      "projected_points_p10": 53,
+      "projected_points_p50": 63,
+      "projected_points_p90": 73,
+      "projected_rank": 11,
+      "projected_rank_p10": 8,
+      "projected_rank_p50": 11,
+      "projected_rank_p90": 14,
+      "team": "Linköping HC",
+      "tier": "Riskzon",
+      "top6_chance_pct": 40
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 32,
+      "projected_points": 61,
+      "projected_points_p10": 51,
+      "projected_points_p50": 61,
+      "projected_points_p90": 71,
+      "projected_rank": 12,
+      "projected_rank_p10": 9,
+      "projected_rank_p50": 12,
+      "projected_rank_p90": 14,
+      "team": "Timrå IK",
+      "tier": "Riskzon",
+      "top6_chance_pct": 34
+     },
+     {
+      "is_bjk": false,
+      "playout_risk_pct": 40,
+      "projected_points": 57,
+      "projected_points_p10": 47,
+      "projected_points_p50": 57,
+      "projected_points_p90": 67,
+      "projected_rank": 13,
+      "projected_rank_p10": 10,
+      "projected_rank_p50": 13,
+      "projected_rank_p90": 14,
+      "team": "HV 71",
+      "tier": "Riskzon",
+      "top6_chance_pct": 28
+     },
+     {
+      "is_bjk": true,
+      "playout_risk_pct": 48,
+      "projected_points": 46,
+      "projected_points_p10": 36,
+      "projected_points_p50": 46,
+      "projected_points_p90": 56,
+      "projected_rank": 14,
+      "projected_rank_p10": 11,
+      "projected_rank_p50": 14,
+      "projected_rank_p90": 14,
+      "team": "IF Björklöven",
+      "tier": "Riskzon",
+      "top6_chance_pct": 22
+     }
+    ]
+   },
+   "shl_readiness": {
+    "benchmarks": {
+     "goalie_sv": {
+      "current": 86.76,
+      "diff": -3.2,
+      "target": 90.0
+     },
+     "pk_pct": {
+      "current": 0.0,
+      "diff": -77.0,
+      "target": 77.0
+     },
+     "pp_pct": {
+      "current": 0.0,
+      "diff": -18.0,
+      "target": 18.0
+     },
+     "special_teams_index": {
+      "current": 0.0,
+      "diff": -95.0,
+      "target": 95.0
+     }
+    },
+    "goalies": [
+     {
+      "ha_sv_pct": 0,
+      "name": "Frans Tuohimaa",
+      "proj_gaa": 0.6,
+      "proj_sv_pct": 0,
+      "readiness": "RED"
+     },
+     {
+      "ha_sv_pct": 92.5,
+      "name": "Lassi Lehtinen 🆕",
+      "proj_gaa": 2.65,
+      "proj_sv_pct": 90.5,
+      "readiness": "AMBER"
+     }
+    ],
+    "skaters": [
+     {
+      "ha_ppg": 0.5,
+      "name": "Lucas Ekeståhl-Jonsson",
+      "position": "LD",
+      "proj_ppg": 0.3,
+      "readiness": "AMBER"
+     },
+     {
+      "ha_ppg": 0.35,
+      "name": "Topi Niemelä",
+      "position": "RD",
+      "proj_ppg": 0.21,
+      "readiness": "AMBER"
+     },
+     {
+      "ha_ppg": 0.2,
+      "name": "Emil Alba",
+      "position": "LW",
+      "proj_ppg": 0.12,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.04,
+      "name": "Daniel Brodin",
+      "position": "RW",
+      "proj_ppg": 0.03,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Linus Cronholm",
+      "position": "LD",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Marcus Björk",
+      "position": "RD",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Anton Malmström",
+      "position": "LD",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.8333333333333334,
+      "name": "Lucas Wallmark (Utland)",
+      "position": "CE",
+      "proj_ppg": 0.5,
+      "readiness": "GREEN"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Axel Ottosson",
+      "position": "CE",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Marcus Nilsson (SHL/Exempt)",
+      "position": "LW",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Philip Hemyr",
+      "position": "RW",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Gustav Possler",
+      "position": "RW",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Albin Lundin",
+      "position": "CE",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Fredrik Forsberg (SHL/Exempt)",
+      "position": "RW",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Oscar Tellström",
+      "position": "LW",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Lenni Killinen",
+      "position": "LW",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Gustaf Kangas",
+      "position": "CE",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Joel Mustonen",
+      "position": "CE",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.0,
+      "name": "Jacob Olofsson",
+      "position": "CE",
+      "proj_ppg": 0.0,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.8333333333333334,
+      "name": "Chris DiDomenico (Utland)",
+      "position": "CE",
+      "proj_ppg": 0.5,
+      "readiness": "GREEN"
+     },
+     {
+      "ha_ppg": 0.8333333333333334,
+      "name": "Tristen Robins (Utland)",
+      "position": "CE",
+      "proj_ppg": 0.5,
+      "readiness": "GREEN"
+     }
+    ]
+   }
+  },
+  "special_teams": {
+   "avg_pim_per_game": 0.0,
+   "pk_goals_against": 0,
+   "pk_pct": 0.0,
+   "pk_times": 0,
+   "pp_goals": 0,
+   "pp_opportunities": 0,
+   "pp_pct": 0.0,
+   "special_teams_index": 0.0,
+   "total_pim": 0
+  },
+  "splits": {
+   "away": {
+    "ga": 0,
+    "gf": 0,
+    "gp": 0,
+    "l": 0,
+    "otl": 0,
+    "otw": 0,
+    "pts": 0,
+    "w": 0
+   },
+   "home": {
+    "ga": 0,
+    "gf": 0,
+    "gp": 0,
+    "l": 0,
+    "otl": 0,
+    "otw": 0,
+    "pts": 0,
+    "w": 0
+   }
+  },
+  "streaks": {
+   "all": [],
+   "current": null,
+   "longest_loss": null,
+   "longest_win": null
+  },
+  "timeline": []
+ },
+ "status": "ok"
+}

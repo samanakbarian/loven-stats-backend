@@ -1530,10 +1530,38 @@ for tolv — och mat om. Blir det under en sekund behovs ingen forberakning alls
 for den har endpointen.
 
 **Forutsattningen ar ett gyllene-mastar-test.** Sjutton moduler, 1599 rader,
-noll tester. Innan nagon ror koden: spara svaret for ett par sasonger som JSON,
-refaktorera, och jamfor svaret mot det sparade. Utan det gar det inte att veta
-om en siffra tyst andrades — och det galler oavsett vem eller vad som skriver
-om koden.
+noll tester. Utan det gar det inte att veta om en siffra tyst andrades — och det
+galler oavsett vem eller vad som skriver om koden.
+
+Byggt 10 september: `tests/gyllene_master.py`, med baslinje for tre sasonger i
+`tests/gyllene/`. Kor `spara` fore en omskrivning och `jamfor` efter.
+
+### Men ta LLM-anropet ur svarsvagen FORST
+
+`get_analytics` gor ett SYNKRONT Gemini-anrop mitt i svarsvagen (raderna kring
+4930): `client.models.generate_content(model='gemini-2.5-flash', ...)`. Det ar
+ocachat och kors vid varje cachemiss.
+
+Tre skal att det ar forsta atgarden, fore de tolv looparna:
+
+- **Latens.** Gemini 2.5 Flash tar typiskt tva till fem sekunder. Det ar
+  sannolikt en storre andel av de tio an looparna, och en mindre andring.
+- **Ingen timeout.** Anropet har ingen tidsgrans. Ar Vertex trog hanger
+  Utvecklingsfliken tills webblasaren ger upp. Det ar en risk oavsett
+  prestandan, och den galler pa premiarkvallen.
+- **Icke-determinism.** Texten skiljer sig vid varje anrop, vilket ar precis
+  darfor `ai_coach` maste undantas ur den gyllene mastaren. Sa lange anropet
+  ligger kvar gar den delen av svaret inte att regressionstesta alls.
+
+Ratt plats ar efter skorden, tillsammans med ovrig forberakning: texten bygger
+pa sasongsdata som andras fyra ganger om dygnet, inte pa nagot som beror av vem
+som tittar.
+
+**Och det ar ett produktbeslut, inte bara ett tekniskt.** Blocket ar en
+AI-persona — "Analytikern, Bjorklovens interna AI-assisterande tranare" — som
+ger taktik- och varvningsrad i lopande text, omarkt. Det ar den mest
+framtradande AI-funktionen pa sajten, hos en publik som uttalat ogillar AI. Se
+riktlinjen i feature 34: osynligt, eller torrt och kontrollerbart.
 
 Acceptanskriterier:
 - En kall matchrapport svarar under en halv sekund.
