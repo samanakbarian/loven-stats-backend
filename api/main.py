@@ -4888,61 +4888,27 @@ def get_analytics(season: str = None, refresh: bool = False):
                 "bjk_summary": {}
             }
 
-        # â”€â”€ Modul 17: AI-Coachen (Gemini) â”€â”€
+        # Varden som fortfarande anvands nedan. Blocket het tidigare
+        # "Modul 17: AI-Coachen"; sjalva anropet ar borttaget.
         bjk_pyth = next((p for p in pythagorean if p["is_bjk"]), None)
         opp_name = next_game_prediction['opponent'] if next_game_prediction else 'OkÃ¤nd'
         win_prob = next_game_prediction['win_prob'] if next_game_prediction else '-'
         diff = bjk_pyth['diff'] if bjk_pyth else 0
         p1 = top_chemistry[0]['player1'] if top_chemistry else 'OkÃ¤nd'
         p2 = top_chemistry[0]['player2'] if top_chemistry else 'OkÃ¤nd'
-        goals_created = top_chemistry[0]['goals_created'] if top_chemistry else 0
         
         # Season Data
-        recent_streak = streaks[-1] if streaks else None
         sti = special_teams.get("special_teams_index", 0)
         
-        # Count RED readiness players for AI
-        red_skaters = len([s for s in shl_skaters if s["readiness"] == "RED"])
-        red_goalies = len([g for g in shl_goalies if g["readiness"] == "RED"])
         
-        prompt = f"""
-        Du Ã¤r 'Analytikern', BjÃ¶rklÃ¶vens interna AI-assisterande trÃ¤nare och sportchefens strategiska rÃ¥dgivare.
-        Du MÃ…STE svara med en ren, giltig JSON-struktur (inga markdown-taggar som ```json).
-        JSON-strukturen ska exakt ha dessa nycklar:
-        {{
-            "taktik": "Kort taktisk analys (max 3 meningar) baserad pÃ¥ att nÃ¤sta motstÃ¥ndare Ã¤r {opp_name}, vÃ¥r vinstchans Ã¤r {win_prob}%, och vÃ¥r Tur/Otur-diff Ã¤r {diff}.",
-            "sasong_form": "Kort diagnos av sÃ¤songen/formen. VÃ¥r streak: {recent_streak}. Special Teams Index (PP%+PK%) Ã¤r {sti} (Ã¶ver 100 Ã¤r extremt starkt).",
-            "spelar_impact": "Kort spaning om radarpar eller enskilda spelare. Hetast just nu: {p1} & {p2} ({goals_created} mÃ¥l skapade ihop).",
-            "shl_sportchef": "Sportchef-analys infÃ¶r SHL (max 3 meningar). Vi har {red_skaters} utespelare och {red_goalies} mÃ¥lvakter som flaggas som 'RED' (under SHL-klass). Ge ett konkret vÃ¤rvningsrÃ¥d baserat pÃ¥ detta och lagets svagheter."
-        }}
-        Skriv koncist, professionellt och auktoritÃ¤rt pÃ¥ svenska.
-        """
-        
-        ai_coach_data = {
-            "taktik": "Analytikern Ã¤r fÃ¶r tillfÃ¤llet offline.",
-            "sasong_form": "Analytikern kunde inte hÃ¤mta sÃ¤songsdata.",
-            "spelar_impact": "Kunde inte ladda spelarscouting.",
-            "shl_sportchef": "Kunde inte generera SHL-scouting."
-        }
-        try:
-            from google import genai
-            import os
-            client = genai.Client(vertexai=True, project=proj, location="europe-west1")
-            ai_res = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt
-            )
-            if ai_res.text:
-                # Clean up potential markdown formatting
-                clean_json = ai_res.text.strip().removeprefix('```json').removesuffix('```').strip()
-                try:
-                    parsed = json.loads(clean_json)
-                    ai_coach_data = parsed
-                except json.JSONDecodeError:
-                    logging.warning(f"Failed to parse AI JSON: {ai_res.text}")
-                    ai_coach_data["taktik"] = ai_res.text
-        except Exception as e:
-            logging.warning(f"AI Coach failed: {e}")
+        # Har lag ett synkront Gemini-anrop som byggde ett "ai_coach"-block med
+        # taktik- och varvningsrad. Det renderades aldrig: varken frontendens
+        # kallkod eller det byggda paketet namner ai_coach. Det kostade tva till
+        # fem sekunder i svarsvagen vid varje cachemiss, saknade timeout — en
+        # trog Vertex hade hangt Utvecklingsfliken — och gjorde svaret
+        # icke-deterministiskt, vilket omojliggjorde regressionstest av modulen.
+        # Se feature 33. Vill man ha texten tillbaka hor den hemma efter
+        # skorden, inte i svarsvagen, och da som nagot markt och kontrollerbart.
 
         return {
             "status": "ok",
@@ -4971,7 +4937,6 @@ def get_analytics(season: str = None, refresh: bool = False):
                     "chemistry": top_chemistry,
                     "first_goal_impact": first_goal_impact,
                     "pythagorean": pythagorean,
-                    "ai_coach": ai_coach_data,
                 },
                 "game_state": game_state,
                 "shl_transition": {
