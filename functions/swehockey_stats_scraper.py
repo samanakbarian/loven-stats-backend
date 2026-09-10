@@ -291,6 +291,12 @@ def _fetch_standings(season_group_id: str) -> tuple[list[dict[str, Any]], str | 
                 break
             if len(r) < 13 or not _safe_int(r[0]):
                 continue
+            # Gjorda och inslappta mal star som "192:97 (95)" i EN cell, och
+            # den lastes aldrig — bara maldifferensen i nasta cell. Frontendens
+            # MAL-kolumn har darfor stott "-" sedan den byggdes, trots att
+            # talen legat i kallan hela tiden. Upptackt vid ett sticktest mot
+            # sportstatistik.nu 10 september.
+            mal = re.match(r"\s*(\d+)\s*:\s*(\d+)", str(r[6]))
             out.append(
                 {
                     "season_group_id": int(season_group_id),
@@ -298,9 +304,13 @@ def _fetch_standings(season_group_id: str) -> tuple[list[dict[str, Any]], str | 
                     "rank": _safe_int(r[0]),
                     "games_played": _safe_int(r[2]),
                     "wins": _safe_int(r[3]),
+                    # Bade forlangning och straffar ger tva poang, sa de raknas
+                    # ihop: OTW+GWSW respektive OTL+GWSL.
                     "ot_wins": _safe_int(r[9]) + _safe_int(r[11]),
                     "ot_losses": _safe_int(r[10]) + _safe_int(r[12]),
                     "losses": _safe_int(r[5]),
+                    "goals_for": int(mal.group(1)) if mal else None,
+                    "goals_against": int(mal.group(2)) if mal else None,
                     "goal_diff": _safe_int(r[7]),
                     "points": _safe_int(r[8]),
                 }
