@@ -1237,7 +1237,10 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
     langre — men den ska inte ligga kvar.
 30. `ARCH-001` Serveringslager mellan datalagret och webben; se feature 33.
     Efter premiaren, och efter att premiarkvallens verkliga last ar matt.
-31. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
+31. `SIM-002` Prediktioner: matchsannolikhet, slutspelsodds, spelarprognos och
+    startvarden fore seriestart; se feature 34. Deletapp A ar liten nog att gora
+    fore premiaren, resten efter.
+32. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
     `ScalarQueryParameter` genomgaende. Ingen av dem ar injicerbar i dag —
     `season` gar via `lookup_season()` som parameteriserar, och det som
     interpoleras ar heltals-id ur databasen — men monstret ar fragilt: nasta
@@ -1524,6 +1527,85 @@ Fallgrop:
 Blobar som hamnar ur synk med BigQuery ar tyst fel — sidan visar nagot som ser
 riktigt ut men ar gammalt. Skriv `generated_at` i varje blob och lat svaret
 bara den vidare, sa gar det att se utifran nar nagot slutat uppdateras.
+
+### 34. Prediktioner ur simuleringen
+
+Typ: Modell / Produkt
+Prioritet: A fore premiaren, B-D efter
+Primart repo: `loven-stats-backend`, `slutspel/frontend_v2`
+Berorda omraden: `api/main.py` (`get_projection`), spelarsidan, startsidan
+
+Beskrivning:
+Simuleringen raknar redan mer an den lamnar ifran sig. Inne i loopen bestams
+
+    p_home = 1 / (1 + 10 ** ((drawn[ai] - (drawn[hi] + HFA)) / 400))
+
+for VARJE aterstaende match, femtusen ganger — och talet kastas nar
+simuleringen ar klar. Svaret bar bara sasongsniva: `expected_rank`,
+`rank_distribution`, `win_league_pct`. Den mest anvandbara prediktionen finns
+alltsa redan, oanvand.
+
+Rangordningen nedan foljer hur ofta en besokare faktiskt SER prediktionen, inte
+hur avancerad den ar. En tabellprognos lases tva ganger i november. En
+matchsannolikhet lases fore varje nedslapp, femtiotva ganger om aret.
+
+**A. Sannolikhet per match.** Exponera `p_home` for kommande matcher. Visas pa
+startsidan och i spelprogrammet: "Bjorkloven 38 % mot Skelleftea pa fredag."
+Nastan gratis — matematiken kors redan, det handlar om att returnera den.
+
+**B. Slutspel och kval.** `rank_distribution` finns i svaret; summera andelen
+simuleringar som slutar topp sex respektive i kvalstriden. Ointressant i
+oktober, avgorande i mars — och for ett nykomlingslag ar kvalfragan hela
+sasongen.
+
+**C. Startvarden fore seriestart.** I dag satts alla lag till Elo 1500, sa
+`reliability` ar `"none"` tills matcher spelats och prognosen sager ingenting
+i september. Tva ingredienser finns inne sedan 10 september:
+- SHL 25/26 ar backfillad (grupp 18263): sluttabell, 464 spelare, 37 malvakter.
+- Truppar for ALLA fjorton lag i 26/27, sa **truppomsattning** gar att rakna:
+  hur stor del av forra sasongens poangproduktion som star kvar per lag. Det ar
+  skillnaden mellan en naiv modell och en publicerbar.
+
+Baslinjen ska regresseras mot mitten — forra sasongen forklarar ungefar halften
+av nasta, inte allt.
+
+**D. Bjorkloven, och spelarprognoserna.** Har tar underlaget slut: laget har
+INGEN SHL-historik. Enda arliga vagen ar att oversatta deras HA-produktion till
+SHL-niva, vilket ar samma arbete som HA->SHL-oversattningen. De tva idéerna ar
+ett projekt, inte tva: oversattningen ar den enda ingrediens Bjorklovens
+startvarde kan byggas av, och samma faktor ger spelarprognoserna.
+
+Underlaget finns: HA 24/25 och SHL 25/26 ligger bada inne, sa kohorten av
+spelare som gjort flytten gar att rakna fram. Tva kohorter ar tunt — talet ska
+redovisas som ett spann, inte en decimal.
+
+Saknas:
+- `reliability` behover en niva till, forslagsvis `prior`, sa granssnittet kan
+  saga rakt ut att ingenting ar spelat an och att talet vilar pa forra sasongen.
+- En regel for nykomlingar i startvardena. Modellkortet noterar redan behovet
+  ("Build calibrated team-strength priors from multiple seasons", rad 84).
+
+Acceptanskriterier:
+- Matchsannolikheten finns i API-svaret och visas fore varje match.
+- Slutspels- och kvalsannolikhet finns per lag.
+- Prognosen sager nagot vettigt den 19 september, inte forst i november.
+- Svaret skiljer pa "vilar pa forra sasongen" och "vilar pa spelade matcher".
+
+Avgransning:
+- **Exakta matchresultat ska inte forutsagas.** 3-2-prognoser gar inte att
+  forsvara statistiskt och fans hanar dem med ratta.
+- Allt som kraver handelsedata om MOTSTANDARLAGEN ar uteslutet tills vidare:
+  SHL 25/26 finns bara pa sasongsniva hos oss, eftersom `_team_games()`
+  filtrerar pa Bjorkloven som inte spelade den sasongen. Corsi-liknande matt,
+  kedjeanalys och on-ice for andra lag kraver att lagfiltret vidgas och att
+  sasongen backfillas om.
+
+Fallgrop — och den ar produktmassig, inte teknisk:
+En modell som placerar Bjorkloven fjortonde innan ett enda nedslapp ar
+formodligen KORREKT och samtidigt en plaga pa en supporterdriven sajt, i lagets
+forsta SHL-sasong pa decennier. Skillnaden avgors av inramning: "sa har ser det
+ut om forra sasongen upprepas" ar nagot helt annat an "sa har kommer det ga".
+Skriv det forsta. Modellen ar den enkla halvan.
 
 ## Beslutsregler
 
