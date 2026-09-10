@@ -1238,8 +1238,9 @@ och dyra att ta tillbaka. Ta upp fragan igen nar feature 27 ar i drift.
 30. `ARCH-001` Serveringslager mellan datalagret och webben; se feature 33.
     Efter premiaren, och efter att premiarkvallens verkliga last ar matt.
 31. `SIM-002` Prediktioner: matchsannolikhet, slutspelsodds, spelarprognos och
-    startvarden fore seriestart; se feature 34. Deletapp A ar liten nog att gora
-    fore premiaren, resten efter.
+    startvarden fore seriestart; se feature 34. INTE fore premiaren — modellen
+    kan inte skilja lagen at forran startvarden finns, och skulle visa samma
+    siffra for alla matcher. Etapp C ar det som maste komma forst.
 32. `SEC-005` Ersatt f-string-interpolering i BQ-fragorna med
     `ScalarQueryParameter` genomgaende. Ingen av dem ar injicerbar i dag —
     `season` gar via `lookup_season()` som parameteriserar, och det som
@@ -1545,13 +1546,31 @@ simuleringen ar klar. Svaret bar bara sasongsniva: `expected_rank`,
 `rank_distribution`, `win_league_pct`. Den mest anvandbara prediktionen finns
 alltsa redan, oanvand.
 
+**Men vad vilar talet pa?** Enbart matchresultat. `K, HFA = 20, 40`, alla lag
+startar pa `elo = 1500` och ratingen rors bara av vinster och forluster. Ingen
+trupp, inga spelare, inga malvakter, inga varvningar. **Elo ar en resultatmodell,
+inte en truppmodell** — den kan per konstruktion inte se att klubben varvat.
+
+Vad det betyder den 19 september, raknat:
+
+    p_home = 1 / (1 + 10 ** (-40 / 400)) = 0,557
+
+Alltsa 55,7 % for hemmalaget. Identiskt for varje match, varje lag, hela
+premiarhelgen. Modellen kan inte skilja Bjorkloven fran Skelleftea. Med `K = 20`
+tar det femton till tjugo omgangar innan talen betyder nagot.
+
 Rangordningen nedan foljer hur ofta en besokare faktiskt SER prediktionen, inte
 hur avancerad den ar. En tabellprognos lases tva ganger i november. En
 matchsannolikhet lases fore varje nedslapp, femtiotva ganger om aret.
 
 **A. Sannolikhet per match.** Exponera `p_home` for kommande matcher. Visas pa
 startsidan och i spelprogrammet: "Bjorkloven 38 % mot Skelleftea pa fredag."
-Nastan gratis — matematiken kors redan, det handlar om att returnera den.
+Nastan gratis i kod — matematiken kors redan, det handlar om att returnera den.
+
+**Men den far inte slappas forst.** Utan startvarden visar den 55,7 % for alla
+matcher, vilket SER UT som en prediktion och ar en konstant. Det ar samre an att
+inte visa nagot. Villkoret ar antingen etapp C, eller att femton till tjugo
+omgangar spelats.
 
 **B. Slutspel och kval.** `rank_distribution` finns i svaret; summera andelen
 simuleringar som slutar topp sex respektive i kvalstriden. Ointressant i
@@ -1569,8 +1588,21 @@ i september. Tva ingredienser finns inne sedan 10 september:
 Baslinjen ska regresseras mot mitten — forra sasongen forklarar ungefar halften
 av nasta, inte allt.
 
-**D. Bjorkloven, och spelarprognoserna.** Har tar underlaget slut: laget har
-INGEN SHL-historik. Enda arliga vagen ar att oversatta deras HA-produktion till
+**D. Bjorkloven, spelarprognoserna — och varvningarna.** Har tar underlaget slut
+pa tva satt.
+
+Truppomsattningen i etapp C mater hur mycket av forra sasongens produktion som
+LAMNAT ett lag. Den hanterar avgangar. Men en spelare som kommit fran HA, Liiga
+eller AHL har ingen SHL-poanghistorik alls, sa modellen ser inte vad han ar vard.
+**Varvningar ar osynliga aven med etapp C pa plats** — och for Bjorkloven, som
+byggt om truppen infor uppflyttningen, galler det i praktiken hela laget.
+
+Enda vagen som faktiskt raknar en varvning ar att bygga lagstyrkan NEDIFRAN:
+projicera varje spelares bidrag och summera till en lagsiffra som blir
+startvardet i stallet for 1500. Det ar en storre insats an A-C tillsammans, och
+det ar den som svarar pa fragan "vi har varvat mycket, syns det?".
+
+Laget har dessutom INGEN SHL-historik. Enda arliga vagen ar att oversatta deras HA-produktion till
 SHL-niva, vilket ar samma arbete som HA->SHL-oversattningen. De tva idéerna ar
 ett projekt, inte tva: oversattningen ar den enda ingrediens Bjorklovens
 startvarde kan byggas av, och samma faktor ger spelarprognoserna.
