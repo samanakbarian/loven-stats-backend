@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 import functools
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from cachetools import cached, TTLCache
 from cachetools.keys import hashkey
@@ -194,6 +195,106 @@ X_BQ_DATASET = os.environ.get("X_BQ_DATASET", "raw_content")
 X_BQ_POSTS_TABLE = os.environ.get("X_BQ_POSTS_TABLE", "x_posts")
 X_BQ_RUNS_TABLE = os.environ.get("X_BQ_RUNS_TABLE", "x_fetch_runs")
 SWEHOCKEY_TEAM_ID = os.environ.get("SWEHOCKEY_TEAM_ID", "1139")
+
+
+# Sasongsdata som matchrapporten behover men som ar IDENTISK for varje match i
+# samma sasong: truppens trojnummer och hela seriens spelprogram. De hamtades
+# om for varje matchrapport, alltsa 52 ganger per sasong for ett svar som inte
+# andras mellan matcherna. Nyckeln ar sasongsgruppen, sa forsta rapporten
+# betalar och resten gar fritt.
+squad_cache = TTLCache(maxsize=16, ttl=21600)   # 6 hours caching
+league_cache = TTLCache(maxsize=16, ttl=21600)  # 6 hours caching
+
+
+def fraga_parallellt(bq, fragor: dict[str, str]) -> dict[str, list[dict]]:
+    """Kor flera BigQuery-fragor samtidigt, och ger raderna per namn.
+
+    BigQuery har en fast avgift per fraga — jobbskapande, planering, utskick —
+    pa ett par tiondelars sekund, oberoende av hur mycket data som lases.
+    Matchrapporten korde sina fragor i foljd och betalade den atta ganger:
+    matt 5,9 sekunder kall mot 0,2 varm, alltsa nastan uteslutande vantan.
+    Samtidigt blir samma arbete en rundresa i stallet for atta.
+
+    En fraga som failar faller inte de ovriga — den ger en tom lista och loggas.
+    Anroparen hanterar redan tomt resultat, eftersom varje fraga tidigare lag i
+    sitt eget try-block. bigquery.Client ar tradsaker.
+    """
+    ut: dict[str, list[dict]] = {namn: [] for namn in fragor}
+    if not fragor:
+        return ut
+
+    def kor(sql: str) -> list[dict]:
+        return [dict(r.items()) for r in bq.query(sql).result()]
+
+    with ThreadPoolExecutor(max_workers=len(fragor)) as pool:
+        jobb = {pool.submit(kor, sql): namn for namn, sql in fragor.items()}
+        for f in as_completed(jobb):
+            namn = jobb[f]
+            try:
+                ut[namn] = f.result()
+            except Exception:
+                logging.warning("Fragan %s gick inte att kora", namn, exc_info=True)
+    return ut
+
+
+# Nyckeln ar bara sasongsgruppen: bq-klienten skapas ny per anrop, och med
+# den i nyckeln hade cachen aldrig traffat.
+@cached(cache=squad_cache, key=lambda bq, season_gid: hashkey(season_gid), lock=threading.Lock())
+def trupp_per_sasong(bq, season_gid: int) -> dict[str, dict]:
+    """Trojnummer -> namn for laget, per sasongsgrupp.
+
+    Handelserna bar bara nummer; utan uppslaget star det "6, 19, 28" i
+    on-ice-listorna. Uppslaget ar detsamma for varje match i sasongen men
+    hamtades om i varje matchrapport.
+    """
+    ut: dict[str, dict] = {}
+    try:
+        for r in bq.query(f"""
+                    SELECT a.player_name, a.jersey_number, a.position, a.games_played
+                    FROM `{bq.project}.core.player_season_stats` a
+                    INNER JOIN (
+                        SELECT MAX(scraped_at) AS max_s
+                        FROM `{bq.project}.core.player_season_stats`
+                        WHERE season_group_id = {int(season_gid)}
+                    ) b ON a.scraped_at = b.max_s
+                    WHERE a.season_group_id = {int(season_gid)}
+                      AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
+                    -- Flest matcher vinner numret nar tva spelare delat det.
+                    ORDER BY a.games_played DESC
+                    """).result():
+            d = dict(r.items())
+            num = d.get("jersey_number")
+            if num is None:
+                continue
+            ut.setdefault(
+                str(int(num)),
+                {"name": clean_person(d.get("player_name")), "position": d.get("position")},
+            )
+    except Exception:
+        logging.warning("Kunde inte lasa truppen for sasong %s", season_gid, exc_info=True)
+    return ut
+
+
+@cached(cache=league_cache, key=lambda bq, regular: hashkey(regular), lock=threading.Lock())
+def seriespel_per_sasong(bq, regular: int) -> list[dict]:
+    """Seriens spelade matcher, for att placera en match i sitt sammanhang.
+
+    Vi skordar bara vara egna matcher, men schemat bar resultatet for alla —
+    och det ar samma tabell for varje matchrapport i sasongen.
+    """
+    try:
+        return [dict(r.items()) for r in bq.query(f"""
+                    SELECT game_id, match_date, home_team, away_team, result,
+                           period_results, spectators
+                    FROM `{bq.project}.core.schedule`
+                    WHERE season_group_id = {int(regular)}
+                      AND game_id IS NOT NULL
+                      AND REGEXP_CONTAINS(IFNULL(result, ''), r'\d+\s*-\s*\d+')
+                    ORDER BY match_date, game_id
+                    """).result()]
+    except Exception:
+        logging.warning("Kunde inte lasa seriespelet for sasong %s", regular, exc_info=True)
+        return []
 
 
 def cached_ok(cache):
@@ -3160,10 +3261,11 @@ def get_match(game_id: int):
     try:
         bq = bigquery.Client(project=BQ_PROJECT_ID or None)
 
-        events = [
-            dict(r.items())
-            for r in bq.query(
-                f"""
+        # Matchens egna fragor. Alla ar nycklade pa game_id och beror inte av
+        # varandra, sa de gar samtidigt i stallet for i foljd — atta rundresor
+        # blir en. Koden nedan plockar ur `rader` nar den behover dem.
+        rader = fraga_parallellt(bq, {
+            "events": f"""
                 SELECT a.*
                 FROM `{bq.project}.core.game_events` a
                 INNER JOIN (
@@ -3172,23 +3274,60 @@ def get_match(game_id: int):
                     WHERE game_id = {int(game_id)}
                 ) b ON a.scraped_at = b.max_s
                 WHERE a.game_id = {int(game_id)}
-                """
-            ).result()
-        ]
-
-        # Schemaraden bar datum, arena, publik och periodresultat.
-        sched_rows = [
-            dict(r.items())
-            for r in bq.query(
-                f"""
+                """,
+            "sched": f"""
                 SELECT a.*
                 FROM `{bq.project}.core.schedule` a
                 WHERE a.game_id = {int(game_id)}
                 ORDER BY a.scraped_at DESC
                 LIMIT 1
-                """
-            ).result()
-        ]
+                """,
+            "summary": f"""
+                    SELECT team_key AS team_name, is_home, shots, saves, pim,
+                           shots_by_period, saves_by_period,
+                           pp_pct, pp_time, shooting_pct, save_pct, pdo
+                    FROM `{bq.project}.marts.fact_team_game`
+                    WHERE game_id = {int(game_id)}
+                    """,
+            "goalies": f"""
+                SELECT player_key, team_key, jersey_number,
+                       shots_against, saves, goals_against, save_pct, time_on_ice
+                FROM `{bq.project}.marts.fact_goalie_game`
+                WHERE game_id = {int(game_id)}
+                """,
+            "skaters": f"""
+                SELECT p.player_key, p.goals, p.assists, p.points, p.pim,
+                       p.gf_on, p.ga_on, p.gf_on_ev, p.ga_on_ev, p.plus_minus,
+                       p.shots, p.official_plus_minus,
+                       p.faceoffs_won, p.faceoffs_lost, p.faceoff_pct,
+                       p.has_report, p.in_lineup,
+                       l.player_number, l.block, l.line_number
+                FROM `{bq.project}.marts.fact_player_game` p
+                LEFT JOIN (
+                    SELECT game_id, player_name,
+                           ANY_VALUE(player_number) AS player_number,
+                           ANY_VALUE(block) AS block,
+                           ANY_VALUE(line_number) AS line_number
+                    FROM `{bq.project}.core.game_lineups`
+                    WHERE game_id = {int(game_id)}
+                    GROUP BY game_id, player_name
+                ) l ON l.game_id = p.game_id AND l.player_name = p.player_key
+                WHERE p.game_id = {int(game_id)}
+                  AND REGEXP_CONTAINS(IFNULL(p.team_key, ''), r'(?i)bj[oö]rkl[oö]ven')
+                """,
+            "lineup": f"""
+                SELECT block, line_number, player_number, player_name
+                FROM `{bq.project}.core.game_lineups`
+                WHERE game_id = {int(game_id)}
+                  AND REGEXP_CONTAINS(IFNULL(team_name, ''), r'(?i)bj[oö]rkl[oö]ven')
+                ORDER BY block, line_number, player_number
+                """,
+        })
+
+        events = rader["events"]
+
+        # Schemaraden bar datum, arena, publik och periodresultat.
+        sched_rows = rader["sched"]
         sched = sched_rows[0] if sched_rows else {}
 
         if not events and not sched:
@@ -3209,32 +3348,7 @@ def get_match(game_id: int):
             (e.get("season_group_id") for e in events if e.get("season_group_id")), None
         )
         if season_gid:
-            try:
-                for r in bq.query(
-                    f"""
-                    SELECT a.player_name, a.jersey_number, a.position, a.games_played
-                    FROM `{bq.project}.core.player_season_stats` a
-                    INNER JOIN (
-                        SELECT MAX(scraped_at) AS max_s
-                        FROM `{bq.project}.core.player_season_stats`
-                        WHERE season_group_id = {int(season_gid)}
-                    ) b ON a.scraped_at = b.max_s
-                    WHERE a.season_group_id = {int(season_gid)}
-                      AND (LOWER(a.team_code) LIKE '%ifb%' OR LOWER(a.team_code) LIKE '%rkl%')
-                    -- Flest matcher vinner numret nar tva spelare delat det.
-                    ORDER BY a.games_played DESC
-                    """
-                ).result():
-                    d = dict(r.items())
-                    num = d.get("jersey_number")
-                    if num is None:
-                        continue
-                    squad.setdefault(
-                        str(int(num)),
-                        {"name": clean_person(d.get("player_name")), "position": d.get("position")},
-                    )
-            except Exception:
-                logging.warning("Kunde inte lasa truppen for match %s", game_id, exc_info=True)
+            squad.update(trupp_per_sasong(bq, int(season_gid)))
 
         # Spelare som bytt nummer under sasongen fangas av handelserna sjalva.
         for e in events:
@@ -3315,18 +3429,7 @@ def get_match(game_id: int):
         skaters: list[dict] = []
         lineup: list[dict] = []
         try:
-            summary = [
-                dict(r.items())
-                for r in bq.query(
-                    f"""
-                    SELECT team_key AS team_name, is_home, shots, saves, pim,
-                           shots_by_period, saves_by_period,
-                           pp_pct, pp_time, shooting_pct, save_pct, pdo
-                    FROM `{bq.project}.marts.fact_team_game`
-                    WHERE game_id = {int(game_id)}
-                    """
-                ).result()
-            ]
+            summary = rader["summary"]
             # Var rad ar ett lag. Hemmalaget avgor vilken sida som ar var bara
             # nar vi sjalva spelar hemma.
             ours = next((r for r in summary if BJK_HOME.search(str(r.get("team_name") or ""))), None)
@@ -3334,15 +3437,7 @@ def get_match(game_id: int):
             if ours and theirs:
                 teams = {"ours": _side(ours), "theirs": _side(theirs)}
 
-            for r in bq.query(
-                f"""
-                SELECT player_key, team_key, jersey_number,
-                       shots_against, saves, goals_against, save_pct, time_on_ice
-                FROM `{bq.project}.marts.fact_goalie_game`
-                WHERE game_id = {int(game_id)}
-                """
-            ).result():
-                d = dict(r.items())
+            for d in rader["goalies"]:
                 keepers.append(
                     {
                         "name": clean_person(d.get("player_key")),
@@ -3364,29 +3459,7 @@ def get_match(game_id: int):
             # ur on-ice-listorna enligt regelboken — mal i lika styrka och i
             # underlage — och stams av mot rapportens officiella tal, som
             # ligger bredvid i samma rad.
-            for r in bq.query(
-                f"""
-                SELECT p.player_key, p.goals, p.assists, p.points, p.pim,
-                       p.gf_on, p.ga_on, p.gf_on_ev, p.ga_on_ev, p.plus_minus,
-                       p.shots, p.official_plus_minus,
-                       p.faceoffs_won, p.faceoffs_lost, p.faceoff_pct,
-                       p.has_report, p.in_lineup,
-                       l.player_number, l.block, l.line_number
-                FROM `{bq.project}.marts.fact_player_game` p
-                LEFT JOIN (
-                    SELECT game_id, player_name,
-                           ANY_VALUE(player_number) AS player_number,
-                           ANY_VALUE(block) AS block,
-                           ANY_VALUE(line_number) AS line_number
-                    FROM `{bq.project}.core.game_lineups`
-                    WHERE game_id = {int(game_id)}
-                    GROUP BY game_id, player_name
-                ) l ON l.game_id = p.game_id AND l.player_name = p.player_key
-                WHERE p.game_id = {int(game_id)}
-                  AND REGEXP_CONTAINS(IFNULL(p.team_key, ''), r'(?i)bj[oö]rkl[oö]ven')
-                """
-            ).result():
-                d = dict(r.items())
+            for d in rader["skaters"]:
                 # Malvakterna har en egen lista med raddningar och speltid.
                 if str(d.get("block") or "") == "goalie":
                     continue
@@ -3423,16 +3496,7 @@ def get_match(game_id: int):
             # och extraspelarna. Swehockey skriver "1st Line" over hela femman,
             # sa raden rymmer bade forwardstrion och backparet.
             by_block: dict[tuple, list[dict]] = {}
-            for r in bq.query(
-                f"""
-                SELECT block, line_number, player_number, player_name
-                FROM `{bq.project}.core.game_lineups`
-                WHERE game_id = {int(game_id)}
-                  AND REGEXP_CONTAINS(IFNULL(team_name, ''), r'(?i)bj[oö]rkl[oö]ven')
-                ORDER BY block, line_number, player_number
-                """
-            ).result():
-                d = dict(r.items())
+            for d in rader["lineup"]:
                 key = (str(d.get("block") or ""), d.get("line_number"))
                 by_block.setdefault(key, []).append(
                     {"number": d.get("player_number"), "name": clean_person(d.get("player_name"))}
@@ -3456,20 +3520,7 @@ def get_match(game_id: int):
         context = None
         try:
             regular = sched.get("season_group_id") or season_gid
-            league = [
-                dict(r.items())
-                for r in bq.query(
-                    f"""
-                    SELECT game_id, match_date, home_team, away_team, result,
-                           period_results, spectators
-                    FROM `{bq.project}.core.schedule`
-                    WHERE season_group_id = {int(regular)}
-                      AND game_id IS NOT NULL
-                      AND REGEXP_CONTAINS(IFNULL(result, ''), r'\d+\s*-\s*\d+')
-                    ORDER BY match_date, game_id
-                    """
-                ).result()
-            ] if regular else []
+            league = seriespel_per_sasong(bq, int(regular)) if regular else []
 
             key = (str(sched.get("match_date") or ""), int(game_id))
             before_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) < key]
