@@ -1,0 +1,32 @@
+# Kor roktestet pa schema, sa att en trasig sajt upptacks av sig sjalv i
+# stallet for av en besokare.
+#
+# Tisdagens fel var inte att testet saknades — det var att ingen tittade pa ett
+# dygn. Ett test man maste komma ihag att kora loser inte det.
+#
+# Tiderna ligger strax efter skorden (00:30, 07:30, 18:30, 22:30 svensk tid),
+# sa korningen ocksa sager nagot om att skorden gav resultat. Cron i GitHub
+# Actions ar UTC och kan forskjutas nagra minuter vid hog last.
+name: Röktest
+
+on:
+  schedule:
+    - cron: '0 6,17,21 * * *'
+  push:
+    branches: [master]
+    paths: ['api/**', 'tests/**']
+  workflow_dispatch:
+
+jobs:
+  rok:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Inga beroenden: testet anvander bara standardbiblioteket.
+      - name: Röktest mot produktion
+        run: python3 tests/roktest.py
