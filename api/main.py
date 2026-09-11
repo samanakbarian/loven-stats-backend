@@ -4312,7 +4312,11 @@ def get_analytics(season: str = None, refresh: bool = False):
                 "is_bjk": is_bjk(name)
             })
             
-        projected_standings.sort(key=lambda x: -x["projected_points"])
+        # Lag pa samma prognospoang maste hamna i samma ordning varje gang.
+        # Utan ett andrahandskriterium avgor radordningen fran BigQuery, som
+        # inte ar garanterad: Almtuna och Oskarshamn, bada 72, bytte plats
+        # mellan tva korningar 11 september. Nuvarande placering avgor.
+        projected_standings.sort(key=lambda x: (-x["projected_points"], x["current_rank"], x["team"]))
         for i, p in enumerate(projected_standings, 1):
             p["projected_rank"] = i
 
@@ -4487,7 +4491,7 @@ def get_analytics(season: str = None, refresh: bool = False):
                 "diff": round(pts - exp_pts, 1),
                 "is_bjk": is_bjk(name)
             })
-        pythagorean.sort(key=lambda x: -x["diff"])
+        pythagorean.sort(key=lambda x: (-x["diff"], x["team"]))
         
         # ── Modul 18: SHL Transition Calculations ──
         leaving_names = [d["name"] for d in SILLY_SEASON_BASELINE.get("confirmed_departures", [])]
