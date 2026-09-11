@@ -1,7 +1,17 @@
 # Deploy
 
-Backend deployas av GitHub Actions vid push till `master`
-(`.github/workflows/deploy.yml`). Workflowen deployar två saker:
+**Backend deployas för hand från Cloud Shell med `bash deploy.sh`.**
+
+Det fanns en GitHub Actions-workflow som skulle göra det automatiskt vid push
+till `master`. Den blev aldrig färdiguppsatt — hemligheterna `GCP_WIF_PROVIDER`
+och `GCP_DEPLOY_SA` sattes aldrig — så den föll på autentiseringssteget efter
+sex sekunder, 69 körningar i rad, och mejlade ett misslyckande vid varje push
+till `api/` eller `functions/`. Den togs bort 11 september 2026.
+
+Resten av det här dokumentet beskriver uppsättningen för den som vill ta
+tillbaka den. Filen finns kvar i git-historiken:
+`git show 14c3ca6:.github/workflows/deploy.yml`. Var den uppsättningen skulle
+ha deployat:
 
 | Komponent | Tjänst | Källa |
 |---|---|---|
