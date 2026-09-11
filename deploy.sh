@@ -18,7 +18,10 @@
 # fält som lagts till i efterhand — game_id, periodresultat, publik, trupp.
 # Säsongerna anges med BACKFILL_SEASONS, som standard HA 25/26 med slutspel.
 # Backfill hämtar även matchhändelser för säsongens alla matcher, inklusive
-# spelarna på isen vid varje mål.
+# spelarna på isen vid varje mål. Händelserna är det enda som skalar med
+# antalet matcher — en sida per match, ungefär en sekund styck — så en backfill
+# som bara ska rätta tabellen eller trupplistan sätter EVENTS_LIMIT=0 och blir
+# klar på sekunder i stället för minuter.
 #
 set -euo pipefail
 
@@ -27,6 +30,7 @@ REGION="${REGION:-europe-west1}"
 BUCKET="${GCS_BUCKET:-loven-stats-raw-data-prod}"
 TARGET="${1:-all}"
 BACKFILL_SEASONS="${BACKFILL_SEASONS:-18266,19979}"
+EVENTS_LIMIT="${EVENTS_LIMIT:-all}"
 NEWS_FN="${NEWS_FN:-silly-season-scraper}"
 
 say() { printf '\n\033[1;32m▸ %s\033[0m\n' "$1"; }
@@ -466,12 +470,13 @@ if d.get('error'): print('  fel:', str(d['error'])[:120])
 fi
 
 if [[ "$TARGET" == "backfill" ]]; then
-  say "Backfill av säsonger: $BACKFILL_SEASONS"
+  say "Backfill av säsonger: $BACKFILL_SEASONS (händelser: $EVENTS_LIMIT)"
   FN_URL="https://${REGION}-${PROJECT_ID}.cloudfunctions.net/swehockey-stats-scraper"
-  # events_limit=all hamtar handelser for sasongens alla matcher. En vanlig
+  # EVENTS_LIMIT=all hamtar handelser for sasongens alla matcher. En vanlig
   # korning nojer sig med de senaste, eftersom handelsesidan maste hamtas en
-  # match i taget och tar ungefar en sekund styck.
-  OUT=$(curl -sS --max-time 540 "${FN_URL}?seasons=${BACKFILL_SEASONS}&events_limit=all" 2>/dev/null || echo '{}')
+  # match i taget och tar ungefar en sekund styck. EVENTS_LIMIT=0 hoppar over
+  # dem helt — tabell, schema, spelare och trupp hamtas anda.
+  OUT=$(curl -sS --max-time 540 "${FN_URL}?seasons=${BACKFILL_SEASONS}&events_limit=${EVENTS_LIMIT}" 2>/dev/null || echo '{}')
   printf '%s' "$OUT" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)

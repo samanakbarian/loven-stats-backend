@@ -4461,11 +4461,18 @@ def get_analytics(season: str = None, refresh: bool = False):
         pythagorean = []
         for s in standings:
             name = s.get("team_name", "")
-            gp = s.get("games_played", 0)
-            gf = s.get("goals_for", 0)
-            ga = s.get("goals_against", 0)
-            pts = s.get("points", 0)
-            
+            gp = int(s.get("games_played") or 0)
+            pts = int(s.get("points") or 0)
+            # goals_for och goals_against borjade las 10 september. Aldre
+            # sasonger som inte skordats om sedan dess har NULL i kolumnerna,
+            # och .get(..., 0) hjalper inte: nyckeln FINNS, den ar bara tom.
+            # Utan malen gar Pythagoras inte att rakna, och ett nollat exp_pts
+            # vore ett pahittat tur-index. Laget utelamnas i stallet.
+            if s.get("goals_for") is None or s.get("goals_against") is None:
+                continue
+            gf = int(s["goals_for"])
+            ga = int(s["goals_against"])
+
             if gp > 0 and (gf + ga) > 0:
                 exp_win_pct = (gf**2) / (gf**2 + ga**2)
                 exp_pts = exp_win_pct * (gp * 3)

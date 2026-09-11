@@ -110,6 +110,17 @@ kolla("next-match", f"{API}/api/v1/next-match", lambda d: None)
 kolla("feed", f"{API}/api/v1/feed?limit=20", icke_tom("items"))
 kolla("analytics", f"{API}/api/v1/analytics", icke_tom("modules"), BUDGET["analytics"])
 
+# Den aktiva sasongen ar tom fram till premiaren, sa den sager ingenting om
+# koden som raknar pa spelade matcher. Ett NULL i core.standings slog ut hela
+# /analytics for ha_2526 och ha_2324 den 11 september utan att nagon kontroll
+# har markte det — alla slog mot shl_2627, dar noll matcher aldrig kraschar.
+# Karna en sasong med data ar darfor lika viktigt som att karna den aktiva.
+for _sasong in ("ha_2526", "ha_2324"):
+    kolla(f"analytics {_sasong}", f"{API}/api/v1/analytics?season={_sasong}",
+          icke_tom("modules.player_impact"), BUDGET["analytics"])
+    kolla(f"standings {_sasong}", f"{API}/api/v1/standings?season={_sasong}",
+          icke_tom("standings"))
+
 # 3. Sasongskonfigurationen — premiarkritisk. Fel aktiv sasong och hela
 #    sajten visar fjolarets siffror utan att nagot ser trasigt ut.
 sasonger = kolla("seasons", f"{API}/api/v1/seasons", icke_tom("seasons"))
