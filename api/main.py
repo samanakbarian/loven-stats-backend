@@ -2580,12 +2580,38 @@ def get_goalies(season: str = None, refresh: bool = False):
                 }
             )
 
+        # Seriens egen raddningsprocent, vagd over alla skott i stallet for
+        # ett medelvarde av procenttal. Utan den gar GSAA inte att rakna arligt:
+        # "raddningar over snittet" kraver seriens snitt, inte ett runt tal.
+        # Malvakter med fa matcher tas bort, annars drar en enda kort insats.
+        liga_sv = None
+        try:
+            for r in bq.query(
+                f"""
+                SELECT SUM(saves) AS raddningar, SUM(shots_against) AS skott
+                FROM `{bq.project}.core.goalie_season_stats` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.core.goalie_season_stats`
+                    WHERE season_group_id = {regular_id}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {regular_id}
+                  AND COALESCE(a.games_played, 0) >= 10
+                """
+            ).result():
+                skott = int(r.get("skott") or 0)
+                if skott > 0:
+                    liga_sv = round(int(r.get("raddningar") or 0) / skott * 100, 2)
+        except Exception:
+            logging.exception("Kunde inte rakna seriens raddningsprocent")
+
         return {
             "status": "ok",
             "season": active["name"],
             "season_key": active["key"],
             "count": len(goalies),
             "games_with_log": len({r.get("game_id") for r in log_rows}),
+            "league_sv_pct": liga_sv,
             "goalies": goalies,
         }
     except Exception as e:
@@ -4082,6 +4108,13 @@ def get_analytics(season: str = None, refresh: bool = False):
             below = sum(1 for v in valid_vals if float(v) <= float(value))
             return round((below / len(valid_vals)) * 100)
 
+        # GSAA raknades mot ett hardkodat 0,90. Det ar inte "over snittet" —
+        # det ar "over nittio procent", och serierna ligger inte dar. Seriens
+        # eget snitt vags over alla skott, inte som medel av procenttalen.
+        _liga_raddningar = sum(int(g.get("saves") or 0) for g in all_goalies_min10)
+        _liga_skott = sum(int(g.get("shots_against") or 0) for g in all_goalies_min10)
+        liga_sv_andel = (_liga_raddningar / _liga_skott) if _liga_skott else 0.90
+
         sv_vals = [g.get("save_pct") or 0 for g in all_goalies_min10]
         gaa_vals = [g.get("gaa") or 0 for g in all_goalies_min10]
         wp_vals = [g.get("win_pct") or 0 for g in all_goalies_min10]
@@ -4122,7 +4155,8 @@ def get_analytics(season: str = None, refresh: bool = False):
                     "losses": g.get("losses", 0),
                     "win_pct": g.get("win_pct", 0),
                     "saves_per_gp": round((g.get("saves", 0) / gp), 1),
-                    "gsaa": round(g.get("saves", 0) - (g.get("saves", 0) / (g.get("save_pct", 0)/100 if g.get("save_pct") else 1)) * 0.90, 1),
+                    "gsaa": round(int(g.get("saves") or 0) - int(g.get("shots_against") or 0) * liga_sv_andel, 1),
+                    "gsaa_baseline_sv_pct": round(liga_sv_andel * 100, 2),
                     "percentiles": {
                         "sv_pct": percentile(float(g.get("save_pct") or 0), sv_vals),
                         "gaa": 100 - percentile(float(g.get("gaa") or 0), gaa_vals),
@@ -4142,6 +4176,7 @@ def get_analytics(season: str = None, refresh: bool = False):
                     "win_pct": 0,
                     "saves_per_gp": 0,
                     "gsaa": 0,
+                    "gsaa_baseline_sv_pct": round(liga_sv_andel * 100, 2),
                     "percentiles": {"sv_pct": 50, "gaa": 50, "win_pct": 50},
                 })
 
