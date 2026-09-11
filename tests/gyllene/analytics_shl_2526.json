@@ -1107,116 +1107,116 @@
    ],
    "pythagorean": [
     {
-     "diff": 108,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 108,
-     "team": "Skellefteå AIK"
-    },
-    {
-     "diff": 101,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 101,
-     "team": "Frölunda HC"
-    },
-    {
-     "diff": 94,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 94,
-     "team": "Växjö Lakers HC"
-    },
-    {
-     "diff": 93,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 93,
-     "team": "Rögle BK"
-    },
-    {
-     "diff": 80,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 80,
-     "team": "Färjestad BK"
-    },
-    {
-     "diff": 78,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 78,
-     "team": "Brynäs IF"
-    },
-    {
-     "diff": 77,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 77,
-     "team": "Luleå HF"
-    },
-    {
-     "diff": 77,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 77,
-     "team": "IF Malmö Redhawks"
-    },
-    {
-     "diff": 73,
-     "exp_pts": 0,
+     "diff": 9.4,
+     "exp_pts": 63.6,
      "gp": 52,
      "is_bjk": false,
      "pts": 73,
      "team": "Djurgårdens IF"
     },
     {
-     "diff": 66,
-     "exp_pts": 0,
+     "diff": 8.4,
+     "exp_pts": 85.6,
      "gp": 52,
      "is_bjk": false,
-     "pts": 66,
-     "team": "Örebro HK"
+     "pts": 94,
+     "team": "Växjö Lakers HC"
     },
     {
-     "diff": 64,
-     "exp_pts": 0,
+     "diff": 7.7,
+     "exp_pts": 51.3,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 59,
+     "team": "Leksands IF"
+    },
+    {
+     "diff": 4.8,
+     "exp_pts": 72.2,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 77,
+     "team": "IF Malmö Redhawks"
+    },
+    {
+     "diff": 2.7,
+     "exp_pts": 61.3,
      "gp": 52,
      "is_bjk": false,
      "pts": 64,
      "team": "Linköping HC"
     },
     {
-     "diff": 63,
-     "exp_pts": 0,
+     "diff": -0.2,
+     "exp_pts": 108.2,
      "gp": 52,
      "is_bjk": false,
-     "pts": 63,
-     "team": "Timrå IK"
+     "pts": 108,
+     "team": "Skellefteå AIK"
     },
     {
-     "diff": 59,
-     "exp_pts": 0,
+     "diff": -1.0,
+     "exp_pts": 60.0,
      "gp": 52,
      "is_bjk": false,
      "pts": 59,
      "team": "HV 71"
     },
     {
-     "diff": 59,
-     "exp_pts": 0,
+     "diff": -2.1,
+     "exp_pts": 68.1,
      "gp": 52,
      "is_bjk": false,
-     "pts": 59,
-     "team": "Leksands IF"
+     "pts": 66,
+     "team": "Örebro HK"
+    },
+    {
+     "diff": -2.7,
+     "exp_pts": 95.7,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 93,
+     "team": "Rögle BK"
+    },
+    {
+     "diff": -3.2,
+     "exp_pts": 66.2,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 63,
+     "team": "Timrå IK"
+    },
+    {
+     "diff": -3.9,
+     "exp_pts": 80.9,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 77,
+     "team": "Luleå HF"
+    },
+    {
+     "diff": -5.8,
+     "exp_pts": 83.8,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 78,
+     "team": "Brynäs IF"
+    },
+    {
+     "diff": -5.9,
+     "exp_pts": 85.9,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 80,
+     "team": "Färjestad BK"
+    },
+    {
+     "diff": -7.8,
+     "exp_pts": 108.8,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 101,
+     "team": "Frölunda HC"
     }
    ],
    "scoring_timeline": [

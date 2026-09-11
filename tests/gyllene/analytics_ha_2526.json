@@ -2152,19 +2152,19 @@
     },
     {
      "current_points": 72,
-     "current_rank": 9,
-     "is_bjk": false,
-     "projected_points": 72,
-     "projected_rank": 8,
-     "team": "Almtuna IS"
-    },
-    {
-     "current_points": 72,
      "current_rank": 8,
      "is_bjk": false,
      "projected_points": 72,
-     "projected_rank": 9,
+     "projected_rank": 8,
      "team": "IK Oskarshamn"
+    },
+    {
+     "current_points": 72,
+     "current_rank": 9,
+     "is_bjk": false,
+     "projected_points": 72,
+     "projected_rank": 9,
+     "team": "Almtuna IS"
     },
     {
      "current_points": 70,
@@ -2209,116 +2209,116 @@
    ],
    "pythagorean": [
     {
-     "diff": 119,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": true,
-     "pts": 119,
-     "team": "IF Björklöven"
-    },
-    {
-     "diff": 113,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 113,
-     "team": "Kalmar HC"
-    },
-    {
-     "diff": 97,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 97,
-     "team": "BIK Karlskoga"
-    },
-    {
-     "diff": 91,
-     "exp_pts": 0,
+     "diff": 9.0,
+     "exp_pts": 82.0,
      "gp": 52,
      "is_bjk": false,
      "pts": 91,
      "team": "MoDo Hockey"
     },
     {
-     "diff": 85,
-     "exp_pts": 0,
+     "diff": 8.0,
+     "exp_pts": 77.0,
      "gp": 52,
      "is_bjk": false,
      "pts": 85,
      "team": "AIK"
     },
     {
-     "diff": 75,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 75,
-     "team": "Nybro Vikings IF"
-    },
-    {
-     "diff": 73,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 73,
-     "team": "Södertälje SK"
-    },
-    {
-     "diff": 72,
-     "exp_pts": 0,
+     "diff": 7.9,
+     "exp_pts": 64.1,
      "gp": 52,
      "is_bjk": false,
      "pts": 72,
      "team": "Almtuna IS"
     },
     {
-     "diff": 72,
-     "exp_pts": 0,
+     "diff": 7.4,
+     "exp_pts": 67.6,
      "gp": 52,
      "is_bjk": false,
-     "pts": 72,
-     "team": "IK Oskarshamn"
+     "pts": 75,
+     "team": "Nybro Vikings IF"
     },
     {
-     "diff": 70,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 70,
-     "team": "Mora IK"
-    },
-    {
-     "diff": 64,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 64,
-     "team": "Östersunds IK"
-    },
-    {
-     "diff": 61,
-     "exp_pts": 0,
+     "diff": 4.8,
+     "exp_pts": 56.2,
      "gp": 52,
      "is_bjk": false,
      "pts": 61,
      "team": "Vimmerby HC"
     },
     {
-     "diff": 54,
-     "exp_pts": 0,
+     "diff": 2.8,
+     "exp_pts": 61.2,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 64,
+     "team": "Östersunds IK"
+    },
+    {
+     "diff": 1.2,
+     "exp_pts": 95.8,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 97,
+     "team": "BIK Karlskoga"
+    },
+    {
+     "diff": -0.8,
+     "exp_pts": 70.8,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 70,
+     "team": "Mora IK"
+    },
+    {
+     "diff": -3.3,
+     "exp_pts": 49.3,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 46,
+     "team": "IF Troja-Ljungby"
+    },
+    {
+     "diff": -3.5,
+     "exp_pts": 116.5,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 113,
+     "team": "Kalmar HC"
+    },
+    {
+     "diff": -5.0,
+     "exp_pts": 78.0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 73,
+     "team": "Södertälje SK"
+    },
+    {
+     "diff": -5.3,
+     "exp_pts": 124.3,
+     "gp": 52,
+     "is_bjk": true,
+     "pts": 119,
+     "team": "IF Björklöven"
+    },
+    {
+     "diff": -7.5,
+     "exp_pts": 61.5,
      "gp": 52,
      "is_bjk": false,
      "pts": 54,
      "team": "Västerås IK"
     },
     {
-     "diff": 46,
-     "exp_pts": 0,
+     "diff": -8.2,
+     "exp_pts": 80.2,
      "gp": 52,
      "is_bjk": false,
-     "pts": 46,
-     "team": "IF Troja-Ljungby"
+     "pts": 72,
+     "team": "IK Oskarshamn"
     }
    ],
    "scoring_timeline": [

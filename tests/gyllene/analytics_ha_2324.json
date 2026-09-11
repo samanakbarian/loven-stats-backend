@@ -40,6 +40,28 @@
      "trajectory": "PEAK PRIME"
     },
     {
+     "adj_proj_ppg": 0.32,
+     "age": 32,
+     "base_proj_ppg": 0.35,
+     "ha_ppg": 0.59,
+     "multiplier_pct": -8,
+     "name": "Gustav Possler",
+     "position": "RW",
+     "readiness": "AMBER",
+     "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.34,
+     "age": 26,
+     "base_proj_ppg": 0.34,
+     "ha_ppg": 0.57,
+     "multiplier_pct": 0,
+     "name": "Lenni Killinen",
+     "position": "LW",
+     "readiness": "AMBER",
+     "trajectory": "PEAK PRIME"
+    },
+    {
      "adj_proj_ppg": 0.46,
      "age": 30,
      "base_proj_ppg": 0.5,
@@ -49,6 +71,28 @@
      "position": "LD",
      "readiness": "GREEN",
      "trajectory": "RUTINERAD"
+    },
+    {
+     "adj_proj_ppg": 0.23,
+     "age": 34,
+     "base_proj_ppg": 0.29,
+     "ha_ppg": 0.48,
+     "multiplier_pct": -22,
+     "name": "Joel Mustonen",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "VETERANRISK"
+    },
+    {
+     "adj_proj_ppg": 0.18,
+     "age": 36,
+     "base_proj_ppg": 0.23,
+     "ha_ppg": 0.39,
+     "multiplier_pct": -22,
+     "name": "Daniel Brodin",
+     "position": "RW",
+     "readiness": "RED",
+     "trajectory": "VETERANRISK"
     },
     {
      "adj_proj_ppg": 0.38,
@@ -62,26 +106,37 @@
      "trajectory": "TILLVÃ„XT"
     },
     {
-     "adj_proj_ppg": 0.03,
-     "age": 36,
-     "base_proj_ppg": 0.04,
-     "ha_ppg": 0.04,
-     "multiplier_pct": -22,
-     "name": "Daniel Brodin (SHL/Exempt)",
-     "position": "RW",
+     "adj_proj_ppg": 0.18,
+     "age": 26,
+     "base_proj_ppg": 0.18,
+     "ha_ppg": 0.31,
+     "multiplier_pct": 0,
+     "name": "Jacob Olofsson",
+     "position": "CE",
      "readiness": "RED",
-     "trajectory": "VETERANRISK"
+     "trajectory": "PEAK PRIME"
     },
     {
-     "adj_proj_ppg": 0.0,
+     "adj_proj_ppg": 0.17,
      "age": 26,
-     "base_proj_ppg": 0.0,
-     "ha_ppg": 0.0,
+     "base_proj_ppg": 0.17,
+     "ha_ppg": 0.29,
      "multiplier_pct": 0,
      "name": "Linus Cronholm",
      "position": "LD",
      "readiness": "RED",
      "trajectory": "PEAK PRIME"
+    },
+    {
+     "adj_proj_ppg": 0.03,
+     "age": 21,
+     "base_proj_ppg": 0.03,
+     "ha_ppg": 0.04,
+     "multiplier_pct": 15,
+     "name": "Gustaf Kangas",
+     "position": "CE",
+     "readiness": "RED",
+     "trajectory": "UTVECKLING"
     },
     {
      "adj_proj_ppg": 0.0,
@@ -151,17 +206,6 @@
     },
     {
      "adj_proj_ppg": 0.0,
-     "age": 32,
-     "base_proj_ppg": 0.0,
-     "ha_ppg": 0.0,
-     "multiplier_pct": -8,
-     "name": "Gustav Possler",
-     "position": "RW",
-     "readiness": "RED",
-     "trajectory": "RUTINERAD"
-    },
-    {
-     "adj_proj_ppg": 0.0,
      "age": 30,
      "base_proj_ppg": 0.0,
      "ha_ppg": 0.0,
@@ -194,50 +238,6 @@
      "trajectory": "PEAK PRIME"
     },
     {
-     "adj_proj_ppg": 0.0,
-     "age": 26,
-     "base_proj_ppg": 0.0,
-     "ha_ppg": 0.0,
-     "multiplier_pct": 0,
-     "name": "Lenni Killinen",
-     "position": "LW",
-     "readiness": "RED",
-     "trajectory": "PEAK PRIME"
-    },
-    {
-     "adj_proj_ppg": 0.0,
-     "age": 21,
-     "base_proj_ppg": 0.0,
-     "ha_ppg": 0.0,
-     "multiplier_pct": 15,
-     "name": "Gustaf Kangas",
-     "position": "CE",
-     "readiness": "RED",
-     "trajectory": "UTVECKLING"
-    },
-    {
-     "adj_proj_ppg": 0.0,
-     "age": 34,
-     "base_proj_ppg": 0.0,
-     "ha_ppg": 0.0,
-     "multiplier_pct": -22,
-     "name": "Joel Mustonen",
-     "position": "CE",
-     "readiness": "RED",
-     "trajectory": "VETERANRISK"
-    },
-    {
-     "adj_proj_ppg": 0.0,
-     "age": 26,
-     "base_proj_ppg": 0.0,
-     "ha_ppg": 0.0,
-     "multiplier_pct": 0,
-     "name": "Jacob Olofsson",
-     "position": "CE",
-     "readiness": "RED",
-     "trajectory": "PEAK PRIME"
-    },
-    {
      "adj_proj_ppg": 0.39,
      "age": 37,
      "base_proj_ppg": 0.5,
@@ -262,12 +262,143 @@
    ]
   },
   "attendance": {
-   "avg": 0,
+   "avg": 4639,
    "home_games": 26,
-   "max": 0,
-   "min": 0,
-   "total": 0,
-   "trend": []
+   "max": 5184,
+   "min": 3872,
+   "total": 120611,
+   "trend": [
+    {
+     "date": "2023-09-29",
+     "opponent": "Västerviks IK",
+     "spectators": 5051
+    },
+    {
+     "date": "2023-10-01",
+     "opponent": "Västerviks IK",
+     "spectators": 4692
+    },
+    {
+     "date": "2023-10-06",
+     "opponent": "Almtuna IS",
+     "spectators": 4594
+    },
+    {
+     "date": "2023-10-18",
+     "opponent": "Nybro Vikings IF",
+     "spectators": 4899
+    },
+    {
+     "date": "2023-10-25",
+     "opponent": "Östersunds IK",
+     "spectators": 3872
+    },
+    {
+     "date": "2023-11-01",
+     "opponent": "Mora IK",
+     "spectators": 4612
+    },
+    {
+     "date": "2023-11-03",
+     "opponent": "Södertälje SK",
+     "spectators": 4785
+    },
+    {
+     "date": "2023-11-15",
+     "opponent": "Djurgårdens IF",
+     "spectators": 5134
+    },
+    {
+     "date": "2023-11-22",
+     "opponent": "AIK",
+     "spectators": 4505
+    },
+    {
+     "date": "2023-11-24",
+     "opponent": "Västerås IK",
+     "spectators": 4770
+    },
+    {
+     "date": "2023-11-29",
+     "opponent": "Brynäs IF",
+     "spectators": 5166
+    },
+    {
+     "date": "2023-12-06",
+     "opponent": "Kalmar HC",
+     "spectators": 4245
+    },
+    {
+     "date": "2023-12-08",
+     "opponent": "Tingsryds AIF",
+     "spectators": 4534
+    },
+    {
+     "date": "2023-12-15",
+     "opponent": "BIK Karlskoga",
+     "spectators": 4451
+    },
+    {
+     "date": "2023-12-29",
+     "opponent": "Nybro Vikings IF",
+     "spectators": 5022
+    },
+    {
+     "date": "2024-01-12",
+     "opponent": "BIK Karlskoga",
+     "spectators": 4521
+    },
+    {
+     "date": "2024-01-24",
+     "opponent": "Djurgårdens IF",
+     "spectators": 4664
+    },
+    {
+     "date": "2024-01-26",
+     "opponent": "Södertälje SK",
+     "spectators": 4581
+    },
+    {
+     "date": "2024-01-31",
+     "opponent": "Östersunds IK",
+     "spectators": 4390
+    },
+    {
+     "date": "2024-02-05",
+     "opponent": "Brynäs IF",
+     "spectators": 4571
+    },
+    {
+     "date": "2024-02-07",
+     "opponent": "Almtuna IS",
+     "spectators": 4025
+    },
+    {
+     "date": "2024-02-14",
+     "opponent": "Tingsryds AIF",
+     "spectators": 4199
+    },
+    {
+     "date": "2024-02-16",
+     "opponent": "Kalmar HC",
+     "spectators": 4181
+    },
+    {
+     "date": "2024-02-23",
+     "opponent": "Västerås IK",
+     "spectators": 4831
+    },
+    {
+     "date": "2024-03-01",
+     "opponent": "Mora IK",
+     "spectators": 5184
+    },
+    {
+     "date": "2024-03-06",
+     "opponent": "AIK",
+     "spectators": 5132
+    }
+   ]
   },
   "form": [
    {
@@ -340,10 +471,10 @@
     "date": "2023-10-11",
     "ga_avg": 2.57,
     "gf_avg": 4.14,
-    "l": 3,
+    "l": 2,
     "matchNum": 7,
-    "otl": 0,
-    "pts": 12,
+    "otl": 1,
+    "pts": 13,
     "w": 4,
     "window": 7
    },
@@ -351,10 +482,10 @@
     "date": "2023-10-13",
     "ga_avg": 2.62,
     "gf_avg": 4.75,
-    "l": 3,
+    "l": 2,
     "matchNum": 8,
-    "otl": 0,
-    "pts": 15,
+    "otl": 1,
+    "pts": 16,
     "w": 5,
     "window": 8
    },
@@ -362,10 +493,10 @@
     "date": "2023-10-18",
     "ga_avg": 2.33,
     "gf_avg": 4.78,
-    "l": 3,
+    "l": 2,
     "matchNum": 9,
-    "otl": 0,
-    "pts": 18,
+    "otl": 1,
+    "pts": 19,
     "w": 6,
     "window": 9
    },
@@ -373,9 +504,9 @@
     "date": "2023-10-20",
     "ga_avg": 2.3,
     "gf_avg": 4.6,
-    "l": 3,
+    "l": 2,
     "matchNum": 10,
-    "otl": 0,
+    "otl": 1,
     "pts": 21,
     "w": 7,
     "window": 10
@@ -384,9 +515,9 @@
     "date": "2023-10-25",
     "ga_avg": 2.1,
     "gf_avg": 4.7,
-    "l": 2,
+    "l": 1,
     "matchNum": 11,
-    "otl": 0,
+    "otl": 1,
     "pts": 24,
     "w": 8,
     "window": 10
@@ -395,9 +526,9 @@
     "date": "2023-10-27",
     "ga_avg": 2.0,
     "gf_avg": 4.5,
-    "l": 2,
+    "l": 1,
     "matchNum": 12,
-    "otl": 0,
+    "otl": 1,
     "pts": 24,
     "w": 8,
     "window": 10
@@ -406,9 +537,9 @@
     "date": "2023-11-01",
     "ga_avg": 2.2,
     "gf_avg": 3.9,
-    "l": 3,
+    "l": 2,
     "matchNum": 13,
-    "otl": 0,
+    "otl": 1,
     "pts": 21,
     "w": 7,
     "window": 10
@@ -417,9 +548,9 @@
     "date": "2023-11-03",
     "ga_avg": 2.5,
     "gf_avg": 3.8,
-    "l": 3,
+    "l": 2,
     "matchNum": 14,
-    "otl": 0,
+    "otl": 1,
     "pts": 21,
     "w": 7,
     "window": 10
@@ -428,10 +559,10 @@
     "date": "2023-11-05",
     "ga_avg": 2.6,
     "gf_avg": 3.7,
-    "l": 3,
+    "l": 2,
     "matchNum": 15,
-    "otl": 0,
-    "pts": 21,
+    "otl": 1,
+    "pts": 20,
     "w": 7,
     "window": 10
    },
@@ -439,10 +570,10 @@
     "date": "2023-11-07",
     "ga_avg": 2.6,
     "gf_avg": 3.5,
-    "l": 3,
+    "l": 2,
     "matchNum": 16,
-    "otl": 0,
-    "pts": 21,
+    "otl": 1,
+    "pts": 20,
     "w": 7,
     "window": 10
    },
@@ -453,7 +584,7 @@
     "l": 2,
     "matchNum": 17,
     "otl": 0,
-    "pts": 24,
+    "pts": 21,
     "w": 8,
     "window": 10
    },
@@ -464,7 +595,7 @@
     "l": 2,
     "matchNum": 18,
     "otl": 0,
-    "pts": 24,
+    "pts": 20,
     "w": 8,
     "window": 10
    },
@@ -475,7 +606,7 @@
     "l": 3,
     "matchNum": 19,
     "otl": 0,
-    "pts": 21,
+    "pts": 17,
     "w": 7,
     "window": 10
    },
@@ -486,7 +617,7 @@
     "l": 3,
     "matchNum": 20,
     "otl": 0,
-    "pts": 21,
+    "pts": 18,
     "w": 7,
     "window": 10
    },
@@ -497,7 +628,7 @@
     "l": 4,
     "matchNum": 21,
     "otl": 0,
-    "pts": 18,
+    "pts": 15,
     "w": 6,
     "window": 10
    },
@@ -508,7 +639,7 @@
     "l": 5,
     "matchNum": 22,
     "otl": 0,
-    "pts": 15,
+    "pts": 12,
     "w": 5,
     "window": 10
    },
@@ -516,10 +647,10 @@
     "date": "2023-12-01",
     "ga_avg": 3.3,
     "gf_avg": 3.1,
-    "l": 5,
+    "l": 4,
     "matchNum": 23,
-    "otl": 0,
-    "pts": 15,
+    "otl": 1,
+    "pts": 13,
     "w": 5,
     "window": 10
    },
@@ -527,10 +658,10 @@
     "date": "2023-12-06",
     "ga_avg": 3.3,
     "gf_avg": 3.0,
-    "l": 5,
+    "l": 4,
     "matchNum": 24,
-    "otl": 0,
-    "pts": 15,
+    "otl": 1,
+    "pts": 12,
     "w": 5,
     "window": 10
    },
@@ -538,10 +669,10 @@
     "date": "2023-12-08",
     "ga_avg": 3.3,
     "gf_avg": 2.8,
-    "l": 6,
+    "l": 5,
     "matchNum": 25,
-    "otl": 0,
-    "pts": 12,
+    "otl": 1,
+    "pts": 10,
     "w": 4,
     "window": 10
    },
@@ -549,10 +680,10 @@
     "date": "2023-12-13",
     "ga_avg": 3.0,
     "gf_avg": 3.1,
-    "l": 5,
+    "l": 4,
     "matchNum": 26,
-    "otl": 0,
-    "pts": 15,
+    "otl": 1,
+    "pts": 13,
     "w": 5,
     "window": 10
    },
@@ -560,10 +691,10 @@
     "date": "2023-12-15",
     "ga_avg": 3.1,
     "gf_avg": 3.0,
-    "l": 6,
+    "l": 5,
     "matchNum": 27,
-    "otl": 0,
-    "pts": 12,
+    "otl": 1,
+    "pts": 11,
     "w": 4,
     "window": 10
    },
@@ -571,9 +702,9 @@
     "date": "2023-12-18",
     "ga_avg": 3.3,
     "gf_avg": 3.5,
-    "l": 6,
+    "l": 5,
     "matchNum": 28,
-    "otl": 0,
+    "otl": 1,
     "pts": 12,
     "w": 4,
     "window": 10
@@ -582,10 +713,10 @@
     "date": "2023-12-27",
     "ga_avg": 3.1,
     "gf_avg": 3.3,
-    "l": 6,
+    "l": 4,
     "matchNum": 29,
-    "otl": 0,
-    "pts": 12,
+    "otl": 2,
+    "pts": 13,
     "w": 4,
     "window": 10
    },
@@ -593,10 +724,10 @@
     "date": "2023-12-29",
     "ga_avg": 3.4,
     "gf_avg": 3.1,
-    "l": 7,
+    "l": 5,
     "matchNum": 30,
-    "otl": 0,
-    "pts": 9,
+    "otl": 2,
+    "pts": 10,
     "w": 3,
     "window": 10
    },
@@ -604,10 +735,10 @@
     "date": "2024-01-05",
     "ga_avg": 3.0,
     "gf_avg": 3.3,
-    "l": 6,
+    "l": 4,
     "matchNum": 31,
-    "otl": 0,
-    "pts": 12,
+    "otl": 2,
+    "pts": 13,
     "w": 4,
     "window": 10
    },
@@ -615,10 +746,10 @@
     "date": "2024-01-06",
     "ga_avg": 2.6,
     "gf_avg": 3.2,
-    "l": 5,
+    "l": 3,
     "matchNum": 32,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -626,10 +757,10 @@
     "date": "2024-01-12",
     "ga_avg": 2.2,
     "gf_avg": 2.8,
-    "l": 5,
+    "l": 3,
     "matchNum": 33,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -637,10 +768,10 @@
     "date": "2024-01-15",
     "ga_avg": 2.3,
     "gf_avg": 2.6,
-    "l": 6,
+    "l": 4,
     "matchNum": 34,
-    "otl": 0,
-    "pts": 12,
+    "otl": 2,
+    "pts": 14,
     "w": 4,
     "window": 10
    },
@@ -648,10 +779,10 @@
     "date": "2024-01-17",
     "ga_avg": 2.5,
     "gf_avg": 3.0,
-    "l": 5,
+    "l": 3,
     "matchNum": 35,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -659,10 +790,10 @@
     "date": "2024-01-19",
     "ga_avg": 2.5,
     "gf_avg": 3.2,
-    "l": 5,
+    "l": 3,
     "matchNum": 36,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -670,10 +801,10 @@
     "date": "2024-01-24",
     "ga_avg": 2.9,
     "gf_avg": 3.5,
-    "l": 5,
+    "l": 3,
     "matchNum": 37,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -681,10 +812,10 @@
     "date": "2024-01-26",
     "ga_avg": 2.6,
     "gf_avg": 2.9,
-    "l": 5,
+    "l": 3,
     "matchNum": 38,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -692,10 +823,10 @@
     "date": "2024-01-28",
     "ga_avg": 2.7,
     "gf_avg": 3.2,
-    "l": 4,
+    "l": 3,
     "matchNum": 39,
-    "otl": 0,
-    "pts": 18,
+    "otl": 1,
+    "pts": 17,
     "w": 6,
     "window": 10
    },
@@ -703,10 +834,10 @@
     "date": "2024-01-31",
     "ga_avg": 2.8,
     "gf_avg": 3.1,
-    "l": 4,
+    "l": 3,
     "matchNum": 40,
-    "otl": 0,
-    "pts": 18,
+    "otl": 1,
+    "pts": 17,
     "w": 6,
     "window": 10
    },
@@ -714,9 +845,9 @@
     "date": "2024-02-02",
     "ga_avg": 3.2,
     "gf_avg": 3.1,
-    "l": 5,
+    "l": 3,
     "matchNum": 41,
-    "otl": 0,
+    "otl": 2,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -725,9 +856,9 @@
     "date": "2024-02-05",
     "ga_avg": 3.2,
     "gf_avg": 3.3,
-    "l": 5,
+    "l": 3,
     "matchNum": 42,
-    "otl": 0,
+    "otl": 2,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -736,10 +867,10 @@
     "date": "2024-02-07",
     "ga_avg": 3.3,
     "gf_avg": 3.6,
-    "l": 4,
+    "l": 3,
     "matchNum": 43,
-    "otl": 0,
-    "pts": 18,
+    "otl": 1,
+    "pts": 16,
     "w": 6,
     "window": 10
    },
@@ -747,10 +878,10 @@
     "date": "2024-02-09",
     "ga_avg": 3.1,
     "gf_avg": 3.5,
-    "l": 4,
+    "l": 2,
     "matchNum": 44,
-    "otl": 0,
-    "pts": 18,
+    "otl": 2,
+    "pts": 17,
     "w": 6,
     "window": 10
    },
@@ -758,9 +889,9 @@
     "date": "2024-02-14",
     "ga_avg": 3.0,
     "gf_avg": 3.0,
-    "l": 5,
+    "l": 3,
     "matchNum": 45,
-    "otl": 0,
+    "otl": 2,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -769,9 +900,9 @@
     "date": "2024-02-16",
     "ga_avg": 3.0,
     "gf_avg": 2.9,
-    "l": 5,
+    "l": 3,
     "matchNum": 46,
-    "otl": 0,
+    "otl": 2,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -780,9 +911,9 @@
     "date": "2024-02-23",
     "ga_avg": 2.8,
     "gf_avg": 3.1,
-    "l": 4,
+    "l": 2,
     "matchNum": 47,
-    "otl": 0,
+    "otl": 2,
     "pts": 18,
     "w": 6,
     "window": 10
@@ -791,9 +922,9 @@
     "date": "2024-02-26",
     "ga_avg": 3.1,
     "gf_avg": 3.0,
-    "l": 5,
+    "l": 3,
     "matchNum": 48,
-    "otl": 0,
+    "otl": 2,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -802,10 +933,10 @@
     "date": "2024-02-28",
     "ga_avg": 2.9,
     "gf_avg": 2.6,
-    "l": 6,
+    "l": 4,
     "matchNum": 49,
-    "otl": 0,
-    "pts": 12,
+    "otl": 2,
+    "pts": 13,
     "w": 4,
     "window": 10
    },
@@ -813,10 +944,10 @@
     "date": "2024-03-01",
     "ga_avg": 2.5,
     "gf_avg": 3.0,
-    "l": 5,
+    "l": 3,
     "matchNum": 50,
-    "otl": 0,
-    "pts": 15,
+    "otl": 2,
+    "pts": 16,
     "w": 5,
     "window": 10
    },
@@ -824,9 +955,9 @@
     "date": "2024-03-06",
     "ga_avg": 2.5,
     "gf_avg": 2.7,
-    "l": 5,
+    "l": 4,
     "matchNum": 51,
-    "otl": 0,
+    "otl": 1,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -835,9 +966,9 @@
     "date": "2024-03-08",
     "ga_avg": 2.5,
     "gf_avg": 2.7,
-    "l": 5,
+    "l": 4,
     "matchNum": 52,
-    "otl": 0,
+    "otl": 1,
     "pts": 15,
     "w": 5,
     "window": 10
@@ -846,47 +977,47 @@
   "game_state": {
    "game_types": {
     "one_goal": {
-     "l": 0,
-     "w": 0
+     "l": 12,
+     "w": 11
     },
     "three_plus_goals": {
-     "l": 0,
-     "w": 0
+     "l": 8,
+     "w": 13
     },
     "two_goals": {
-     "l": 0,
-     "w": 0
+     "l": 3,
+     "w": 5
     }
    },
    "lead_after_1": {
-    "l": 0,
+    "l": 2,
     "otl": 0,
-    "w": 0
+    "w": 16
    },
    "lead_after_2": {
-    "l": 0,
+    "l": 2,
     "otl": 0,
-    "w": 0
+    "w": 22
    },
    "tied_after_1": {
-    "l": 0,
-    "otl": 0,
-    "w": 0
+    "l": 4,
+    "otl": 3,
+    "w": 9
    },
    "tied_after_2": {
-    "l": 0,
-    "otl": 0,
-    "w": 0
+    "l": 1,
+    "otl": 3,
+    "w": 5
    },
    "trail_after_1": {
-    "l": 0,
-    "otl": 0,
-    "w": 0
+    "l": 11,
+    "otl": 3,
+    "w": 4
    },
    "trail_after_2": {
-    "l": 0,
-    "otl": 0,
-    "w": 0
+    "l": 14,
+    "otl": 3,
+    "w": 2
    }
   },
   "goalie_radar": [
@@ -915,9 +1046,9 @@
     "losses": 12,
     "name": "Lassi Lehtinen",
     "percentiles": {
-     "gaa": 6,
+     "gaa": 7,
      "sv_pct": 0,
-     "win_pct": 0
+     "win_pct": 100
     },
     "saves_per_gp": 18.8,
     "shutouts": 2,
@@ -926,21 +1057,22 @@
     "wins": 7
    },
    {
-    "gaa": 0,
-    "gp": 0,
-    "gsaa": 0,
-    "losses": 0,
+    "_is_shl_source": false,
+    "gaa": 1.53,
+    "gp": 2,
+    "gsaa": 1.2,
+    "losses": 1,
     "name": "Olle Eriksson Ek",
     "percentiles": {
-     "gaa": 50,
-     "sv_pct": 50,
-     "win_pct": 50
+     "gaa": 100,
+     "sv_pct": 100,
+     "win_pct": 100
     },
-    "saves_per_gp": 0,
+    "saves_per_gp": 19.5,
     "shutouts": 0,
-    "sv_pct": 0,
-    "win_pct": 0,
-    "wins": 0
+    "sv_pct": 92.86,
+    "win_pct": null,
+    "wins": 1
    },
    {
     "gaa": 0,
@@ -968,7 +1100,7 @@
     "l": 0,
     "opponent": "Kalmar HC",
     "otl": 0,
-    "pts": 12,
+    "pts": 10,
     "w": 4
    },
    {
@@ -987,16 +1119,6 @@
     "gp": 4,
     "l": 1,
     "opponent": "AIK",
-    "otl": 0,
-    "pts": 9,
-    "w": 3
-   },
-   {
-    "ga": 10,
-    "gf": 16,
-    "gp": 4,
-    "l": 1,
-    "opponent": "Brynäs IF",
     "otl": 0,
     "pts": 9,
     "w": 3
@@ -1023,51 +1145,71 @@
    },
    {
     "ga": 10,
+    "gf": 16,
+    "gp": 4,
+    "l": 1,
+    "opponent": "Brynäs IF",
+    "otl": 0,
+    "pts": 8,
+    "w": 3
+   },
+   {
+    "ga": 12,
     "gf": 13,
     "gp": 4,
-    "l": 2,
-    "opponent": "Nybro Vikings IF",
-    "otl": 0,
-    "pts": 6,
+    "l": 1,
+    "opponent": "Östersunds IK",
+    "otl": 1,
+    "pts": 7,
     "w": 2
    },
    {
     "ga": 7,
     "gf": 9,
     "gp": 4,
-    "l": 2,
+    "l": 1,
     "opponent": "Mora IK",
-    "otl": 0,
+    "otl": 1,
     "pts": 6,
     "w": 2
    },
    {
-    "ga": 12,
+    "ga": 10,
     "gf": 13,
     "gp": 4,
     "l": 2,
-    "opponent": "Östersunds IK",
+    "opponent": "Nybro Vikings IF",
     "otl": 0,
-    "pts": 6,
+    "pts": 5,
     "w": 2
    },
    {
     "ga": 13,
     "gf": 11,
     "gp": 4,
-    "l": 3,
+    "l": 2,
     "opponent": "Tingsryds AIF",
-    "otl": 0,
-    "pts": 3,
+    "otl": 1,
+    "pts": 4,
+    "w": 1
+   },
+   {
+    "ga": 18,
+    "gf": 14,
+    "gp": 4,
+    "l": 1,
+    "opponent": "Almtuna IS",
+    "otl": 2,
+    "pts": 4,
     "w": 1
    },
    {
     "ga": 11,
     "gf": 9,
     "gp": 4,
-    "l": 3,
+    "l": 2,
     "opponent": "BIK Karlskoga",
-    "otl": 0,
+    "otl": 1,
     "pts": 3,
     "w": 1
    },
@@ -1078,17 +1220,7 @@
     "l": 3,
     "opponent": "Djurgårdens IF",
     "otl": 0,
-    "pts": 3,
-    "w": 1
-   },
-   {
-    "ga": 18,
-    "gf": 14,
-    "gp": 4,
-    "l": 3,
-    "opponent": "Almtuna IS",
-    "otl": 0,
-    "pts": 3,
+    "pts": 2,
     "w": 1
    }
   ],
@@ -1116,31 +1248,50 @@
   },
   "periods": [
    {
-    "diff": 0,
-    "ga": 0,
-    "games": 0,
-    "gf": 0,
+    "diff": 11,
+    "ga": 40,
+    "games": 52,
+    "gf": 51,
     "label": "P1",
     "period": 1
    },
    {
-    "diff": 0,
-    "ga": 0,
-    "games": 0,
-    "gf": 0,
+    "diff": 12,
+    "ga": 42,
+    "games": 52,
+    "gf": 54,
     "label": "P2",
     "period": 2
    },
    {
-    "diff": 0,
-    "ga": 0,
-    "games": 0,
-    "gf": 0,
+    "diff": 6,
+    "ga": 51,
+    "games": 52,
+    "gf": 57,
     "label": "P3",
     "period": 3
    }
   ],
   "player_impact": [
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.618,
+    "assists": 21,
+    "g_per_gp": 0.147,
+    "goals": 5,
+    "gp": 34,
+    "name": "Mathew Maione",
+    "number": 0,
+    "p_per_gp": 0.765,
+    "pim_per_gp": 0.588,
+    "plus_minus": "5",
+    "points": 26,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": 0.009,
+     "ppg_diff": 0.4
+    }
+   },
    {
     "_is_shl_source": false,
     "a_per_gp": 0.46,
@@ -1152,12 +1303,69 @@
     "number": 0,
     "p_per_gp": 0.74,
     "pim_per_gp": 0.44,
-    "plus_minus": "0",
+    "plus_minus": "16",
     "points": 37,
     "position": "LW",
     "vs_league": {
-     "gpg_diff": -0.074,
-     "ppg_diff": -0.139
+     "gpg_diff": 0.142,
+     "ppg_diff": 0.375
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.348,
+    "assists": 16,
+    "g_per_gp": 0.239,
+    "goals": 11,
+    "gp": 46,
+    "name": "Gustav Possler",
+    "number": 0,
+    "p_per_gp": 0.587,
+    "pim_per_gp": 0.391,
+    "plus_minus": "7",
+    "points": 27,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": 0.101,
+     "ppg_diff": 0.222
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.286,
+    "assists": 2,
+    "g_per_gp": 0.286,
+    "goals": 2,
+    "gp": 7,
+    "name": "Lenni Killinen",
+    "number": 0,
+    "p_per_gp": 0.571,
+    "pim_per_gp": 0.0,
+    "plus_minus": "4",
+    "points": 4,
+    "position": "LW",
+    "vs_league": {
+     "gpg_diff": 0.148,
+     "ppg_diff": 0.206
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.288,
+    "assists": 15,
+    "g_per_gp": 0.231,
+    "goals": 12,
+    "gp": 52,
+    "name": "Liam Dower-Nilsson",
+    "number": 0,
+    "p_per_gp": 0.519,
+    "pim_per_gp": 0.192,
+    "plus_minus": "4",
+    "points": 27,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": 0.093,
+     "ppg_diff": 0.154
     }
    },
    {
@@ -1175,8 +1383,46 @@
     "points": 26,
     "position": "LD",
     "vs_league": {
-     "gpg_diff": -0.219,
-     "ppg_diff": -0.379
+     "gpg_diff": -0.003,
+     "ppg_diff": 0.135
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.26,
+    "assists": 13,
+    "g_per_gp": 0.22,
+    "goals": 11,
+    "gp": 50,
+    "name": "Joel Mustonen",
+    "number": 0,
+    "p_per_gp": 0.48,
+    "pim_per_gp": 0.28,
+    "plus_minus": "8",
+    "points": 24,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": 0.082,
+     "ppg_diff": 0.115
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.212,
+    "assists": 11,
+    "g_per_gp": 0.173,
+    "goals": 9,
+    "gp": 52,
+    "name": "Daniel Brodin",
+    "number": 0,
+    "p_per_gp": 0.385,
+    "pim_per_gp": 0.481,
+    "plus_minus": "-1",
+    "points": 20,
+    "position": "RW",
+    "vs_league": {
+     "gpg_diff": 0.035,
+     "ppg_diff": 0.02
     }
    },
    {
@@ -1194,27 +1440,65 @@
     "points": 18,
     "position": "RD",
     "vs_league": {
-     "gpg_diff": -0.277,
-     "ppg_diff": -0.533
+     "gpg_diff": -0.061,
+     "ppg_diff": -0.019
     }
    },
    {
-    "_is_shl_source": true,
-    "a_per_gp": 0.208,
-    "assists": 10,
-    "g_per_gp": 0.125,
-    "goals": 6,
-    "gp": 48,
-    "name": "Liam Dower-Nilsson",
+    "_is_shl_source": false,
+    "a_per_gp": 0.244,
+    "assists": 11,
+    "g_per_gp": 0.089,
+    "goals": 4,
+    "gp": 45,
+    "name": "Olli Vainio",
     "number": 0,
     "p_per_gp": 0.333,
-    "pim_per_gp": 0.208,
-    "plus_minus": "7",
-    "points": 16,
-    "position": "RW",
+    "pim_per_gp": 0.133,
+    "plus_minus": "19",
+    "points": 15,
+    "position": "RD",
     "vs_league": {
-     "gpg_diff": -0.229,
-     "ppg_diff": -0.546
+     "gpg_diff": -0.049,
+     "ppg_diff": -0.032
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.224,
+    "assists": 11,
+    "g_per_gp": 0.082,
+    "goals": 4,
+    "gp": 49,
+    "name": "Jacob Olofsson",
+    "number": 0,
+    "p_per_gp": 0.306,
+    "pim_per_gp": 0.0,
+    "plus_minus": "-3",
+    "points": 15,
+    "position": "CE",
+    "vs_league": {
+     "gpg_diff": -0.056,
+     "ppg_diff": -0.059
+    }
+   },
+   {
+    "_is_shl_source": false,
+    "a_per_gp": 0.224,
+    "assists": 11,
+    "g_per_gp": 0.061,
+    "goals": 3,
+    "gp": 49,
+    "name": "Linus Cronholm",
+    "number": 0,
+    "p_per_gp": 0.286,
+    "pim_per_gp": 0.408,
+    "plus_minus": "7",
+    "points": 14,
+    "position": "LD",
+    "vs_league": {
+     "gpg_diff": -0.077,
+     "ppg_diff": -0.079
     }
    },
    {
@@ -1232,46 +1516,27 @@
     "points": 2,
     "position": "LW",
     "vs_league": {
-     "gpg_diff": -0.236,
-     "ppg_diff": -0.761
-    }
-   },
-   {
-    "_is_shl_source": true,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.042,
-    "goals": 1,
-    "gp": 24,
-    "name": "Daniel Brodin",
-    "number": 0,
-    "p_per_gp": 0.042,
-    "pim_per_gp": 0.0,
-    "plus_minus": "-8",
-    "points": 1,
-    "position": "RW",
-    "vs_league": {
-     "gpg_diff": -0.312,
-     "ppg_diff": -0.837
+     "gpg_diff": -0.02,
+     "ppg_diff": -0.247
     }
    },
    {
     "_is_shl_source": false,
     "a_per_gp": 0.0,
     "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Linus Cronholm",
+    "g_per_gp": 0.043,
+    "goals": 1,
+    "gp": 23,
+    "name": "Gustaf Kangas",
     "number": 0,
-    "p_per_gp": 0.0,
+    "p_per_gp": 0.043,
     "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "LD",
+    "plus_minus": "-3",
+    "points": 1,
+    "position": "CE",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.095,
+     "ppg_diff": -0.322
     }
    },
    {
@@ -1289,8 +1554,8 @@
     "points": 0,
     "position": "RD",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1308,8 +1573,8 @@
     "points": 0,
     "position": "LD",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1327,8 +1592,8 @@
     "points": 0,
     "position": "CE",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1346,8 +1611,8 @@
     "points": 0,
     "position": "CE",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1365,8 +1630,8 @@
     "points": 0,
     "position": "LW",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1384,27 +1649,8 @@
     "points": 0,
     "position": "RW",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Gustav Possler",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "RW",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1422,8 +1668,8 @@
     "points": 0,
     "position": "CE",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1441,8 +1687,8 @@
     "points": 0,
     "position": "RW",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1460,84 +1706,8 @@
     "points": 0,
     "position": "LW",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Lenni Killinen",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "LW",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Gustaf Kangas",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "CE",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Joel Mustonen",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "CE",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Jacob Olofsson",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "CE",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1555,8 +1725,8 @@
     "points": 0,
     "position": "CE",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1574,27 +1744,8 @@
     "points": 0,
     "position": "CE",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Olli Vainio",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "RD",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1612,27 +1763,8 @@
     "points": 0,
     "position": "RD",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
-    }
-   },
-   {
-    "_is_shl_source": false,
-    "a_per_gp": 0.0,
-    "assists": 0,
-    "g_per_gp": 0.0,
-    "goals": 0,
-    "gp": 52,
-    "name": "Mathew Maione",
-    "number": 0,
-    "p_per_gp": 0.0,
-    "pim_per_gp": 0.0,
-    "plus_minus": "0",
-    "points": 0,
-    "position": "LD",
-    "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1650,8 +1782,8 @@
     "points": 0,
     "position": "RD",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    },
    {
@@ -1669,8 +1801,8 @@
     "points": 0,
     "position": "LD",
     "vs_league": {
-     "gpg_diff": -0.354,
-     "ppg_diff": -0.879
+     "gpg_diff": -0.138,
+     "ppg_diff": -0.365
     }
    }
   ],
@@ -1691,11 +1823,11 @@
     },
     {
      "date": "2023-10-01",
-     "elo": 1510
+     "elo": 1511
     },
     {
      "date": "2023-10-04",
-     "elo": 1518
+     "elo": 1519
     },
     {
      "date": "2023-10-06",
@@ -1703,23 +1835,23 @@
     },
     {
      "date": "2023-10-11",
-     "elo": 1517
+     "elo": 1518
     },
     {
      "date": "2023-10-13",
-     "elo": 1508
+     "elo": 1515
     },
     {
      "date": "2023-10-18",
-     "elo": 1519
+     "elo": 1526
     },
     {
      "date": "2023-10-20",
-     "elo": 1528
+     "elo": 1535
     },
     {
      "date": "2023-10-25",
-     "elo": 1538
+     "elo": 1537
     },
     {
      "date": "2023-10-27",
@@ -1727,11 +1859,11 @@
     },
     {
      "date": "2023-11-01",
-     "elo": 1557
+     "elo": 1556
     },
     {
      "date": "2023-11-03",
-     "elo": 1545
+     "elo": 1543
     },
     {
      "date": "2023-11-05",
@@ -1739,155 +1871,155 @@
     },
     {
      "date": "2023-11-07",
-     "elo": 1561
+     "elo": 1554
     },
     {
      "date": "2023-11-15",
-     "elo": 1549
-    },
-    {
-     "date": "2023-11-17",
-     "elo": 1557
-    },
-    {
-     "date": "2023-11-18",
-     "elo": 1567
-    },
-    {
-     "date": "2023-11-22",
-     "elo": 1556
-    },
-    {
-     "date": "2023-11-24",
-     "elo": 1564
-    },
-    {
-     "date": "2023-11-29",
-     "elo": 1551
-    },
-    {
-     "date": "2023-12-01",
-     "elo": 1540
-    },
-    {
-     "date": "2023-12-06",
-     "elo": 1529
-    },
-    {
-     "date": "2023-12-08",
-     "elo": 1537
-    },
-    {
-     "date": "2023-12-13",
-     "elo": 1524
-    },
-    {
-     "date": "2023-12-15",
-     "elo": 1536
-    },
-    {
-     "date": "2023-12-18",
-     "elo": 1523
-    },
-    {
-     "date": "2023-12-27",
-     "elo": 1531
-    },
-    {
-     "date": "2023-12-29",
-     "elo": 1521
-    },
-    {
-     "date": "2024-01-05",
-     "elo": 1509
-    },
-    {
-     "date": "2024-01-06",
-     "elo": 1522
-    },
-    {
-     "date": "2024-01-12",
-     "elo": 1533
-    },
-    {
-     "date": "2024-01-15",
-     "elo": 1521
-    },
-    {
-     "date": "2024-01-17",
-     "elo": 1512
-    },
-    {
-     "date": "2024-01-19",
-     "elo": 1522
-    },
-    {
-     "date": "2024-01-24",
-     "elo": 1531
-    },
-    {
-     "date": "2024-01-26",
-     "elo": 1520
-    },
-    {
-     "date": "2024-01-28",
-     "elo": 1530
-    },
-    {
-     "date": "2024-01-31",
      "elo": 1542
     },
     {
-     "date": "2024-02-02",
-     "elo": 1527
+     "date": "2023-11-17",
+     "elo": 1542
     },
     {
-     "date": "2024-02-05",
-     "elo": 1517
+     "date": "2023-11-18",
+     "elo": 1546
     },
     {
-     "date": "2024-02-07",
-     "elo": 1528
+     "date": "2023-11-22",
+     "elo": 1535
     },
     {
-     "date": "2024-02-09",
-     "elo": 1536
+     "date": "2023-11-24",
+     "elo": 1544
     },
     {
-     "date": "2024-02-14",
-     "elo": 1524
+     "date": "2023-11-29",
+     "elo": 1531
     },
     {
-     "date": "2024-02-16",
-     "elo": 1510
-    },
-    {
-     "date": "2024-02-23",
-     "elo": 1519
-    },
-    {
-     "date": "2024-02-26",
-     "elo": 1526
-    },
-    {
-     "date": "2024-02-28",
-     "elo": 1518
-    },
-    {
-     "date": "2024-03-01",
-     "elo": 1509
-    },
-    {
-     "date": "2024-03-06",
+     "date": "2023-12-01",
      "elo": 1520
     },
     {
+     "date": "2023-12-06",
+     "elo": 1518
+    },
+    {
+     "date": "2023-12-08",
+     "elo": 1519
+    },
+    {
+     "date": "2023-12-13",
+     "elo": 1507
+    },
+    {
+     "date": "2023-12-15",
+     "elo": 1519
+    },
+    {
+     "date": "2023-12-18",
+     "elo": 1506
+    },
+    {
+     "date": "2023-12-27",
+     "elo": 1515
+    },
+    {
+     "date": "2023-12-29",
+     "elo": 1513
+    },
+    {
+     "date": "2024-01-05",
+     "elo": 1502
+    },
+    {
+     "date": "2024-01-06",
+     "elo": 1514
+    },
+    {
+     "date": "2024-01-12",
+     "elo": 1525
+    },
+    {
+     "date": "2024-01-15",
+     "elo": 1520
+    },
+    {
+     "date": "2024-01-17",
+     "elo": 1511
+    },
+    {
+     "date": "2024-01-19",
+     "elo": 1514
+    },
+    {
+     "date": "2024-01-24",
+     "elo": 1523
+    },
+    {
+     "date": "2024-01-26",
+     "elo": 1513
+    },
+    {
+     "date": "2024-01-28",
+     "elo": 1523
+    },
+    {
+     "date": "2024-01-31",
+     "elo": 1529
+    },
+    {
+     "date": "2024-02-02",
+     "elo": 1515
+    },
+    {
+     "date": "2024-02-05",
+     "elo": 1512
+    },
+    {
+     "date": "2024-02-07",
+     "elo": 1523
+    },
+    {
+     "date": "2024-02-09",
+     "elo": 1523
+    },
+    {
+     "date": "2024-02-14",
+     "elo": 1519
+    },
+    {
+     "date": "2024-02-16",
+     "elo": 1506
+    },
+    {
+     "date": "2024-02-23",
+     "elo": 1515
+    },
+    {
+     "date": "2024-02-26",
+     "elo": 1522
+    },
+    {
+     "date": "2024-02-28",
+     "elo": 1514
+    },
+    {
+     "date": "2024-03-01",
+     "elo": 1506
+    },
+    {
+     "date": "2024-03-06",
+     "elo": 1516
+    },
+    {
      "date": "2024-03-08",
-     "elo": 1510
+     "elo": 1506
     },
     {
      "date": "Idag",
-     "elo": 1516
+     "elo": 1513
     }
    ],
    "first_goal_impact": {
@@ -1914,19 +2046,19 @@
     },
     {
      "current_points": 95,
-     "current_rank": 3,
-     "is_bjk": false,
-     "projected_points": 95,
-     "projected_rank": 2,
-     "team": "AIK"
-    },
-    {
-     "current_points": 95,
      "current_rank": 2,
      "is_bjk": false,
      "projected_points": 95,
-     "projected_rank": 3,
+     "projected_rank": 2,
      "team": "Södertälje SK"
+    },
+    {
+     "current_points": 95,
+     "current_rank": 3,
+     "is_bjk": false,
+     "projected_points": 95,
+     "projected_rank": 3,
+     "team": "AIK"
     },
     {
      "current_points": 93,
@@ -2019,116 +2151,116 @@
    ],
    "pythagorean": [
     {
-     "diff": 112,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 112,
-     "team": "Brynäs IF"
-    },
-    {
-     "diff": 95,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 95,
-     "team": "AIK"
-    },
-    {
-     "diff": 95,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 95,
-     "team": "Södertälje SK"
-    },
-    {
-     "diff": 93,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 93,
-     "team": "Djurgårdens IF"
-    },
-    {
-     "diff": 91,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 91,
-     "team": "Mora IK"
-    },
-    {
-     "diff": 85,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": true,
-     "pts": 85,
-     "team": "IF Björklöven"
-    },
-    {
-     "diff": 80,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 80,
-     "team": "BIK Karlskoga"
-    },
-    {
-     "diff": 77,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 77,
-     "team": "Nybro Vikings IF"
-    },
-    {
-     "diff": 76,
-     "exp_pts": 0,
+     "diff": 12.7,
+     "exp_pts": 63.3,
      "gp": 52,
      "is_bjk": false,
      "pts": 76,
      "team": "Almtuna IS"
     },
     {
-     "diff": 74,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 74,
-     "team": "Kalmar HC"
-    },
-    {
-     "diff": 64,
-     "exp_pts": 0,
-     "gp": 52,
-     "is_bjk": false,
-     "pts": 64,
-     "team": "Västerås IK"
-    },
-    {
-     "diff": 62,
-     "exp_pts": 0,
+     "diff": 5.2,
+     "exp_pts": 56.8,
      "gp": 52,
      "is_bjk": false,
      "pts": 62,
      "team": "Tingsryds AIF"
     },
     {
-     "diff": 50,
-     "exp_pts": 0,
+     "diff": 4.7,
+     "exp_pts": 69.3,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 74,
+     "team": "Kalmar HC"
+    },
+    {
+     "diff": 2.9,
+     "exp_pts": 90.1,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 93,
+     "team": "Djurgårdens IF"
+    },
+    {
+     "diff": 1.1,
+     "exp_pts": 110.9,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 112,
+     "team": "Brynäs IF"
+    },
+    {
+     "diff": 0.5,
+     "exp_pts": 94.5,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 95,
+     "team": "AIK"
+    },
+    {
+     "diff": 0.5,
+     "exp_pts": 76.5,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 77,
+     "team": "Nybro Vikings IF"
+    },
+    {
+     "diff": -0.0,
+     "exp_pts": 38.0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 38,
+     "team": "Västerviks IK"
+    },
+    {
+     "diff": -1.5,
+     "exp_pts": 92.5,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 91,
+     "team": "Mora IK"
+    },
+    {
+     "diff": -2.1,
+     "exp_pts": 82.1,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 80,
+     "team": "BIK Karlskoga"
+    },
+    {
+     "diff": -3.2,
+     "exp_pts": 67.2,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 64,
+     "team": "Västerås IK"
+    },
+    {
+     "diff": -4.0,
+     "exp_pts": 99.0,
+     "gp": 52,
+     "is_bjk": false,
+     "pts": 95,
+     "team": "Södertälje SK"
+    },
+    {
+     "diff": -6.6,
+     "exp_pts": 56.6,
      "gp": 52,
      "is_bjk": false,
      "pts": 50,
      "team": "Östersunds IK"
     },
     {
-     "diff": 38,
-     "exp_pts": 0,
+     "diff": -8.5,
+     "exp_pts": 93.5,
      "gp": 52,
-     "is_bjk": false,
-     "pts": 38,
-     "team": "Västerviks IK"
+     "is_bjk": true,
+     "pts": 85,
+     "team": "IF Björklöven"
     }
    ],
    "scoring_timeline": [
@@ -2396,8 +2528,8 @@
   "shl_transition": {
    "benchmarks": {
     "goalie_sv": {
-     "current": 86.76,
-     "diff": -3.2,
+     "current": 92.86,
+     "diff": 2.9,
      "target": 90.0
     },
     "pk_pct": {
@@ -2441,11 +2573,39 @@
      "readiness": "AMBER"
     },
     {
+     "ha_ppg": 0.59,
+     "name": "Gustav Possler",
+     "position": "RW",
+     "proj_ppg": 0.35,
+     "readiness": "AMBER"
+    },
+    {
+     "ha_ppg": 0.57,
+     "name": "Lenni Killinen",
+     "position": "LW",
+     "proj_ppg": 0.34,
+     "readiness": "AMBER"
+    },
+    {
      "ha_ppg": 0.5,
      "name": "Lucas Ekeståhl-Jonsson (SHL/Exempt)",
      "position": "LD",
      "proj_ppg": 0.5,
      "readiness": "GREEN"
+    },
+    {
+     "ha_ppg": 0.48,
+     "name": "Joel Mustonen",
+     "position": "CE",
+     "proj_ppg": 0.29,
+     "readiness": "AMBER"
+    },
+    {
+     "ha_ppg": 0.39,
+     "name": "Daniel Brodin",
+     "position": "RW",
+     "proj_ppg": 0.23,
+     "readiness": "RED"
     },
     {
      "ha_ppg": 0.35,
@@ -2455,17 +2615,24 @@
      "readiness": "GREEN"
     },
     {
-     "ha_ppg": 0.04,
-     "name": "Daniel Brodin (SHL/Exempt)",
-     "position": "RW",
-     "proj_ppg": 0.04,
+     "ha_ppg": 0.31,
+     "name": "Jacob Olofsson",
+     "position": "CE",
+     "proj_ppg": 0.18,
      "readiness": "RED"
     },
     {
-     "ha_ppg": 0.0,
+     "ha_ppg": 0.29,
      "name": "Linus Cronholm",
      "position": "LD",
-     "proj_ppg": 0.0,
+     "proj_ppg": 0.17,
+     "readiness": "RED"
+    },
+    {
+     "ha_ppg": 0.04,
+     "name": "Gustaf Kangas",
+     "position": "CE",
+     "proj_ppg": 0.03,
      "readiness": "RED"
     },
     {
@@ -2512,13 +2679,6 @@
     },
     {
      "ha_ppg": 0.0,
-     "name": "Gustav Possler",
-     "position": "RW",
-     "proj_ppg": 0.0,
-     "readiness": "RED"
-    },
-    {
-     "ha_ppg": 0.0,
      "name": "Albin Lundin",
      "position": "CE",
      "proj_ppg": 0.0,
@@ -2535,34 +2695,6 @@
      "ha_ppg": 0.0,
      "name": "Oscar Tellström",
      "position": "LW",
-     "proj_ppg": 0.0,
-     "readiness": "RED"
-    },
-    {
-     "ha_ppg": 0.0,
-     "name": "Lenni Killinen",
-     "position": "LW",
-     "proj_ppg": 0.0,
-     "readiness": "RED"
-    },
-    {
-     "ha_ppg": 0.0,
-     "name": "Gustaf Kangas",
-     "position": "CE",
-     "proj_ppg": 0.0,
-     "readiness": "RED"
-    },
-    {
-     "ha_ppg": 0.0,
-     "name": "Joel Mustonen",
-     "position": "CE",
-     "proj_ppg": 0.0,
-     "readiness": "RED"
-    },
-    {
-     "ha_ppg": 0.0,
-     "name": "Jacob Olofsson",
-     "position": "CE",
      "proj_ppg": 0.0,
      "readiness": "RED"
     },
@@ -3562,8 +3694,8 @@
    "shl_readiness": {
     "benchmarks": {
      "goalie_sv": {
-      "current": 86.76,
-      "diff": -3.2,
+      "current": 92.86,
+      "diff": 2.9,
       "target": 90.0
      },
      "pk_pct": {
@@ -3607,11 +3739,39 @@
       "readiness": "AMBER"
      },
      {
+      "ha_ppg": 0.59,
+      "name": "Gustav Possler",
+      "position": "RW",
+      "proj_ppg": 0.35,
+      "readiness": "AMBER"
+     },
+     {
+      "ha_ppg": 0.57,
+      "name": "Lenni Killinen",
+      "position": "LW",
+      "proj_ppg": 0.34,
+      "readiness": "AMBER"
+     },
+     {
       "ha_ppg": 0.5,
       "name": "Lucas Ekeståhl-Jonsson (SHL/Exempt)",
       "position": "LD",
       "proj_ppg": 0.5,
       "readiness": "GREEN"
+     },
+     {
+      "ha_ppg": 0.48,
+      "name": "Joel Mustonen",
+      "position": "CE",
+      "proj_ppg": 0.29,
+      "readiness": "AMBER"
+     },
+     {
+      "ha_ppg": 0.39,
+      "name": "Daniel Brodin",
+      "position": "RW",
+      "proj_ppg": 0.23,
+      "readiness": "RED"
      },
      {
       "ha_ppg": 0.35,
@@ -3621,17 +3781,24 @@
       "readiness": "GREEN"
      },
      {
-      "ha_ppg": 0.04,
-      "name": "Daniel Brodin (SHL/Exempt)",
-      "position": "RW",
-      "proj_ppg": 0.04,
+      "ha_ppg": 0.31,
+      "name": "Jacob Olofsson",
+      "position": "CE",
+      "proj_ppg": 0.18,
       "readiness": "RED"
      },
      {
-      "ha_ppg": 0.0,
+      "ha_ppg": 0.29,
       "name": "Linus Cronholm",
       "position": "LD",
-      "proj_ppg": 0.0,
+      "proj_ppg": 0.17,
+      "readiness": "RED"
+     },
+     {
+      "ha_ppg": 0.04,
+      "name": "Gustaf Kangas",
+      "position": "CE",
+      "proj_ppg": 0.03,
       "readiness": "RED"
      },
      {
@@ -3678,13 +3845,6 @@
      },
      {
       "ha_ppg": 0.0,
-      "name": "Gustav Possler",
-      "position": "RW",
-      "proj_ppg": 0.0,
-      "readiness": "RED"
-     },
-     {
-      "ha_ppg": 0.0,
       "name": "Albin Lundin",
       "position": "CE",
       "proj_ppg": 0.0,
@@ -3701,34 +3861,6 @@
       "ha_ppg": 0.0,
       "name": "Oscar Tellström",
       "position": "LW",
-      "proj_ppg": 0.0,
-      "readiness": "RED"
-     },
-     {
-      "ha_ppg": 0.0,
-      "name": "Lenni Killinen",
-      "position": "LW",
-      "proj_ppg": 0.0,
-      "readiness": "RED"
-     },
-     {
-      "ha_ppg": 0.0,
-      "name": "Gustaf Kangas",
-      "position": "CE",
-      "proj_ppg": 0.0,
-      "readiness": "RED"
-     },
-     {
-      "ha_ppg": 0.0,
-      "name": "Joel Mustonen",
-      "position": "CE",
-      "proj_ppg": 0.0,
-      "readiness": "RED"
-     },
-     {
-      "ha_ppg": 0.0,
-      "name": "Jacob Olofsson",
-      "position": "CE",
       "proj_ppg": 0.0,
       "readiness": "RED"
      },
@@ -3765,21 +3897,21 @@
     "ga": 73,
     "gf": 90,
     "gp": 26,
-    "l": 11,
-    "otl": 0,
-    "otw": 0,
+    "l": 6,
+    "otl": 5,
+    "otw": 5,
     "pts": 45,
-    "w": 15
+    "w": 10
    },
    "home": {
     "ga": 66,
     "gf": 80,
     "gp": 26,
-    "l": 12,
-    "otl": 0,
-    "otw": 0,
-    "pts": 42,
-    "w": 14
+    "l": 11,
+    "otl": 1,
+    "otw": 3,
+    "pts": 40,
+    "w": 11
    }
   },
   "streaks": {
@@ -4058,20 +4190,20 @@
     "score": "2-5"
    },
    {
-    "beyond": false,
-    "cumPts": 12,
+    "beyond": true,
+    "cumPts": 13,
     "date": "2023-10-11",
     "ga": 4,
     "gf": 3,
     "isHome": false,
     "opponent": "Tingsryds AIF",
-    "pts": 0,
-    "result": "L",
+    "pts": 1,
+    "result": "OTL",
     "score": "3-4"
    },
    {
     "beyond": false,
-    "cumPts": 15,
+    "cumPts": 16,
     "date": "2023-10-13",
     "ga": 3,
     "gf": 9,
@@ -4083,7 +4215,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 18,
+    "cumPts": 19,
     "date": "2023-10-18",
     "ga": 0,
     "gf": 5,
@@ -4094,14 +4226,14 @@
     "score": "5-0"
    },
    {
-    "beyond": false,
+    "beyond": true,
     "cumPts": 21,
     "date": "2023-10-20",
     "ga": 2,
     "gf": 3,
     "isHome": false,
     "opponent": "BIK Karlskoga",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "3-2"
    },
@@ -4154,20 +4286,20 @@
     "score": "5-3"
    },
    {
-    "beyond": false,
-    "cumPts": 33,
+    "beyond": true,
+    "cumPts": 32,
     "date": "2023-11-05",
     "ga": 3,
     "gf": 4,
     "isHome": false,
     "opponent": "Nybro Vikings IF",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "4-3"
    },
    {
     "beyond": false,
-    "cumPts": 33,
+    "cumPts": 32,
     "date": "2023-11-07",
     "ga": 5,
     "gf": 0,
@@ -4178,32 +4310,32 @@
     "score": "0-5"
    },
    {
-    "beyond": false,
-    "cumPts": 36,
+    "beyond": true,
+    "cumPts": 34,
     "date": "2023-11-15",
     "ga": 1,
     "gf": 2,
     "isHome": true,
     "opponent": "Djurgårdens IF",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "2-1"
    },
    {
-    "beyond": false,
-    "cumPts": 39,
+    "beyond": true,
+    "cumPts": 36,
     "date": "2023-11-17",
     "ga": 1,
     "gf": 2,
     "isHome": false,
     "opponent": "Mora IK",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "2-1"
    },
    {
     "beyond": false,
-    "cumPts": 39,
+    "cumPts": 36,
     "date": "2023-11-18",
     "ga": 5,
     "gf": 4,
@@ -4215,7 +4347,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 42,
+    "cumPts": 39,
     "date": "2023-11-22",
     "ga": 0,
     "gf": 4,
@@ -4227,7 +4359,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 42,
+    "cumPts": 39,
     "date": "2023-11-24",
     "ga": 4,
     "gf": 1,
@@ -4239,7 +4371,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 42,
+    "cumPts": 39,
     "date": "2023-11-29",
     "ga": 5,
     "gf": 4,
@@ -4250,32 +4382,32 @@
     "score": "4-5"
    },
    {
-    "beyond": false,
-    "cumPts": 42,
+    "beyond": true,
+    "cumPts": 40,
     "date": "2023-12-01",
     "ga": 6,
     "gf": 5,
     "isHome": false,
     "opponent": "Almtuna IS",
-    "pts": 0,
-    "result": "L",
+    "pts": 1,
+    "result": "OTL",
     "score": "5-6"
    },
    {
-    "beyond": false,
-    "cumPts": 45,
+    "beyond": true,
+    "cumPts": 42,
     "date": "2023-12-06",
     "ga": 3,
     "gf": 4,
     "isHome": true,
     "opponent": "Kalmar HC",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "4-3"
    },
    {
     "beyond": false,
-    "cumPts": 45,
+    "cumPts": 42,
     "date": "2023-12-08",
     "ga": 3,
     "gf": 2,
@@ -4287,7 +4419,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 48,
+    "cumPts": 45,
     "date": "2023-12-13",
     "ga": 2,
     "gf": 3,
@@ -4299,7 +4431,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 48,
+    "cumPts": 45,
     "date": "2023-12-15",
     "ga": 2,
     "gf": 1,
@@ -4311,7 +4443,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 51,
+    "cumPts": 48,
     "date": "2023-12-18",
     "ga": 3,
     "gf": 7,
@@ -4322,20 +4454,20 @@
     "score": "7-3"
    },
    {
-    "beyond": false,
-    "cumPts": 51,
+    "beyond": true,
+    "cumPts": 49,
     "date": "2023-12-27",
     "ga": 3,
     "gf": 2,
     "isHome": false,
     "opponent": "Mora IK",
-    "pts": 0,
-    "result": "L",
+    "pts": 1,
+    "result": "OTL",
     "score": "2-3"
    },
    {
     "beyond": false,
-    "cumPts": 51,
+    "cumPts": 49,
     "date": "2023-12-29",
     "ga": 3,
     "gf": 2,
@@ -4347,7 +4479,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 54,
+    "cumPts": 52,
     "date": "2024-01-05",
     "ga": 0,
     "gf": 3,
@@ -4359,7 +4491,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 57,
+    "cumPts": 55,
     "date": "2024-01-06",
     "ga": 1,
     "gf": 3,
@@ -4370,20 +4502,20 @@
     "score": "3-1"
    },
    {
-    "beyond": false,
-    "cumPts": 57,
+    "beyond": true,
+    "cumPts": 56,
     "date": "2024-01-12",
     "ga": 2,
     "gf": 1,
     "isHome": true,
     "opponent": "BIK Karlskoga",
-    "pts": 0,
-    "result": "L",
+    "pts": 1,
+    "result": "OTL",
     "score": "1-2"
    },
    {
     "beyond": false,
-    "cumPts": 57,
+    "cumPts": 56,
     "date": "2024-01-15",
     "ga": 4,
     "gf": 2,
@@ -4394,20 +4526,20 @@
     "score": "2-4"
    },
    {
-    "beyond": false,
-    "cumPts": 60,
+    "beyond": true,
+    "cumPts": 58,
     "date": "2024-01-17",
     "ga": 5,
     "gf": 6,
     "isHome": false,
     "opponent": "Kalmar HC",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "6-5"
    },
    {
     "beyond": false,
-    "cumPts": 63,
+    "cumPts": 61,
     "date": "2024-01-19",
     "ga": 2,
     "gf": 5,
@@ -4419,7 +4551,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 63,
+    "cumPts": 61,
     "date": "2024-01-24",
     "ga": 6,
     "gf": 4,
@@ -4431,7 +4563,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 66,
+    "cumPts": 64,
     "date": "2024-01-26",
     "ga": 0,
     "gf": 1,
@@ -4442,20 +4574,20 @@
     "score": "1-0"
    },
    {
-    "beyond": false,
-    "cumPts": 69,
+    "beyond": true,
+    "cumPts": 66,
     "date": "2024-01-28",
     "ga": 4,
     "gf": 5,
     "isHome": false,
     "opponent": "Brynäs IF",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "5-4"
    },
    {
     "beyond": false,
-    "cumPts": 69,
+    "cumPts": 66,
     "date": "2024-01-31",
     "ga": 4,
     "gf": 1,
@@ -4466,20 +4598,20 @@
     "score": "1-4"
    },
    {
-    "beyond": false,
-    "cumPts": 69,
+    "beyond": true,
+    "cumPts": 67,
     "date": "2024-02-02",
     "ga": 4,
     "gf": 3,
     "isHome": false,
     "opponent": "Almtuna IS",
-    "pts": 0,
-    "result": "L",
+    "pts": 1,
+    "result": "OTL",
     "score": "3-4"
    },
    {
     "beyond": false,
-    "cumPts": 72,
+    "cumPts": 70,
     "date": "2024-02-05",
     "ga": 1,
     "gf": 5,
@@ -4490,32 +4622,32 @@
     "score": "5-1"
    },
    {
-    "beyond": false,
-    "cumPts": 75,
+    "beyond": true,
+    "cumPts": 72,
     "date": "2024-02-07",
     "ga": 3,
     "gf": 4,
     "isHome": true,
     "opponent": "Almtuna IS",
-    "pts": 3,
+    "pts": 2,
     "result": "W",
     "score": "4-3"
    },
    {
-    "beyond": false,
-    "cumPts": 75,
+    "beyond": true,
+    "cumPts": 73,
     "date": "2024-02-09",
     "ga": 2,
     "gf": 1,
     "isHome": false,
     "opponent": "Östersunds IK",
-    "pts": 0,
-    "result": "L",
+    "pts": 1,
+    "result": "OTL",
     "score": "1-2"
    },
    {
     "beyond": false,
-    "cumPts": 75,
+    "cumPts": 73,
     "date": "2024-02-14",
     "ga": 4,
     "gf": 1,
@@ -4527,7 +4659,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 78,
+    "cumPts": 76,
     "date": "2024-02-16",
     "ga": 2,
     "gf": 4,
@@ -4539,7 +4671,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 81,
+    "cumPts": 79,
     "date": "2024-02-23",
     "ga": 4,
     "gf": 6,
@@ -4551,7 +4683,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 81,
+    "cumPts": 79,
     "date": "2024-02-26",
     "ga": 3,
     "gf": 0,
@@ -4563,7 +4695,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 81,
+    "cumPts": 79,
     "date": "2024-02-28",
     "ga": 2,
     "gf": 1,
@@ -4575,7 +4707,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 84,
+    "cumPts": 82,
     "date": "2024-03-01",
     "ga": 0,
     "gf": 5,
@@ -4587,7 +4719,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 84,
+    "cumPts": 82,
     "date": "2024-03-06",
     "ga": 4,
     "gf": 0,
@@ -4599,7 +4731,7 @@
    },
    {
     "beyond": false,
-    "cumPts": 87,
+    "cumPts": 85,
     "date": "2024-03-08",
     "ga": 1,
     "gf": 5,

@@ -494,6 +494,16 @@ for c in (d.get('reconciliation') or []):
     extra = '' if ok else f\"  {c.get('observed')} mot {c.get('expected')}  {c.get('note','')}\"
     print(f\"    {mark} {c['name']}{extra}\")
 " || true
+  # API:ts cache lever i sex timmar och tommas inte av en skordning. Efter en
+  # backfill serveras darfor gamla siffror tills den gar ut — shl_2526 visade
+  # tomt tur/otur-index i en kvart den 11 september av precis det skalet.
+  API_URL_CACHE=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)' 2>/dev/null || true)
+  if [[ -n "$API_URL_CACHE" ]]; then
+    printf '\n  Tvinga om cachen for de backfillade sasongerna:\n'
+    printf "    curl -s '%s/api/v1/analytics?season=<sasongsnyckel>&refresh=1' > /dev/null\n" "$API_URL_CACHE"
+    printf '  Sasongsnycklarna star i %s/api/v1/seasons. Utan det ligger\n' "$API_URL_CACHE"
+    printf '  gamla siffror kvar i upp till sex timmar.\n'
+  fi
   say "Klart"
   exit 0
 fi
