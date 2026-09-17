@@ -5978,6 +5978,31 @@ def get_x_feed(force_refresh: bool = Query(False)):
     )
 
 
+# Sidhuvudets "Uppdaterad HH:MM" lases av en besokare som "ar matchsiffrorna
+# inne?". Talet kom fran source_updated_at, som ar nyhetsskorden. Pa en
+# matchkvall kan nyheterna vara fyra minuter gamla medan Swehockey-skorden
+# failat, och market hade anda lyst gront. Det har ar tidsstampeln fran
+# hockeydatat: senaste gangen serietabellen skrevs om for aktiv sasong.
+@cached(cache=TTLCache(maxsize=1, ttl=120), lock=threading.Lock())
+def _hockeydata_uppdaterad():
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        aktiv = lookup_season(None)
+        for r in bq.query(
+            f"""
+            SELECT MAX(scraped_at) AS senast
+            FROM `{bq.project}.core.standings`
+            WHERE season_group_id = {int(aktiv["regular"])}
+            """
+        ).result():
+            t = r.get("senast")
+            return t.isoformat() if t else None
+    except Exception:
+        # Far aldrig falla sidhuvudet: det ligger pa varje sida.
+        logging.exception("Kunde inte lasa hockeydatats tidsstampel")
+    return None
+
+
 @app.get("/api/v1/lovenlaget")
 def get_lovenlaget_snapshot():
     """
@@ -6060,6 +6085,7 @@ def get_lovenlaget_snapshot():
                     "schema_version": row.get("schema_version") or "v1",
                     "generated_at": datetime.utcnow().isoformat() + "Z",
                     "source_updated_at": row.get("source_updated_at").isoformat() if row.get("source_updated_at") else None,
+                    "stats_updated_at": _hockeydata_uppdaterad(),
                     "freshness_status": row.get("freshness_status") or "unknown",
                     "new_signals": int(row.get("new_signals") or 0),
                     "scraped_articles": int(row.get("scraped_articles") or 0),
@@ -6128,6 +6154,7 @@ def get_lovenlaget_snapshot():
             "schema_version": "v1",
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "source_updated_at": source_updated_at,
+            "stats_updated_at": _hockeydata_uppdaterad(),
             "freshness_status": freshness_status,
             "new_signals": meta.get("newArticles", 0),
             "scraped_articles": meta.get("scrapedArticles", 0),
