@@ -1043,6 +1043,73 @@ GCS ar ratt plats: en blob som skrivs over, samma monster som
 - En glomd flik slutar polla.
 - Sidan fungerar oforandrat nar live-bloben saknas eller ar gammal.
 
+#### Matt pa premiaren 19 september 2026 — las det har forst
+
+Planen ovan skrevs innan nagon match spelats. Tre matningar under premiaren
+andrar den, och de tas har for att de motsager delar av det som star ovan.
+
+**1. Niva 2 gar inte att bygga. Stryk den.**
+
+Den oppna fragan var nar matchlanken dyker upp i schemat. Svaret: **inte under
+matchen.** Matt 19 september klockan 19:44, med var match i andra perioden:
+
+| match | status | lank i schemat |
+|---|---|---|
+| Frolunda-Vaxjo 15:15 | slut | ja |
+| HV71-Malmo 15:15 | slut | ja |
+| Linkoping-Timra 15:15 | slut | ja |
+| **Djurgarden-Bjorkloven 18:00** | **pagar** | **nej** |
+
+Lanken satts nar matchen ar over. Handelser, malskyttar och spelare pa isen
+gar alltsa inte att visa under match, oavsett hur ofta vi pollar. Det som
+skulle ha varit niva 2 ar bara den vanliga skorden, som redan finns.
+
+**2. Det finns en liveyta vi inte kande till, och den ar battre.**
+
+`/ScheduleAndResults/Live/{season_group_id}` — inte schemasidan. Den bar mer
+och kostar mindre:
+
+```
+Last update: 2026-09-19 19:51:42
+Djurgardens IF  0 - 2  (0-1, 0-1, 0-0)  IF Bjorkloven   Powerplay (5 on 4) for IFB
+```
+
+Stallning, periodresultat, en egen tidsstampel, och **matchlaget i klartext**.
+Statusfaltet gav "2nd period ended" i ett prov och "Powerplay (5 on 4) for
+IFB" i nasta. Powerplay live stod inte i planen ovan och ar battre an det som
+stod dar.
+
+Sidan ar 127 kB mot schemasidans 355 kB. Niva 1 ska lasa den har, inte
+schemat.
+
+**3. Ingen ETag. Budgeten ovan haller inte.**
+
+Planen bygger pa villkorade anrop med `If-None-Match`. Liveytan skickar **ingen
+ETag**, sa varje poll kostar hela 127 kB. Med en poll i minuten under fyra
+timmar blir det ~30 MB per match, eller drygt 1,5 GB over en sasong. Det ar
+hanterbart, men det ska sta i budgeten i stallet for att antas bort.
+
+Sank kadensen till var 30:e sekund bara om det visar sig behovas: Swehockeys
+egen tidsstampel rorde sig 81 sekunder mellan tva prov, sa oftare an sa ger
+ingenting.
+
+**4. Kadensen ar matt, inte gissad.**
+
+`Last update` gick 19:50:21 -> 19:51:42 mellan tva prov. Innehallet andrades i
+samma steg: periodresultatet fick en tredje period och statusen bytte till
+powerplay. Swehockey uppdaterar alltsa i storleksordningen en gang per minut.
+
+#### Omarbetad plan, kort
+
+Kvar: en funktion som laser liveytan, plockar var match, skriver en GCS-blob,
+och en endpoint som serverar den med kort TTL. Allt om fonster, egen cache,
+pausande flik och att aldrig skriva i `raw_sports` star kvar och galler.
+
+Bort: niva 2. Handelser under match ar inte mojliga med Swehockey som kalla.
+
+Till: statusfaltet ar vart att visa ratt av — "Powerplay (5 on 4)" sager mer
+for en supporter an stallningen ensam.
+
 ### 28. Push-notiser
 
 Typ: Feature / Frontend + Backend
