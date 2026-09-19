@@ -1762,6 +1762,78 @@ forsta SHL-sasong pa decennier. Skillnaden avgors av inramning: "sa har ser det
 ut om forra sasongen upprepas" ar nagot helt annat an "sa har kommer det ga".
 Skriv det forsta. Modellen ar den enkla halvan.
 
+### 35. Skorden ska folja matcherna, inte klockan
+
+Typ: Data Engineering
+Prioritet: Hog — markt av anvandaren under premiaren, och galler varje match
+Primart repo: loven-stats-backend
+Berorda omraden: `deploy.sh` (Cloud Scheduler), ny lattviktig funktion eller
+ett fonsterstyrt jobb, `/api/v1/next-match`
+
+#### Problemet, matt pa premiaren 19 september 2026
+
+Skorden gar `30 0,7,18,22` och omhamtningen `45 0,7,18,22`. Tiderna sattes i
+juni, nar ingen match spelades och fyra jamnt fordelade korningar var en
+rimlig gissning. Under sasongen ar det fel form.
+
+Premiaren slappte ner 18:00 och var slut runt 20:30. Klockan 20:35 fanns allt
+hos Swehockey: resultat, `game_id`, handelser, uppstallning och matchrapportens
+PDF. Skorden hade anda vantat till 22:30. **Tva timmar da datat lag fardigt och
+sajten visade en ospelad match.** Det ar precis de timmarna nagon oppnar sidan.
+
+Korningen tog 73 sekunder nar den val gick, och alla fem avstamningar gick
+igenom. Det ar inte kostnaden som ar problemet — det ar tidpunkten.
+
+#### Rattelse till feature 27
+
+Feature 27 pastar att Swehockey publicerar matchrapporten 137-195 minuter
+efter nedslapp. Det stamde inte pa premiaren: PDF:en pa 2,7 MB lag uppe nar
+matchen varit slut i under en halvtimme. Mat om innan nagot byggs pa den
+siffran.
+
+#### Vad som behovs
+
+Vi vet nar vi spelar. Spelschemat ligger i `core.schedule` med datum och tid,
+och `/api/v1/next-match` returnerar redan nasta match. Det som saknas ar att
+schemalaggningen anvander det.
+
+Tre vagar, i stigande komplexitet:
+
+**A. Tata korningar i ett fonster.** Behall dagens fyra, och lagg till ett
+jobb som gar var tjugonde minut mellan `match_time + 2h` och `match_time + 4h`.
+Enklast, och racker: matchen ar alltid klar nagonstans i det fonstret.
+
+**B. Ett jobb som schemalagger sig sjalvt.** Efter varje korning berakna nasta
+matchslut och satta nasta korning. Exakt, men en trasig berakning gor att
+skorden slutar ga — och det marks inte forran nagon undrar var siffrorna ar.
+
+**C. Samma fonstermekanik som feature 27.** Live-funktionen behover redan veta
+om en match pagar. Nar den finns vet systemet nar matchen tar slut, och skorden
+kan haka pa den signalen. Rattast, men forutsatter 27.
+
+**Borja med A.** Den ar tre rader i `deploy.sh` och tar bort hela problemet.
+B och C ar optimeringar av nagot som da redan fungerar.
+
+#### Detaljer som maste sitta
+
+- **Fonstret maste beraknas ur schemat, inte hardkodas.** Matcherna gar 15:15,
+  18:00 och 19:00 under samma sasong.
+- **Omhamtningen ska folja med.** `loven-api-refresh` ligger kvart i efter
+  skorden; den kopplingen far inte brytas nar skorden flyttas.
+- **Ingen extra kostnad nar vi inte spelar.** Ett jobb som gar var tjugonde
+  minut dygnet runt ar 72 korningar om dygnet till ingen nytta. Funktionen ska
+  returnera direkt utanfor fonstret, precis som feature 27 beskriver.
+- **`_unchanged` gor tata korningar billiga.** Skorden skriver bara nar
+  innehallet andrats; en korning som inte hittar nagot nytt laddar noll rader.
+
+#### Acceptanskriterier
+
+- Matchsiffrorna ligger pa sajten inom en halvtimme efter slutsignal.
+- Inga fler korningar an i dag pa en dag utan match.
+- Omhamtningen av API-cachen sker fortfarande efter skorden, inte fore.
+- En match som spelas pa en tid vi inte forutsett fangas anda av dygnets
+  fasta korningar.
+
 ## Beslutsregler
 
 - Backendkontrakt vinner over PoC-kontrakt om de skiljer sig.
