@@ -782,7 +782,28 @@ def warmup(refresh: bool = False):
     """
     port = os.environ.get("PORT", "8080")
     ut: dict[str, Any] = {}
-    for vag, foljer_skorden in _VARMNINGSVAGAR:
+
+    # Cachenyckeln innehaller season-argumentet, sa /standings och
+    # /standings?season=shl_2627 ar TVA poster. Varmhallningen anropade bara
+    # den utan parameter medan frontenden alltid skickar en — sa efter varje
+    # skord serverades gamla siffror i upp till sex timmar aven om
+    # varmhallningen sagt ok. Matt 19 september: tabellen visade 12 av 14 lag
+    # i en kvart efter att datat lag i BigQuery.
+    #
+    # Aktiv sasong laggs darfor till pa de vagar som tar season.
+    aktiv = None
+    try:
+        aktiv = lookup_season(None).get("key")
+    except Exception:
+        logging.exception("Kunde inte sla upp aktiv sasong for varmhallningen")
+
+    vagar: list[tuple[str, bool]] = []
+    for vag, foljer in _VARMNINGSVAGAR:
+        vagar.append((vag, foljer))
+        if aktiv and foljer and "?" not in vag and vag != "/api/v1/seasons":
+            vagar.append((f"{vag}?season={aktiv}", foljer))
+
+    for vag, foljer_skorden in vagar:
         url = f"http://127.0.0.1:{port}{vag}"
         if refresh and foljer_skorden:
             url += ("&" if "?" in vag else "?") + "refresh=true"
