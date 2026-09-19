@@ -2944,7 +2944,7 @@ def get_lines(season: str = None, refresh: bool = False):
 
     Enheten kommer ur klubbens egen uppstallning pa matchsidan, inte gissad ur
     vilka som gor mal ihop. Malet knyts till den enhet flest av spelarna pa
-    isen tillhorde.
+    isen tillhorde, och vid lika till malskyttens.
 
     Swehockey skriver "1st Line" over en rad som rymmer hela femman: de tre
     forwardsen och backparet. Raden ar alltsa inte en kedja i ordets vanliga
@@ -2975,7 +2975,7 @@ def get_lines(season: str = None, refresh: bool = False):
             dict(r.items())
             for r in bq.query(
                 f"""
-                SELECT game_id, team_code, on_ice_for, on_ice_against, score_state
+                SELECT game_id, team_code, player_number, on_ice_for, on_ice_against, score_state
                 FROM `{bq.project}.core.game_events`
                 WHERE season_group_id IN ({season_ids}) AND event_type = 'goal'
                 """
@@ -3035,12 +3035,34 @@ def get_lines(season: str = None, refresh: bool = False):
             seen = [line_of.get((g["game_id"], n)) for n in on]
             seen = [x for x in seen if x]
             key = "for" if ours else "against"
+
+            # Malskyttens egen femma, nar malet ar vart.
+            skytt = g.get("player_number")
+            skyttens = line_of.get((g["game_id"], int(skytt))) if ours and skytt is not None else None
+
+            # Protokollet motsager sig sjalvt: Swehockey listar en malskytt
+            # som inte star bland spelarna pa isen. Premiaren mot Djurgarden
+            # ar ett fall — 0-2 skrivs pa Kovacs, och varken han eller
+            # assisterande Niemela finns i "Pos. Part.". Da ar listan ingen
+            # giltig uppgift om vilka som var ute, och det enda vi vet sakert
+            # ar vem som gjorde malet.
+            if skyttens and skytt not in on:
+                seen = [skyttens]
+
             if not seen:
                 # Tomt mal: malvakten utbytt mot en extra spelare, och de pa
                 # isen tillhor ingen kedja. Redovisas, inte tystas.
                 unattributed[key] += 1
                 continue
-            line = Counter(seen).most_common(1)[0][0]
+
+            # Flest spelare pa isen avgor. Vid lika vinner malskyttens femma:
+            # tva mot tva hande redan i match ett — Tellstroms 0-3 hade tva ur
+            # femma tva och tva ur hans egen — och avgjordes dessforinnan av
+            # vilken ordning numren rakade sta i, vilket ar ingen regel alls.
+            rakning = Counter(seen)
+            flest = max(rakning.values())
+            delade = sorted(n for n, c in rakning.items() if c == flest)
+            line = skyttens if skyttens in delade else delade[0]
             row = tally.setdefault(line, {"gf": 0, "ga": 0})
             row["gf" if ours else "ga"] += 1
 
@@ -3079,6 +3101,7 @@ def get_lines(season: str = None, refresh: bool = False):
             "season_key": active["key"],
             "lines": lines,
             "totals": {
+                "games": len({l["game_id"] for l in lineups}),
                 "goals_for": sum(v["gf"] for v in tally.values()),
                 "goals_against": sum(v["ga"] for v in tally.values()),
                 "without_line_for": unattributed["for"],
