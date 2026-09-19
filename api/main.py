@@ -5979,20 +5979,28 @@ def get_x_feed(force_refresh: bool = Query(False)):
 
 
 # Sidhuvudets "Uppdaterad HH:MM" lases av en besokare som "ar matchsiffrorna
-# inne?". Talet kom fran source_updated_at, som ar nyhetsskorden. Pa en
-# matchkvall kan nyheterna vara fyra minuter gamla medan Swehockey-skorden
-# failat, och market hade anda lyst gront. Det har ar tidsstampeln fran
-# hockeydatat: senaste gangen serietabellen skrevs om for aktiv sasong.
+# inne?". Talet kom fran source_updated_at, som ar nyhetsskorden och gar sin
+# egen takt: pa en matchkvall kan en rubrik ha hamtats nyss medan
+# Swehockey-skorden failat, och market hade anda lyst gront.
+#
+# Forsta forsoket las MAX(scraped_at) ur core.standings. Det var fel fraga.
+# Skordaren skriver bara nar innehallet FORANDRATS, sa for en sasong som inte
+# borjat stod talet stilla i nio dagar — och sidhuvudet visar bara HH:MM, utan
+# datum, sa en nio dagar gammal tidsstampel hade sett ut som en tid i dag.
+#
+# Ratt fraga ar nar vi senast TITTADE, inte nar nagot andrades. Korningsloggen
+# skriver en rad per korning oavsett utfall.
 @cached(cache=TTLCache(maxsize=1, ttl=120), lock=threading.Lock())
 def _hockeydata_uppdaterad():
     try:
         bq = bigquery.Client(project=BQ_PROJECT_ID or None)
-        aktiv = lookup_season(None)
         for r in bq.query(
             f"""
-            SELECT MAX(scraped_at) AS senast
-            FROM `{bq.project}.core.standings`
-            WHERE season_group_id = {int(aktiv["regular"])}
+            SELECT MAX(finished_at) AS senast
+            FROM `{bq.project}.raw_ops.ingestion_runs`
+            WHERE pipeline_name = 'swehockey_stats'
+              AND status IN ('SUCCESS', 'PARTIAL')
+              AND finished_at IS NOT NULL
             """
         ).result():
             t = r.get("senast")
