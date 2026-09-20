@@ -527,18 +527,29 @@ def _season_points(row, is_home) -> int | None:
 def _league_table(rows) -> list[tuple[str, int, int]]:
     """Tabellen raknad ur spelade matcher: (lag, poang, spelade).
 
-    Namnet sist i sorteringen, sa lika poang alltid ger samma ordning —
-    utan det gav samma anrop olika svar.
+    Skiljetalen ar seriens egna: poang, malskillnad, gjorda mal. Namnet sist,
+    sa lika i allt alltid ger samma ordning — utan det gav samma anrop olika
+    svar.
+
+    Tidigare skildes lika poang enbart pa lagnamn. Det gav ratt tabell nar
+    alla spelat olika mycket, men fel sa fort nagot stod jamnt: efter forsta
+    omgangen i SHL 26/27 hade sex lag tre poang, och matchrapporten skrev
+    Bjorklovens 3-0 till andra plats nar Swehockey hade dem tredje. Bokstaven
+    B kommer fore F, men malskillnaden gor inte det.
     """
-    pts, gp = Counter(), Counter()
+    pts, gp, gf, ga = Counter(), Counter(), Counter(), Counter()
     for row in rows:
+        h, a = _score(row.get("result"))
         for team, is_home in ((row.get("home_team"), True), (row.get("away_team"), False)):
             p = _season_points(row, is_home)
             if p is None:
                 continue
             pts[team] += p
             gp[team] += 1
-    return [(t, n, gp[t]) for t, n in sorted(pts.items(), key=lambda kv: (-kv[1], kv[0]))]
+            gf[team] += h if is_home else a
+            ga[team] += a if is_home else h
+    ordning = sorted(pts.items(), key=lambda kv: (-kv[1], -(gf[kv[0]] - ga[kv[0]]), -gf[kv[0]], kv[0]))
+    return [(t, n, gp[t]) for t, n in ordning]
 
 
 def _place_in(table, team) -> dict | None:
