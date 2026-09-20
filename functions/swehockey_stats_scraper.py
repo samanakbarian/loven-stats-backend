@@ -166,7 +166,17 @@ def _fetch_player_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str
             if len(headers) > 3 and headers[3] == "Pos":
                 for tr in rows[3:]:
                     r = [_clean(c.get_text(" ", strip=True)) for c in tr.select("th,td")]
-                    if len(r) < 12 or _is_header_row(r) or not _safe_int(r[0]):
+                    # Rk star bara pa den forsta i en grupp med lika poang.
+                    # Efter en omgang ar de flesta oskilda: 20 september stod
+                    # tretton av Bjorklovens tjugotvaa spelare med tom ruta,
+                    # och ett krav pa rank lamnade nio kvar. Kovacs, Tellstrom,
+                    # Nilsson och Robins fanns inte pa sajten alls.
+                    #
+                    # Efter en hel sasong har alla rank igen, sa felet syns
+                    # bara i borjan — och forsvinner innan nagon hinner leta.
+                    # Det ar spelaren och antalet matcher som avgor om raden
+                    # ar en rad, inte placeringen.
+                    if len(r) < 12 or _is_header_row(r) or not r[2] or not r[4].isdigit():
                         continue
                     out.append(
                         {
@@ -244,7 +254,8 @@ def _fetch_goalie_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str
                 for tr in rows[start_idx:]:
                     cols = tr.select("th,td")
                     r = [_clean(c.get_text(" ", strip=True)) for c in cols]
-                    if len(r) < 3 or _is_header_row(r) or not _safe_int(r[0]):
+                    # Samma tomma Rk-ruta som i utespelartabellen ovan.
+                    if len(r) < 3 or _is_header_row(r) or not r[2]:
                         continue
                     gpi = _safe_int(_col(cols, "GPI", 5))
                     if gpi == 0:
