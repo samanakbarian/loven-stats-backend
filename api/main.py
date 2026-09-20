@@ -744,12 +744,28 @@ def get_standings(season: str = None, refresh: bool = False):
 # nyhetsskorden respektive X, har egna kadenser och egna kvoter — att tvinga
 # dem fyra ganger om dygnet hade brant anrop utan att ge nyare data.
 # lovenlaget har ingen cache alls och laser darfor redan farskt.
+# Andra vardet sager om vagen bar skordade siffror. Sanna vagar tvingas om
+# efter varje skord; falska halls bara varma.
+#
+# Listan ska tacka allt som andras nar Swehockey rattar ett protokoll. Fem
+# vagar saknades och log av sig med sex timmars eftersladdning: Djurgardens
+# skott i premiaren skrevs upp fran 38 till 40 klockan 22:26 pa matchkvallen,
+# och dagen darpa kunde tabellen visa det nya talet medan spelarsidan och
+# femmorna satt kvar pa det gamla. Tva tal om samma match pa samma sajt.
+#
+# /match/{id} gar inte att varma — nyckeln ar en match av femtiotvaa — och far
+# leva med sin TTL.
 _VARMNINGSVAGAR = (
     ("/api/v1/statistics", True),
     ("/api/v1/analytics", True),
     ("/api/v1/next-match", True),
     ("/api/v1/standings", True),
     ("/api/v1/seasons", True),
+    ("/api/v1/players", True),
+    ("/api/v1/goalies", True),
+    ("/api/v1/lines", True),
+    ("/api/v1/shots", True),
+    ("/api/v1/onice", True),
     ("/api/v1/lovenlaget", False),
     ("/api/v1/feed?limit=200", False),
     ("/api/v1/x-feed", False),
