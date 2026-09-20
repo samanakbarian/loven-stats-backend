@@ -3625,9 +3625,20 @@ def get_match(game_id: int):
             regular = sched.get("season_group_id") or season_gid
             league = seriespel_per_sasong(bq, int(regular)) if regular else []
 
-            key = (str(sched.get("match_date") or ""), int(game_id))
-            before_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) < key]
-            through_rows = [r for r in league if (str(r.get("match_date") or ""), int(r["game_id"])) <= key]
+            # Snittet gar vid datumet, inte vid matchnumret. Tidigare bar
+            # game_id andra halvan av nyckeln, och da rymde tabellen bara de
+            # matcher samma dag som rakade ha ett lagre nummer an var egen.
+            # Premiaren blev forsta plats: Farjestads 7-0 och Skellefteas 7-2
+            # spelades samma kvall men hamnade utanfor, sa +3 var basta
+            # malskillnad i en tabell med halva omgangen i.
+            #
+            # Ett matchnummer sager inget om nar en tabell ar riktig. Ett
+            # datum gor det: "fore" ar tabellen innan dagens omgang, "efter"
+            # ar den nar dagen ar spelad. Bada ar hela dagar och darmed
+            # tabeller som faktiskt har statt nagonstans.
+            dag = str(sched.get("match_date") or "")[:10]
+            before_rows = [r for r in league if str(r.get("match_date") or "")[:10] < dag]
+            through_rows = [r for r in league if str(r.get("match_date") or "")[:10] <= dag]
 
             us = home if BJK_HOME.search(str(home or "")) else away
             them = away if us == home else home
