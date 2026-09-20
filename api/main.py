@@ -1483,10 +1483,19 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
             key=lambda p: (-int(p.get("points") or 0), -int(p.get("goals") or 0),
                            str(p.get("player_name") or "")),
         )[:25]
+        # Skott mot som skiljetal, fore namnet. Efter forsta omgangen i SHL
+        # 26/27 hade tre malvakter en spelad match och hundra procent, och
+        # listan avgjordes pa bokstav: Orebros Arntzen hamnade forst trots att
+        # laget forlorade med 0-7. Han holl faktiskt nollan — 21 skott pa
+        # 34:29 innan han byttes ut, och backupen slappte in alla sju — sa
+        # talet ar ratt. Men den som mott fyrtio skott har visat mer an den
+        # som mott tjugoen, och det ska listan saga.
         top_goalies = sorted(
             regular_goalies,
             key=lambda g: (-int(g.get("games_played") or 0),
-                           -float(g.get("save_pct") or 0), str(g.get("goalie_name") or "")),
+                           -float(g.get("save_pct") or 0),
+                           -int(g.get("shots_against") or 0),
+                           str(g.get("goalie_name") or "")),
         )[:15]
 
         # Team standing

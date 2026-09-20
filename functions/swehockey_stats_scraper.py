@@ -125,6 +125,21 @@ def _extract_table_rows(html: str) -> list[list[str]]:
     return rows
 
 
+def _mip_minuter(text: Any) -> str:
+    """'34:29' -> '34'. Spelad tid i hela minuter, som strang.
+
+    Faltet skrevs som en nolla och kastade bort det enda talet som forklarar
+    en malvaktsrad. Orebros Arntzen stod 34:29 mot Farjestad, slappte in noll
+    och byttes ut; backupen tog de sju sista. Utan tiden ser raden ut som en
+    hallen nolla i en match laget forlorade med 0-7.
+
+    Strangen behalls som kolumntyp — raden har alltid varit STRING, och en
+    siffra utan kolon later `CAST(... AS INT64)` nedstroms gora sitt jobb.
+    """
+    m = re.match(r"\s*(\d+):(\d{2})", str(text or ""))
+    return str(int(m.group(1))) if m else "0"
+
+
 def _is_header_row(row: list[str]) -> bool:
     if not row:
         return True
@@ -273,7 +288,7 @@ def _fetch_goalie_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str
                             "goals_against": _safe_int(_col(cols, "GA", 7)),
                             "save_pct": _safe_float(_col(cols, "SVS%", 10)),
                             "gaa": _safe_float(_col(cols, "GAA", 11)),
-                            "toi_minutes": 0,
+                            "toi_minutes": _mip_minuter(_col(cols, "MIP", 6)),
                             "shutouts": _safe_int(_col(cols, "SO", 12)),
                             "wins": _safe_int(_col(cols, "W", 13)),
                             "losses": _safe_int(_col(cols, "L", 14)),
