@@ -1898,6 +1898,32 @@ def _goalie_profile(bq, keeper: dict, active: dict, season_ids: str, wanted: str
     }
 
 
+# Malhandelserna ar identiska for varje spelare i en sasong, men lag i
+# get_player och kordes darfor om vid varje profil. Att klicka sig genom
+# truppen betydde tjugo likadana fragor mot BigQuery. Nu betalar den forsta
+# klicken, resten laser ur cachen.
+_mal_cache = TTLCache(maxsize=8, ttl=21600)
+
+
+@cached(cache=_mal_cache, key=lambda bq, season_ids: hashkey(season_ids), lock=threading.Lock())
+def _sasongens_mal(bq, season_ids: str) -> list[dict]:
+    """Sasongens malhandelser, aldst forst."""
+    return [
+        dict(r.items())
+        for r in bq.query(
+            f"""
+            SELECT e.game_id, e.time, e.period, e.team_code, e.score_state,
+                   e.player_name, e.assist1_name, e.assist2_name,
+                   e.is_power_play, e.is_short_handed, e.is_empty_net,
+                   e.home_goals, e.away_goals, e.event_index
+            FROM `{bq.project}.core.game_events` e
+            WHERE e.season_group_id IN ({season_ids}) AND e.event_type = 'goal'
+            ORDER BY e.game_id, e.event_index
+            """
+        ).result()
+    ]
+
+
 @app.get("/api/v1/player/{name}")
 @cached_ok(cache=player_cache)
 def get_player(name: str, season: str = None, refresh: bool = False):
@@ -2007,20 +2033,7 @@ def get_player(name: str, season: str = None, refresh: bool = False):
 
         # Situationer och kedjekompisar ur malhandelserna. Rapporten sager hur
         # manga poang, handelserna sager i vilket lage och med vem.
-        events = [
-            dict(r.items())
-            for r in bq.query(
-                f"""
-                SELECT e.game_id, e.time, e.period, e.team_code, e.score_state,
-                       e.player_name, e.assist1_name, e.assist2_name,
-                       e.is_power_play, e.is_short_handed, e.is_empty_net,
-                       e.home_goals, e.away_goals, e.event_index
-                FROM `{bq.project}.core.game_events` e
-                WHERE e.season_group_id IN ({season_ids}) AND e.event_type = 'goal'
-                ORDER BY e.game_id, e.event_index
-                """
-            ).result()
-        ]
+        events = _sasongens_mal(bq, season_ids)
 
         situations = {"power_play": 0, "even_strength": 0, "short_handed": 0,
                       "game_winning": 0, "first_goal_of_game": 0, "empty_net": 0}
