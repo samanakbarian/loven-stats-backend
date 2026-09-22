@@ -883,7 +883,14 @@ i `sql/marts.sql` och samma `deploy.sh views`, med samma idempotens och utan
 migrationen. Ratt anledning att ta dbt ar tester och harstamning over hela
 lagret, inte en enskild feature.
 
-### 26. Hela seriens matcher, inte bara vara
+### 26. Hela seriens matcher, inte bara vara — KLAR 2026-09-22
+
+Byggd som beskrivet nedan, med två avvikelser. Seriens matcher ligger i egna
+tabeller (`swehockey_league_game_*`) i stället för i våra, eftersom ett tiotal
+frågor läser våra utan lagfilter. De hämtas om i två dygn, inte noll, så att
+rättelserna på matchkvällen kommer med. Dessutom hämtas Swehockeys lagstatistik
+(`/Teams/Statistics/`), som visade sig vara facit — se docs/DATAPLATTFORM.md.
+Används av `/api/v1/league` och korten Serien och Skott och tur.
 
 Typ: Feature / Data Engineering
 Prioritet: Hog

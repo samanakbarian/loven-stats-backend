@@ -31,6 +31,10 @@ BUCKET="${GCS_BUCKET:-loven-stats-raw-data-prod}"
 TARGET="${1:-all}"
 BACKFILL_SEASONS="${BACKFILL_SEASONS:-18266,19979}"
 EVENTS_LIMIT="${EVENTS_LIMIT:-all}"
+# Seriens ovriga matcher (feature 26). Tidsbudgeten i scrapern galler anda,
+# sa en hel sasong blir tre-fyra korningar av backfill — var och en tar vid
+# dar den forra slutade. LEAGUE_LIMIT=0 hoppar over dem.
+LEAGUE_LIMIT="${LEAGUE_LIMIT:-all}"
 NEWS_FN="${NEWS_FN:-silly-season-scraper}"
 
 say() { printf '\n\033[1;32m▸ %s\033[0m\n' "$1"; }
@@ -480,7 +484,7 @@ if [[ "$TARGET" == "backfill" ]]; then
   # korning nojer sig med de senaste, eftersom handelsesidan maste hamtas en
   # match i taget och tar ungefar en sekund styck. EVENTS_LIMIT=0 hoppar over
   # dem helt — tabell, schema, spelare och trupp hamtas anda.
-  OUT=$(curl -sS --max-time 540 "${FN_URL}?seasons=${BACKFILL_SEASONS}&events_limit=${EVENTS_LIMIT}" 2>/dev/null || echo '{}')
+  OUT=$(curl -sS --max-time 540 "${FN_URL}?seasons=${BACKFILL_SEASONS}&events_limit=${EVENTS_LIMIT}&league_limit=${LEAGUE_LIMIT}" 2>/dev/null || echo '{}')
   printf '%s' "$OUT" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
