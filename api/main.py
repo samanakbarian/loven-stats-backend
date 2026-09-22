@@ -4400,14 +4400,59 @@ def get_analytics(season: str = None, refresh: bool = False):
         bjk_total_goals = sum(1 for e in events if e.get("event_type") == "goal" and (e.get("team_code") or "").upper() in BJK_CODES)
         opp_total_goals = sum(1 for e in events if e.get("event_type") == "goal" and (e.get("team_code") or "").upper() not in BJK_CODES)
 
+        # Tillfallena raknades tidigare som en utvisning var, men Swehockey
+        # stryker samtidiga utvisningar och slar ihop overlappande. Over HA
+        # 25/26 gav det 161 powerplay dar Swehockey sager 157, och en lagre
+        # procent an den Swehockey sjalv visar. Lagstatistiken ar facit och
+        # anvands nar den finns; annars raknas samtidiga bort ur handelserna,
+        # vilket traffar Swehockey i de flesta matcher men inte alla.
+        st_kalla = "handelser"
+        opp_penalties = bjk_penalties_taken = 0
+        ev_per_match: dict = {}
+        for e in events:
+            ev_per_match.setdefault(e.get("game_id"), []).append(e)
+        for match_ev in ev_per_match.values():
+            koder = {str(e.get("team_code") or "").strip() for e in match_ev} - {""}
+            vara = {k for k in koder if k.upper() in BJK_CODES}
+            if len(koder) != 2 or len(vara) != 1:
+                continue
+            karta = {k: ("vi" if k in vara else "de") for k in koder}
+            tillf = serien.powerplaytillfallen(match_ev, karta)
+            opp_penalties += tillf["de"]
+            bjk_penalties_taken += tillf["vi"]
+        try:
+            officiell = {
+                (r["section"], r["metric"]): r["value"]
+                for r in fraga_parallellt(bq, strikt=False, fragor={"ts": f"""
+                    SELECT section, metric, value, team_name
+                    FROM `{proj}.core.team_stats`
+                    WHERE season_group_id = {int(REGULAR_ID)}
+                      AND section IN ('Powerplay Efficiency', 'Penalty Killing')
+                """})["ts"]
+                if is_bjk(r.get("team_name")) and r.get("value") is not None
+            }
+            adv = officiell.get(("Powerplay Efficiency", "ADV."))
+            dvg = officiell.get(("Penalty Killing", "DVG."))
+            if adv is not None and dvg is not None:
+                bjk_pp_goals = int(officiell.get(("Powerplay Efficiency", "PPGF")) or 0)
+                opp_penalties = int(adv)
+                opp_pp_goals = int(officiell.get(("Penalty Killing", "PPGA")) or 0)
+                bjk_penalties_taken = int(dvg)
+                st_kalla = "swehockey"
+        except Exception:
+            logging.warning("Lagstatistiken kunde inte lasas for specialteam", exc_info=True)
+
+        pp_pct = round((bjk_pp_goals / max(opp_penalties, 1)) * 100, 1)
+        pk_pct = round(((bjk_penalties_taken - opp_pp_goals) / max(bjk_penalties_taken, 1)) * 100, 1)
         special_teams = {
             "pp_goals": bjk_pp_goals,
             "pp_opportunities": opp_penalties,
-            "pp_pct": round((bjk_pp_goals / max(opp_penalties, 1)) * 100, 1),
+            "pp_pct": pp_pct,
             "pk_goals_against": opp_pp_goals,
             "pk_times": bjk_penalties_taken,
-            "pk_pct": round(((bjk_penalties_taken - opp_pp_goals) / max(bjk_penalties_taken, 1)) * 100, 1),
-            "special_teams_index": round(((bjk_pp_goals / max(opp_penalties, 1)) * 100) + (((bjk_penalties_taken - opp_pp_goals) / max(bjk_penalties_taken, 1)) * 100), 1),
+            "pk_pct": pk_pct,
+            "special_teams_index": round(pp_pct + pk_pct, 1),
+            "source": st_kalla,
             "total_pim": sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES),
             "avg_pim_per_game": round(sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES) / max(len(bjk_games), 1), 1),
         }
