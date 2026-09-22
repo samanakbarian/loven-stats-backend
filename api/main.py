@@ -1767,16 +1767,40 @@ def get_players(season: str = None, refresh: bool = False):
             ).result()
         ]
 
-        # Spelare med nagon enstaka match ger brus i fordelningen.
-        MIN_GP = 10
-        pool = [r for r in rows if int(r.get("games_played") or 0) >= MIN_GP]
+        # Percentilen jamfor per match och inom samma position. Totaler gynnade
+        # den som spelat flest matcher, och en back med femton poang hamnade
+        # langt ner bland forwards fast han var en av seriens basta backar.
+        # Gransen foljer serien: fyra av tio omgangar, minst tre matcher —
+        # tio fasta matcher gav inga percentiler alls de forsta veckorna och
+        # ett for litet stickprov att jamfora mot.
+        def grupp(pos) -> str:
+            p = str(pos or "").upper()
+            if p.startswith("G"):
+                return "G"
+            return "D" if p in ("LD", "RD", "D") or p.endswith("D") else "F"
 
-        def pct(field: str, value: float, higher_is_better: bool = True) -> int:
-            vals = [float(r.get(field) or 0) for r in pool]
+        max_gp = max((int(r.get("games_played") or 0) for r in rows), default=0)
+        MIN_GP = max(3, round(max_gp * 0.4))
+        pool = [
+            r for r in rows
+            if int(r.get("games_played") or 0) >= MIN_GP and grupp(r.get("position")) != "G"
+        ]
+
+        def per_match(r: dict, field: str) -> float:
+            gp = int(r.get("games_played") or 0)
+            return float(r.get(field) or 0) / gp if gp else 0.0
+
+        def pct(field: str, r: dict, higher_is_better: bool = True) -> int:
+            g = grupp(r.get("position"))
+            vals = [per_match(o, field) for o in pool if grupp(o.get("position")) == g]
             if not vals:
                 return 0
+            value = per_match(r, field)
             below = sum(1 for v in vals if (v < value if higher_is_better else v > value))
-            return round(below / len(vals) * 100)
+            # Lika varden delar pa mitten, sa tio spelare pa noll mal inte
+            # alla hamnar pa noll percentil.
+            equal = sum(1 for v in vals if v == value)
+            return round((below + equal / 2) / len(vals) * 100)
 
         def is_bjk(code: str) -> bool:
             return "ifb" in str(code or "").lower() or "rkl" in str(code or "").lower()
@@ -1800,16 +1824,17 @@ def get_players(season: str = None, refresh: bool = False):
                     "pim": int(r.get("pim") or 0),
                     "plus_minus": int(r.get("plus_minus") or 0),
                     "points_per_game": round(pts / gp, 2) if gp else 0,
-                    # Percentil mot alla i serien med minst MIN_GP matcher.
+                    # Percentil per match mot seriens spelare pa samma position.
+                    "percentile_group": grupp(r.get("position")),
                     "percentiles": None
-                    if gp < MIN_GP
+                    if gp < MIN_GP or grupp(r.get("position")) == "G"
                     else {
-                        "points": pct("points", pts),
-                        "goals": pct("goals", int(r.get("goals") or 0)),
-                        "assists": pct("assists", int(r.get("assists") or 0)),
-                        "plus_minus": pct("plus_minus", int(r.get("plus_minus") or 0)),
+                        "points": pct("points", r),
+                        "goals": pct("goals", r),
+                        "assists": pct("assists", r),
+                        "plus_minus": pct("plus_minus", r),
                         # Fa utvisningsminuter ar battre, sa skalan vands.
-                        "pim": pct("pim", int(r.get("pim") or 0), higher_is_better=False),
+                        "pim": pct("pim", r, higher_is_better=False),
                     },
                 }
             )
@@ -1825,6 +1850,7 @@ def get_players(season: str = None, refresh: bool = False):
             "season_key": active["key"],
             "league_players": len(rows),
             "percentile_pool": len(pool),
+            "percentile_basis": "per_match_och_position",
             "min_games_for_percentile": MIN_GP,
             "count": len(players),
             "players": players,
