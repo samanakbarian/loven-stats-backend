@@ -15,12 +15,13 @@ Tva egenheter i kallan:
 - Placeringen star bara pa den forsta av flera lika. Ovriga har en tom cell
   och arver placeringen ovanfor — samma monster som tappade tretton spelare
   ur poangligan i seriepremiaren.
-- Decimaltecknet ar punkt pa vissa sidor och komma pa andra, och "N/A" star
-  dar en kvot saknar namnare.
+- Decimaltecknet ar punkt pa vissa sidor och komma pa andra, och "N/A" eller
+  "NaN" star dar en kvot saknar namnare.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -55,9 +56,13 @@ def _value(text: str) -> float | None:
     if m:
         return round(int(m.group(1)) + int(m.group(2)) / 60, 4)
     try:
-        return float(t.replace(",", "."))
+        v = float(t.replace(",", "."))
     except ValueError:
         return None
+    # "NaN" star dar en kvot saknar namnare, som vinstprocent for ett lag som
+    # aldrig lett. float() godtar ordet, men NaN ar inte giltig JSON och
+    # BigQuery avvisade hela laddningen for den enda raden.
+    return v if math.isfinite(v) else None
 
 
 def parse_team_codes(html: str) -> dict[str, str]:
