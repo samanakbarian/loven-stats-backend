@@ -106,6 +106,10 @@ swehockey_standings standings
 swehockey_player_stats player_season_stats
 swehockey_goalie_stats goalie_season_stats
 swehockey_roster roster
+swehockey_league_game_events league_game_events
+swehockey_league_game_summary league_game_summary
+swehockey_league_game_goalies league_game_goalies
+swehockey_team_stats team_stats
 TABLES
     printf ' ORDER BY tabell'
   } > "$TMP/counts.sql"

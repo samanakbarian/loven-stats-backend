@@ -47,6 +47,51 @@ CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_player_bio` (
   scraped_at TIMESTAMP
 );
 
+-- Seriens ovriga matcher (feature 26) och Swehockeys lagstatistik. Egna
+-- tabeller: vara matchtabeller lases utan lagfilter pa ett tiotal stallen och
+-- hade fatt 300 frammande matcher i sina summor. Schemat ar detsamma som
+-- scraperns rader ger, sa laddningen och vyn ar overens fran start.
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_events` (
+  game_id INT64, season_group_id INT64, match_date STRING,
+  event_index INT64, event_type STRING, period INT64, time STRING,
+  team_code STRING, player_number INT64, player_name STRING,
+  assist1_number INT64, assist1_name STRING, assist2_number INT64, assist2_name STRING,
+  score_state STRING, home_goals INT64, away_goals INT64,
+  is_power_play BOOL, is_short_handed BOOL, is_empty_net BOOL, is_game_winning_shot BOOL,
+  penalty_minutes INT64, detail STRING, on_ice_for STRING, on_ice_against STRING,
+  home_team STRING, away_team STRING,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_summary` (
+  game_id INT64, season_group_id INT64, match_date STRING,
+  is_home BOOL, team_name STRING, home_team STRING, away_team STRING,
+  shots INT64, shots_by_period STRING, shooting_pct FLOAT64,
+  saves INT64, saves_by_period STRING, save_pct FLOAT64, pdo FLOAT64,
+  pim INT64, pim_by_period STRING, pp_pct FLOAT64, pp_time STRING,
+  spectators INT64,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_goalies` (
+  game_id INT64, season_group_id INT64, match_date STRING,
+  team_code STRING, goalie_number INT64, goalie_name STRING,
+  save_pct FLOAT64, saves INT64, shots_against INT64, goals_against INT64,
+  home_team STRING, away_team STRING,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_team_stats` (
+  season_group_id INT64, page STRING, section STRING, grp STRING,
+  team_code STRING, team_name STRING, rank INT64, games_played INT64,
+  metric STRING, value FLOAT64, value_text STRING,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
 -- ---------------------------------------------------------------- matcher --
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.game_events` AS
@@ -69,6 +114,20 @@ QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 -- målvakternas speltid. Skrivs bara när rapportens ETag ändrats.
 CREATE OR REPLACE VIEW `@PROJECT@.core.game_boxscore` AS
 SELECT * FROM `@PROJECT@.raw_sports.swehockey_game_boxscore`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
+
+-- Seriens ovriga matcher. Samma avduplicering som vara: senaste per match.
+-- Vara egna finns INTE har. Den som vill ha hela serien laser bada.
+CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_events` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_events`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
+
+CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_summary` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_summary`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
+
+CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_goalies` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_goalies`
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 
 -- --------------------------------------------------------- ögonblicksbilder --
@@ -95,6 +154,11 @@ QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id);
 
 -- Födelsedatum, position och kaptensbindel ur trupprapporten. Innehållet är
 -- per lag och säsong, så det behandlas som en ögonblicksbild.
+-- Swehockeys lagstatistik, en rad per lag, avsnitt och matt.
+CREATE OR REPLACE VIEW `@PROJECT@.core.team_stats` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_team_stats`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id);
+
 CREATE OR REPLACE VIEW `@PROJECT@.core.player_bio` AS
 SELECT * FROM `@PROJECT@.raw_sports.swehockey_player_bio`
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY season_group_id);
