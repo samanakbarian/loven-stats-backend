@@ -4,6 +4,7 @@ import logging
 
 import eliteprospects
 import serien
+import matchmodell
 import random
 import requests
 import unicodedata
@@ -778,6 +779,7 @@ _VARMNINGSVAGAR = (
     ("/api/v1/lines", True),
     ("/api/v1/shots", True),
     ("/api/v1/league", True),
+    ("/api/v1/prediction", True),
     ("/api/v1/onice", True),
     ("/api/v1/lovenlaget", False),
     ("/api/v1/feed?limit=200", False),
@@ -2215,6 +2217,107 @@ def get_player(name: str, season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("get_player misslyckades")
         return {"status": "error", "name": name, "error": str(e), "game_log": []}
+
+
+@app.get("/api/v1/prediction")
+@cached_ok(cache=stats_cache)
+def get_prediction(season: str = None, refresh: bool = False):
+    """Sannolikheten för varje utfall i kommande matcher, ur matchmodellen.
+
+    Modellen skattas om vid varje anrop — i praktiken en gang per skörd,
+    genom varmhållningen — på SHL:s matcher de senaste tre åren, där en
+    match väger hälften efter 240 dagar. Den lär sig alltså av varje omgång.
+    Se api/matchmodell.py och scripts/backtest_matchmodell.py.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular = int(active["regular"])
+        if str(active.get("league") or "").upper() != "SHL" and not str(active.get("key", "")).startswith("shl"):
+            return {"status": "not_found", "error": "Matchmodellen finns bara for SHL.", "games": []}
+
+        idag = datetime.now(timezone.utc).date()
+        rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT s.season_group_id, s.match_date, s.match_time, s.home_team, s.away_team,
+                       s.result, s.period_results, s.game_id
+                FROM `{bq.project}.core.schedule` s
+                WHERE s.season_group_id IN (
+                    SELECT regular_season_id FROM `{bq.project}.core.season`
+                    WHERE LOWER(league) = 'shl' AND regular_season_id IS NOT NULL
+                )
+                  AND SAFE_CAST(s.match_date AS DATE) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 YEAR)
+                """
+            ).result()
+        ]
+        spelade: list = []
+        kommande: list[dict] = []
+        for r in rows:
+            try:
+                dag = datetime.fromisoformat(str(r.get("match_date"))[:10]).date()
+            except ValueError:
+                continue
+            o = matchmodell.ordinarie(r.get("result"), r.get("period_results"))
+            if o is None:
+                if int(r.get("season_group_id") or 0) == regular and dag >= idag:
+                    kommande.append({**r, "_dag": dag})
+                continue
+            h, a, vidare = o
+            spelade.append(matchmodell.Match(
+                dag=dag, hemma=matchmodell.lagnyckel(r["home_team"]),
+                borta=matchmodell.lagnyckel(r["away_team"]), h=h, a=a, vidare=vidare,
+            ))
+        if not spelade:
+            return {"status": "not_found", "error": "Inga spelade matcher att skatta pa.", "games": []}
+
+        par = matchmodell.Parametrar()
+        skattning = matchmodell.skatta(spelade, idag + timedelta(days=1), par)
+
+        # Matcher i årets serie per lag, så klienten kan vänta med ett lag
+        # som ännu har för lite eget underlag.
+        i_ar: Counter = Counter()
+        for r in rows:
+            if int(r.get("season_group_id") or 0) == regular and matchmodell.ordinarie(r.get("result"), r.get("period_results")):
+                i_ar[r["home_team"]] += 1
+                i_ar[r["away_team"]] += 1
+
+        kommande.sort(key=lambda r: (r["_dag"], str(r.get("match_time") or "")))
+        def prognos(r: dict) -> dict:
+            u = matchmodell.utfall(skattning, matchmodell.lagnyckel(r["home_team"]),
+                                   matchmodell.lagnyckel(r["away_team"]), par)
+            return {
+                "game_id": r.get("game_id"),
+                "date": str(r.get("match_date"))[:10],
+                "time": r.get("match_time"),
+                "home_team": r["home_team"],
+                "away_team": r["away_team"],
+                "is_bjk": bool(BJK_HOME.search(r["home_team"]) or BJK_HOME.search(r["away_team"])),
+                "home_games": i_ar.get(r["home_team"], 0),
+                "away_games": i_ar.get(r["away_team"], 0),
+                "p_home_regulation": round(u["hemma_ordinarie"], 3),
+                "p_overtime": round(u["forlangning"], 3),
+                "p_away_regulation": round(u["borta_ordinarie"], 3),
+                "p_home_win": round(u["hemma_vinst"], 3),
+                "p_away_win": round(u["borta_vinst"], 3),
+                "expected_goals": [round(u["mal_hemma"], 2), round(u["mal_borta"], 2)],
+                "likeliest_regulation_score": list(u["troligast"]),
+            }
+
+        vara = [r for r in kommande if BJK_HOME.search(r["home_team"]) or BJK_HOME.search(r["away_team"])]
+        nasta_dag = kommande[0]["_dag"] if kommande else None
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "trained_on_games": len(spelade),
+            "next": prognos(vara[0]) if vara else None,
+            "next_round": [prognos(r) for r in kommande if r["_dag"] == nasta_dag],
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/prediction")
+        return {"status": "error", "error": str(e), "games": []}
 
 
 @app.get("/api/v1/projection")

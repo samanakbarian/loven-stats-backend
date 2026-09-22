@@ -1661,6 +1661,15 @@ bara den vidare, sa gar det att se utifran nar nagot slutat uppdateras.
 
 ### 34. Prediktioner ur simuleringen
 
+**A byggd 2026-09-22, med en egen modell i stället för simuleringens Elo.**
+`api/matchmodell.py`: Poisson för mål i ordinarie tid, anfall och försvar
+per lag, skattad om före varje speldag med halveringstid 240 dagar. Provad
+mot SHL speldag för speldag (`scripts/backtest_matchmodell.py`): inställd på
+2016/17–2021/22, bedömd på 2022/23–2025/26 — log-loss 1,046 mot Elos 1,057
+och basfrekvensens 1,060, välkalibrerad. `/api/v1/prediction`, stapeln i
+Inför matchen efter tre omgångar. Nykomlingsstart prövad och förkastad, se
+Parametrar. Kvar: simuleringen (B) på samma modell i stället för Elo.
+
 Typ: Modell / Produkt
 Prioritet: A fore premiaren, B-D efter
 Primart repo: `loven-stats-backend`, `slutspel/frontend_v2`

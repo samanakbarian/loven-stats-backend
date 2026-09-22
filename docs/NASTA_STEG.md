@@ -90,6 +90,24 @@ Frontend: kortet Serien under Statistik → Laget (vårt värde, placering och a
 lag på en linje per mått), Skott och tur (skottandel mot PDO för alla lag) och
 fyra nya rader i Inför matchen. Alla väntar till tre omgångar spelats.
 
+## Matchmodellen
+
+`/api/v1/prediction` ger sannolikheten för vinst, förlängning och förlust i
+kommande matcher, ur en Poissonmodell skattad på SHL:s matcher de senaste tre
+åren (`api/matchmodell.py`). Den skattas om vid varje anrop, alltså efter
+varje skörd, och lär sig av varje omgång.
+
+Provad mot fyra SHL-säsonger den aldrig sett: bättre än både Elo och
+basfrekvensen, och kalibrerad — sade den 55 % vann laget 55 % av gångerna.
+Prov och inställning går att köra om med `scripts/backtest_matchmodell.py`.
+
+Björklöven startar som ett genomsnittligt SHL-lag. En start ur hur
+nyuppflyttade lag brukat klara sig gjorde prognosen sämre de senaste fyra
+åren och är avstängd. Stapeln visas från tredje omgången.
+
+Simuleringen använder fortfarande Elo. Att flytta den till samma modell är
+nästa steg.
+
 ## Buggmönstret i seriestarten
 
 Det här är den viktigaste lärdomen från premiärveckan, och den gäller alla
