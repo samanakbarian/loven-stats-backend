@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -31,9 +32,11 @@ except ImportError:
 try:
     from game_events_parser import parse_events, parse_game_summary, parse_lineups
     from game_report_parser import parse_boxscore, parse_team_roster
+    from team_stats_parser import PAGES as TEAM_STATS_PAGES, parse_team_stats
 except ImportError:
     from functions.game_events_parser import parse_events, parse_game_summary, parse_lineups
     from functions.game_report_parser import parse_boxscore, parse_team_roster
+    from functions.team_stats_parser import PAGES as TEAM_STATS_PAGES, parse_team_stats
 
 logging.basicConfig(level=logging.INFO)
 
@@ -56,6 +59,18 @@ EVENTS_LIMIT_DEFAULT = int(os.environ.get("SWEHOCKEY_EVENTS_LIMIT", "20"))
 # inom en vecka, i ett fall efter sexton dagar. En match vi redan hamtat maste
 # darfor hamtas om ett tag till, annars fastnar vi med den forsta versionen.
 REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_REFRESH_DAYS", "21"))
+
+# Seriens ovriga matcher, feature 26. Bara handelsesidan — den bar handelser,
+# skott och malvakter, sa det ar en request per match — och bara i serier dar
+# laget spelar. De hamtas om i tva dygn i stallet for tjugoen: rattelserna pa
+# matchkvallen kommer med (Djurgardens skott i premiaren skrevs om 38 till 40
+# samma kvall), men omhamtningsfonstret vaxer inte till 150 matcher som
+# trangs med vara egna.
+LEAGUE_LIMIT_DEFAULT = int(os.environ.get("SWEHOCKEY_LEAGUE_LIMIT", "30"))
+LEAGUE_REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_LEAGUE_REFRESH_DAYS", "2"))
+# Sekunder fran korningens start. Funktionen har 300; vara egna matcher och
+# PDF:erna ska alltid hinnas med, sa ligamatcherna far det som blir over.
+LEAGUE_TIME_BUDGET = float(os.environ.get("SWEHOCKEY_LEAGUE_TIME_BUDGET", "150"))
 
 
 def _now():
@@ -598,6 +613,13 @@ _GAME_PAGES: dict[int, str] = {}
 _LINEUP_PAGES: dict[int, str] = {}
 # Matcher vi redan har i datalagret. Fylls en gang per korning.
 _SCRAPED_GAMES: set[int] = set()
+# Samma sak for seriens ovriga matcher, som ligger i egna tabeller.
+_LEAGUE_SCRAPED: set[int] = set()
+# Ligamatcherna vars sida hamtades i den har korningen, per sasongsgrupp.
+# Handelserna valjer urvalet; skott och malvakter tar samma matcher, sa en
+# match far alla tre eller ingen.
+_LEAGUE_GAMES: dict[str, list[dict[str, Any]]] = {}
+_RUN_STARTED: list[float] = [0.0]
 
 
 # Vad varje match redan har for innehall, per tabell: (tabell, game_id) -> hash.
@@ -613,6 +635,15 @@ _GAME_TABLES = (
     "swehockey_game_boxscore",
 )
 
+# Seriens ovriga matcher. Egna tabeller i stallet for att blandas in i vara:
+# ett tiotal vyer och API-fragor laser matchtabellerna utan lagfilter, och
+# hade fatt 300 frammande matcher i sina summor. Har kan inget av det handa.
+_LEAGUE_TABLES = (
+    "swehockey_league_game_events",
+    "swehockey_league_game_summary",
+    "swehockey_league_game_goalies",
+)
+
 # Tabeller som hamtas som en hel ogonblicksbild per sasongsgrupp. De ar
 # radmassigt tunga — schema, trupp och spelarstatistik ar 1 400 rader per
 # grupp — och skrevs om i sin helhet vid varje korning.
@@ -623,6 +654,7 @@ _SNAPSHOT_TABLES = (
     "swehockey_player_stats",
     "swehockey_goalie_stats",
     "swehockey_roster",
+    "swehockey_team_stats",
 )
 
 # Ogonblicksbildens hash per (tabell, sasongsgrupp).
@@ -651,6 +683,8 @@ def _content_hash(rows: list[dict[str, Any]]) -> str:
 def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
     """Vad som redan finns i datalagret: vilka matcher, och med vilket innehall."""
     _SCRAPED_GAMES.clear()
+    _LEAGUE_SCRAPED.clear()
+    _LEAGUE_GAMES.clear()
     _GAME_HASHES.clear()
     _REPORT_ETAGS.clear()
     ids = ",".join(str(int(s)) for s in season_ids if str(s).isdigit())
@@ -670,10 +704,25 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
         # Utan svar hamtar vi hellre for mycket an for lite.
         logging.warning("Kunde inte lasa befintliga matcher", exc_info=True)
 
+    # Tabellen finns inte fore forsta korningen med feature 26. Da ar mangden
+    # tom och taket avgor hur manga som hamtas.
+    try:
+        rows = client.query(
+            f"""
+            SELECT DISTINCT game_id
+            FROM `{client.project}.{BQ_DATASET}.swehockey_league_game_events`
+            WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL
+            """
+        ).result()
+        _LEAGUE_SCRAPED.update(int(r["game_id"]) for r in rows)
+        logging.info("%s av seriens ovriga matcher finns redan", len(_LEAGUE_SCRAPED))
+    except Exception as exc:
+        logging.info("Inga ligamatcher att jamfora mot an: %s", str(exc)[:120])
+
     # Hashen for den senaste generationen av varje match. Tabeller som annu
     # saknar kolumnen ger ett fel har; da star ordboken tom for den tabellen
     # och matcherna skrivs om en gang till, varpa kolumnen finns.
-    for table in _GAME_TABLES:
+    for table in _GAME_TABLES + _LEAGUE_TABLES:
         try:
             rows = client.query(
                 f"""
@@ -904,8 +953,12 @@ def _fetch_game_summary(season_group_id: str, limit: int | None = None) -> tuple
     Skott finns inte i handelserna utan bara i sidhuvudets sammanfattning, och
     det ar enda vagen till skjutprocent, raddningsprocent och darmed PDO.
     """
+    return _summary_rows(season_group_id, _team_games(season_group_id, limit), "swehockey_game_summary")
+
+
+def _summary_rows(season_group_id: str, games: list[dict[str, Any]], table: str) -> tuple[list[dict[str, Any]], str | None]:
     out: list[dict[str, Any]] = []
-    for game in _team_games(season_group_id, limit):
+    for game in games:
         html = _game_html(int(game["game_id"]))
         if not html:
             continue
@@ -919,7 +972,7 @@ def _fetch_game_summary(season_group_id: str, limit: int | None = None) -> tuple
             row["season_group_id"] = int(season_group_id)
             row["match_date"] = game.get("match_date")
             row["source"] = SOURCE
-        if _unchanged("swehockey_game_summary", int(game["game_id"]), teams):
+        if _unchanged(table, int(game["game_id"]), teams):
             continue
         out.extend(teams)
     return out, f"{BASE_URL}/Game/Events/"
@@ -931,8 +984,12 @@ def _fetch_game_goalies(season_group_id: str, limit: int | None = None) -> tuple
     Sasongstabellen ger totaler men inte matchen. Utan den har gar det inte
     att visa en form kurva eller vem som stod nar det small.
     """
+    return _goalie_rows(season_group_id, _team_games(season_group_id, limit), "swehockey_game_goalies")
+
+
+def _goalie_rows(season_group_id: str, games: list[dict[str, Any]], table: str) -> tuple[list[dict[str, Any]], str | None]:
     out: list[dict[str, Any]] = []
-    for game in _team_games(season_group_id, limit):
+    for game in games:
         html = _game_html(int(game["game_id"]))
         if not html:
             continue
@@ -948,7 +1005,7 @@ def _fetch_game_goalies(season_group_id: str, limit: int | None = None) -> tuple
             row["home_team"] = summary["teams"][0].get("team_name")
             row["away_team"] = summary["teams"][1].get("team_name")
             row["source"] = SOURCE
-        if _unchanged("swehockey_game_goalies", int(game["game_id"]), keepers):
+        if _unchanged(table, int(game["game_id"]), keepers):
             continue
         out.extend(keepers)
     return out, f"{BASE_URL}/Game/Events/"
@@ -998,6 +1055,141 @@ def _fetch_game_events(season_group_id: str, limit: int | None = None) -> tuple[
     if skipped:
         logging.info("Handelser oforandrade for %s av %s matcher", skipped, len(ours))
     return out, f"{BASE_URL}/Game/Events/"
+
+
+def _league_games(season_group_id: str, limit: int | None) -> list[dict[str, Any]]:
+    """Seriens spelade matcher utan laget, att hamta.
+
+    Tom lista i en serie dar laget inte spelar: scrapern kor aven
+    HockeyAllsvenskan 26/27 for prognosmodellens skull, och dess 364 matcher
+    behovs inte.
+
+    Nya matcher forst, nyast forst, och darefter de inom LEAGUE_REFRESH_DAYS.
+    Blir taket for lagt tar nasta korning vid dar den har slutade, eftersom
+    en hamtad match inte langre raknas som ny.
+    """
+    schedule, _ = _fetch_schedule(season_group_id)
+    if not any(_contains_team_token([str(g.get("home_team", "")), str(g.get("away_team", ""))]) for g in schedule):
+        return []
+    played = [
+        g
+        for g in schedule
+        if g.get("game_id")
+        and str(g.get("result") or "").strip()
+        and not _contains_team_token([str(g.get("home_team", "")), str(g.get("away_team", ""))])
+    ]
+    played.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
+    if limit is None:
+        return played
+    cutoff = (_now().date() - timedelta(days=LEAGUE_REFRESH_DAYS)).isoformat()
+    new = [g for g in played if int(g["game_id"]) not in _LEAGUE_SCRAPED]
+    again = [
+        g for g in played
+        if int(g["game_id"]) in _LEAGUE_SCRAPED and str(g.get("match_date") or "")[:10] >= cutoff
+    ]
+    wanted = new + again
+    logging.info(
+        "Serien: %s nya och %s att hamta om av %s spelade, tak %s",
+        len(new), len(again), len(played), limit,
+    )
+    return wanted[: max(0, limit)]
+
+
+def _fetch_league_events(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Handelser for seriens ovriga matcher, feature 26.
+
+    Valjer ocksa vilka matcher skott och malvakter tas for: de som hann
+    hamtas inom tidsbudgeten. Ett fel har far aldrig falla korningen — vara
+    egna matcher ar viktigare an resten av serien.
+    """
+    url = f"{BASE_URL}/Game/Events/"
+    fetched: list[dict[str, Any]] = []
+    _LEAGUE_GAMES[season_group_id] = fetched
+    out: list[dict[str, Any]] = []
+    try:
+        games = _league_games(season_group_id, limit)
+        for game in games:
+            if time.monotonic() - _RUN_STARTED[0] > LEAGUE_TIME_BUDGET:
+                logging.info(
+                    "Tidsbudgeten for serien slut efter %s av %s matcher", len(fetched), len(games)
+                )
+                break
+            gid = int(game["game_id"])
+            html = _game_html(gid)
+            if not html:
+                continue
+            try:
+                rows = parse_events(html, gid)
+            except Exception:
+                logging.exception("Kunde inte tolka handelser for ligamatch %s", gid)
+                continue
+            # Forst nar handelserna gick att tolka far matchen skott och
+            # malvakter. Annars lag skotten inne for en match som nasta korning
+            # anda ser som ohamtad.
+            fetched.append(game)
+            for r in rows:
+                r["season_group_id"] = int(season_group_id)
+                r["match_date"] = game.get("match_date")
+                r["source"] = SOURCE
+            if _unchanged("swehockey_league_game_events", gid, rows):
+                continue
+            out.extend(rows)
+    except Exception:
+        logging.exception("Seriens matcher kunde inte hamtas for %s", season_group_id)
+        return [], url
+    return out, url
+
+
+def _fetch_league_summary(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        return _summary_rows(season_group_id, _LEAGUE_GAMES.get(season_group_id, []), "swehockey_league_game_summary")
+    except Exception:
+        logging.exception("Seriens skott kunde inte tolkas for %s", season_group_id)
+        return [], f"{BASE_URL}/Game/Events/"
+
+
+def _fetch_league_goalies(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        return _goalie_rows(season_group_id, _LEAGUE_GAMES.get(season_group_id, []), "swehockey_league_game_goalies")
+    except Exception:
+        logging.exception("Seriens malvakter kunde inte tolkas for %s", season_group_id)
+        return [], f"{BASE_URL}/Game/Events/"
+
+
+def _fetch_team_stats(season_group_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Swehockeys lagstatistik for serien, nio sidor.
+
+    Facit for det vi annars raknar ur matcherna, och enda kallan till antalet
+    powerplaytillfallen: over HA 25/26 gick mal, skott och powerplaymal ihop
+    exakt med den har sidan for alla fjorton lag, men tillfallena gar inte att
+    rakna fram — Swehockey slar ihop overlappande utvisningar pa satt som
+    handelselistan inte visar.
+
+    Ogonblicksbild: saknas en sida hamtas ingenting. En halv bild hade
+    ersatt den forra hela, eftersom core valjer senaste generationen per grupp.
+    """
+    url = f"{BASE_URL}/Teams/Statistics/"
+    try:
+        schedule, _ = _fetch_schedule(season_group_id)
+        if not any(_contains_team_token([str(g.get("home_team", "")), str(g.get("away_team", ""))]) for g in schedule):
+            return [], url
+        out: list[dict[str, Any]] = []
+        for page in TEAM_STATS_PAGES:
+            html = _fetch_html(f"{BASE_URL}/Teams/Statistics/{page}/{season_group_id}")
+            if not html:
+                logging.warning("Lagstatistiken %s saknas for %s, hoppar over bilden", page, season_group_id)
+                return [], url
+            rows = parse_team_stats(html, page)
+            if not rows:
+                # Fore seriestart ar sidorna tomma. Det ar ingen avvikelse.
+                continue
+            out.extend(rows)
+        for r in out:
+            r["season_group_id"] = int(season_group_id)
+        return out, url
+    except Exception:
+        logging.exception("Lagstatistiken kunde inte hamtas for %s", season_group_id)
+        return [], url
 
 
 def _fetch_game_boxscore(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
@@ -1170,6 +1362,42 @@ def _scrape_jobs():
             "table_name": "swehockey_game_boxscore",
             "required_fields": ("game_id", "player_name", "role"),
             "key_fields": ("game_id", "team_side", "role", "player_number"),
+        },
+        # Seriens ovriga matcher. Samma falt och nycklar som vara, egna
+        # tabeller. "league" gor att en underkand sats bara hoppas over i
+        # stallet for att stoppa hela laddningen.
+        {
+            "data_type": "league_events",
+            "fetcher": _fetch_league_events,
+            "table_name": "swehockey_league_game_events",
+            "required_fields": ("game_id", "event_type", "time"),
+            "key_fields": ("game_id", "event_index"),
+            "league": True,
+        },
+        {
+            "data_type": "league_summary",
+            "fetcher": _fetch_league_summary,
+            "table_name": "swehockey_league_game_summary",
+            "required_fields": ("game_id", "season_group_id"),
+            "key_fields": ("game_id", "is_home"),
+            "league": True,
+        },
+        {
+            "data_type": "league_goalies",
+            "fetcher": _fetch_league_goalies,
+            "table_name": "swehockey_league_game_goalies",
+            "required_fields": ("game_id", "goalie_name"),
+            "key_fields": ("game_id", "team_code", "goalie_number"),
+            "league": True,
+        },
+        {
+            "data_type": "team_stats",
+            "fetcher": _fetch_team_stats,
+            "table_name": "swehockey_team_stats",
+            "required_fields": ("season_group_id", "page", "team_code", "metric"),
+            "key_fields": ("season_group_id", "page", "section", "grp", "team_code", "metric"),
+            # Egen, inte ligans: en underkand lagstatistik ska bara hoppas over.
+            "isolated": True,
         },
         {
             "data_type": "player_bio",
@@ -1379,164 +1607,210 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
             }
         )
 
-    # Malen i handelserna maste vara lika manga som malen i matchresultaten.
-    # Fangar bade dubbletter, tappade matcher och parserfel — det var precis
-    # sa fjorton tomma-mal-mal upptacktes saknas.
-    #
-    # Kontrollen drog forst bort ett mal for varje match avgjord pa straffar,
-    # eftersom avgorandet inte fanns i handelselistan. Parsern plockar upp det
-    # numera, sa avdraget gjorde kontrollen fel at andra hallet: 289 mot 283.
-    _run(
-        "events_goals_match_results",
-        f"""
-        WITH ev AS (
-            SELECT COUNT(*) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_events` e
+    def _match_checks(tag: str, ev: str, su: str, gk: str) -> None:
+        """Samma kontroller for vara matcher och for seriens ovriga.
+
+        De ligger i olika tabeller och far olika namn, sa ett larm sager vilken
+        niva som brister: "league_"-prefixet ar seriens.
+        """
+        # Malen i handelserna maste vara lika manga som malen i matchresultaten.
+        # Fangar bade dubbletter, tappade matcher och parserfel — det var precis
+        # sa fjorton tomma-mal-mal upptacktes saknas.
+        #
+        # Kontrollen drog forst bort ett mal for varje match avgjord pa straffar,
+        # eftersom avgorandet inte fanns i handelselistan. Parsern plockar upp det
+        # numera, sa avdraget gjorde kontrollen fel at andra hallet: 289 mot 283.
+        _run(
+            f"{tag}events_goals_match_results",
+            f"""
+            WITH ev AS (
+                SELECT COUNT(*) AS n
+                FROM `{proj}.{BQ_DATASET}.{ev}` e
+                INNER JOIN (
+                    SELECT game_id, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{ev}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON e.game_id = k.game_id AND e.scraped_at = k.m
+                WHERE e.event_type = 'goal' AND e.season_group_id IN ({ids})
+            ),
+            sc AS (
+                SELECT SUM(
+                    CAST(REGEXP_EXTRACT(a.result, r'^\\s*(\\d+)') AS INT64)
+                    + CAST(REGEXP_EXTRACT(a.result, r'-\\s*(\\d+)') AS INT64)
+                ) AS n
+                FROM `{proj}.{BQ_DATASET}.swehockey_schedule` a
+                INNER JOIN (
+                    SELECT game_id, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.swehockey_schedule`
+                    WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL GROUP BY game_id
+                ) k ON a.game_id = k.game_id AND a.scraped_at = k.m
+                WHERE a.season_group_id IN ({ids})
+                  AND a.game_id IN (SELECT DISTINCT game_id
+                                    FROM `{proj}.{BQ_DATASET}.{ev}`
+                                    WHERE season_group_id IN ({ids}))
+                  AND REGEXP_CONTAINS(a.result, r'\\d+\\s*-\\s*\\d+')
+            )
+            SELECT (SELECT n FROM ev) AS a, (SELECT n FROM sc) AS b
+            """,
+            "mal i handelserna mot mal i matchresultaten",
+        )
+
+        # Skottsammanfattningen ska ha tva rader per match, en per lag.
+        _run(
+            f"{tag}summary_two_rows_per_game",
+            f"""
+            SELECT COUNTIF(n <> 2) AS a, 0 AS b FROM (
+                SELECT game_id, COUNT(*) AS n
+                FROM `{proj}.{BQ_DATASET}.{su}` a
+                INNER JOIN (
+                    SELECT game_id AS g, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{su}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON a.game_id = k.g AND a.scraped_at = k.m
+                WHERE a.season_group_id IN ({ids})
+                GROUP BY game_id
+            )
+            """,
+            "antal matcher med annat an tva lagrader",
+        )
+
+        # En malvakts raddningar plus inslappta ar per definition skotten mot.
+        _run(
+            f"{tag}goalie_saves_plus_goals_equal_shots",
+            f"""
+            SELECT COUNTIF(saves + goals_against <> shots_against) AS a, 0 AS b
+            FROM `{proj}.{BQ_DATASET}.{gk}` a
             INNER JOIN (
-                SELECT game_id, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
+                SELECT game_id AS g, MAX(scraped_at) AS m
+                FROM `{proj}.{BQ_DATASET}.{gk}`
                 WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON e.game_id = k.game_id AND e.scraped_at = k.m
-            WHERE e.event_type = 'goal' AND e.season_group_id IN ({ids})
+            ) k ON a.game_id = k.g AND a.scraped_at = k.m
+            WHERE a.season_group_id IN ({ids})
+            """,
+            "malvaktsrader dar raddningar plus inslappta inte ar skotten mot",
+        )
+
+        # Utvisningsminuterna star bade i handelselistan och i matchsammanfattningen,
+        # och de rakas fram pa olika satt. Det var precis har det gick fel forra
+        # gangen: handelserna summerade tre skorningsgenerationer och gav 223 PIM
+        # dar rapporten sa 75. Jamfor bara matcher som finns i bada tabellerna.
+        _run(
+            f"{tag}penalties_events_match_summary",
+            f"""
+            WITH ev AS (
+                SELECT e.game_id, SUM(e.penalty_minutes) AS n
+                FROM `{proj}.{BQ_DATASET}.{ev}` e
+                INNER JOIN (
+                    SELECT game_id AS g, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{ev}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON e.game_id = k.g AND e.scraped_at = k.m
+                WHERE e.season_group_id IN ({ids})
+                GROUP BY e.game_id
+            ),
+            su AS (
+                SELECT a.game_id, SUM(a.pim) AS n
+                FROM `{proj}.{BQ_DATASET}.{su}` a
+                INNER JOIN (
+                    SELECT game_id AS g, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{su}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON a.game_id = k.g AND a.scraped_at = k.m
+                WHERE a.season_group_id IN ({ids})
+                GROUP BY a.game_id
+            )
+            SELECT COUNTIF(ev.n <> su.n) AS a, 0 AS b
+            FROM ev INNER JOIN su USING (game_id)
+            """,
+            "matcher dar handelsernas utvisningsminuter inte stammer med rapportens",
+        )
+
+        # Lagets skott i sammanfattningen ar motstandarmalvaktens skott emot.
+        #
+        # Nastan. Ett skott i tomt mal raknas for laget men mot ingen malvakt, sa
+        # skillnaden per match ar exakt antalet mal i tomt mal. Matt over HA 25/26:
+        # tretton matcher med skillnad, alla tretton med tomma-mal-mal, och
+        # skillnaden lika med antalet sadana mal i var och en.
+        _run(
+            f"{tag}summary_shots_match_goalie_shots_against",
+            f"""
+            WITH su AS (
+                SELECT a.game_id, SUM(a.shots) AS n
+                FROM `{proj}.{BQ_DATASET}.{su}` a
+                INNER JOIN (
+                    SELECT game_id AS g, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{su}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON a.game_id = k.g AND a.scraped_at = k.m
+                WHERE a.season_group_id IN ({ids})
+                GROUP BY a.game_id
+            ),
+            gk AS (
+                SELECT a.game_id, SUM(a.shots_against) AS n
+                FROM `{proj}.{BQ_DATASET}.{gk}` a
+                INNER JOIN (
+                    SELECT game_id AS g, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{gk}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON a.game_id = k.g AND a.scraped_at = k.m
+                WHERE a.season_group_id IN ({ids})
+                GROUP BY a.game_id
+            ),
+            eng AS (
+                SELECT e.game_id, COUNTIF(e.is_empty_net) AS n
+                FROM `{proj}.{BQ_DATASET}.{ev}` e
+                INNER JOIN (
+                    SELECT game_id AS g, MAX(scraped_at) AS m
+                    FROM `{proj}.{BQ_DATASET}.{ev}`
+                    WHERE season_group_id IN ({ids}) GROUP BY game_id
+                ) k ON e.game_id = k.g AND e.scraped_at = k.m
+                WHERE e.season_group_id IN ({ids}) AND e.event_type = 'goal'
+                GROUP BY e.game_id
+            )
+            SELECT COUNTIF(su.n - gk.n <> IFNULL(eng.n, 0)) AS a, 0 AS b
+            FROM su INNER JOIN gk USING (game_id) LEFT JOIN eng USING (game_id)
+            """,
+            "matcher dar skott minus malvakternas skott emot inte ar antalet mal i tomt mal",
+        )
+
+    _match_checks("", "swehockey_game_events", "swehockey_game_summary", "swehockey_game_goalies")
+    _match_checks(
+        "league_",
+        "swehockey_league_game_events",
+        "swehockey_league_game_summary",
+        "swehockey_league_game_goalies",
+    )
+
+    # Tacker ligatabellerna serien? Spelade matcher utan laget, aldre an ett
+    # dygn, mot de som har handelser. Kvallens matcher far vanta en korning,
+    # och under en backfill ar avvikelsen vantad tills den gatt klart.
+    # Bara grupper dar laget spelar raknas — i ovriga hamtas inget.
+    bjk = r"(?i)bj[oö]rkl[oö]ven"
+    _run(
+        "league_coverage",
+        f"""
+        WITH ours AS (
+            SELECT DISTINCT season_group_id
+            FROM `{proj}.{BQ_DATASET}.swehockey_schedule`
+            WHERE season_group_id IN ({ids})
+              AND (REGEXP_CONTAINS(home_team, r'{bjk}') OR REGEXP_CONTAINS(away_team, r'{bjk}'))
         ),
-        sc AS (
-            SELECT SUM(
-                CAST(REGEXP_EXTRACT(a.result, r'^\\s*(\\d+)') AS INT64)
-                + CAST(REGEXP_EXTRACT(a.result, r'-\\s*(\\d+)') AS INT64)
-            ) AS n
+        played AS (
+            SELECT DISTINCT a.game_id
             FROM `{proj}.{BQ_DATASET}.swehockey_schedule` a
-            INNER JOIN (
-                SELECT game_id, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_schedule`
-                WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL GROUP BY game_id
-            ) k ON a.game_id = k.game_id AND a.scraped_at = k.m
-            WHERE a.season_group_id IN ({ids})
-              AND a.game_id IN (SELECT DISTINCT game_id
-                                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
-                                WHERE season_group_id IN ({ids}))
+            WHERE a.season_group_id IN (SELECT season_group_id FROM ours)
+              AND a.game_id IS NOT NULL
               AND REGEXP_CONTAINS(a.result, r'\\d+\\s*-\\s*\\d+')
+              AND NOT REGEXP_CONTAINS(a.home_team, r'{bjk}')
+              AND NOT REGEXP_CONTAINS(a.away_team, r'{bjk}')
+              AND SAFE_CAST(a.match_date AS DATE) < DATE_SUB(CURRENT_DATE('Europe/Stockholm'), INTERVAL 1 DAY)
         )
-        SELECT (SELECT n FROM ev) AS a, (SELECT n FROM sc) AS b
+        SELECT
+          (SELECT COUNT(*) FROM played
+           WHERE game_id IN (SELECT game_id FROM `{proj}.{BQ_DATASET}.swehockey_league_game_events`)) AS a,
+          (SELECT COUNT(*) FROM played) AS b
         """,
-        "mal i handelserna mot mal i matchresultaten",
-    )
-
-    # Skottsammanfattningen ska ha tva rader per match, en per lag.
-    _run(
-        "summary_two_rows_per_game",
-        f"""
-        SELECT COUNTIF(n <> 2) AS a, 0 AS b FROM (
-            SELECT game_id, COUNT(*) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_summary` a
-            INNER JOIN (
-                SELECT game_id AS g, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_summary`
-                WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON a.game_id = k.g AND a.scraped_at = k.m
-            WHERE a.season_group_id IN ({ids})
-            GROUP BY game_id
-        )
-        """,
-        "antal matcher med annat an tva lagrader",
-    )
-
-    # En malvakts raddningar plus inslappta ar per definition skotten mot.
-    _run(
-        "goalie_saves_plus_goals_equal_shots",
-        f"""
-        SELECT COUNTIF(saves + goals_against <> shots_against) AS a, 0 AS b
-        FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies` a
-        INNER JOIN (
-            SELECT game_id AS g, MAX(scraped_at) AS m
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies`
-            WHERE season_group_id IN ({ids}) GROUP BY game_id
-        ) k ON a.game_id = k.g AND a.scraped_at = k.m
-        WHERE a.season_group_id IN ({ids})
-        """,
-        "malvaktsrader dar raddningar plus inslappta inte ar skotten mot",
-    )
-
-    # Utvisningsminuterna star bade i handelselistan och i matchsammanfattningen,
-    # och de rakas fram pa olika satt. Det var precis har det gick fel forra
-    # gangen: handelserna summerade tre skorningsgenerationer och gav 223 PIM
-    # dar rapporten sa 75. Jamfor bara matcher som finns i bada tabellerna.
-    _run(
-        "penalties_events_match_summary",
-        f"""
-        WITH ev AS (
-            SELECT e.game_id, SUM(e.penalty_minutes) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_events` e
-            INNER JOIN (
-                SELECT game_id AS g, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
-                WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON e.game_id = k.g AND e.scraped_at = k.m
-            WHERE e.season_group_id IN ({ids})
-            GROUP BY e.game_id
-        ),
-        su AS (
-            SELECT a.game_id, SUM(a.pim) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_summary` a
-            INNER JOIN (
-                SELECT game_id AS g, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_summary`
-                WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON a.game_id = k.g AND a.scraped_at = k.m
-            WHERE a.season_group_id IN ({ids})
-            GROUP BY a.game_id
-        )
-        SELECT COUNTIF(ev.n <> su.n) AS a, 0 AS b
-        FROM ev INNER JOIN su USING (game_id)
-        """,
-        "matcher dar handelsernas utvisningsminuter inte stammer med rapportens",
-    )
-
-    # Lagets skott i sammanfattningen ar motstandarmalvaktens skott emot.
-    #
-    # Nastan. Ett skott i tomt mal raknas for laget men mot ingen malvakt, sa
-    # skillnaden per match ar exakt antalet mal i tomt mal. Matt over HA 25/26:
-    # tretton matcher med skillnad, alla tretton med tomma-mal-mal, och
-    # skillnaden lika med antalet sadana mal i var och en.
-    _run(
-        "summary_shots_match_goalie_shots_against",
-        f"""
-        WITH su AS (
-            SELECT a.game_id, SUM(a.shots) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_summary` a
-            INNER JOIN (
-                SELECT game_id AS g, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_summary`
-                WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON a.game_id = k.g AND a.scraped_at = k.m
-            WHERE a.season_group_id IN ({ids})
-            GROUP BY a.game_id
-        ),
-        gk AS (
-            SELECT a.game_id, SUM(a.shots_against) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies` a
-            INNER JOIN (
-                SELECT game_id AS g, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_goalies`
-                WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON a.game_id = k.g AND a.scraped_at = k.m
-            WHERE a.season_group_id IN ({ids})
-            GROUP BY a.game_id
-        ),
-        eng AS (
-            SELECT e.game_id, COUNTIF(e.is_empty_net) AS n
-            FROM `{proj}.{BQ_DATASET}.swehockey_game_events` e
-            INNER JOIN (
-                SELECT game_id AS g, MAX(scraped_at) AS m
-                FROM `{proj}.{BQ_DATASET}.swehockey_game_events`
-                WHERE season_group_id IN ({ids}) GROUP BY game_id
-            ) k ON e.game_id = k.g AND e.scraped_at = k.m
-            WHERE e.season_group_id IN ({ids}) AND e.event_type = 'goal'
-            GROUP BY e.game_id
-        )
-        SELECT COUNTIF(su.n - gk.n <> IFNULL(eng.n, 0)) AS a, 0 AS b
-        FROM su INNER JOIN gk USING (game_id) LEFT JOIN eng USING (game_id)
-        """,
-        "matcher dar skott minus malvakternas skott emot inte ar antalet mal i tomt mal",
+        "spelade ligamatcher med handelser, mot alla spelade aldre an ett dygn",
     )
 
     return checks
@@ -1545,6 +1819,7 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
 @functions_framework.http
 def run_swehockey_stats_scraper(request):
     scraped_at = _now().isoformat()
+    _RUN_STARTED[0] = time.monotonic()
     _GAME_PAGES.clear()
     _LINEUP_PAGES.clear()
     bq_client = bigquery.Client(project=GCP_PROJECT)
@@ -1573,6 +1848,19 @@ def run_swehockey_stats_scraper(request):
         events_limit = None
     elif raw_limit.isdigit():
         events_limit = int(raw_limit)
+
+    # Seriens ovriga matcher har ett eget tak. ?league_limit=all hamtar alla
+    # som saknas, men tidsbudgeten galler anda — en backfill av en hel sasong
+    # blir flera korningar, som var och en tar vid dar den forra slutade.
+    league_limit: int | None = LEAGUE_LIMIT_DEFAULT
+    try:
+        raw_league = (request.args.get("league_limit") or "").strip().lower()
+    except Exception:
+        raw_league = ""
+    if raw_league in ("all", "alla"):
+        league_limit = None
+    elif raw_league.isdigit():
+        league_limit = int(raw_league)
 
     active_season_ids: list[str] = []
 
@@ -1630,8 +1918,10 @@ def run_swehockey_stats_scraper(request):
         for season_group_id in active_season_ids:
             for job in _scrape_jobs():
                 data_type = job["data_type"]
-                if data_type in ("game_events", "game_summary", "game_goalies",
-                                 "game_lineups", "game_boxscore"):
+                if job.get("league"):
+                    rows, source_url = job["fetcher"](season_group_id, league_limit)
+                elif data_type in ("game_events", "game_summary", "game_goalies",
+                                   "game_lineups", "game_boxscore"):
                     rows, source_url = job["fetcher"](season_group_id, events_limit)
                 else:
                     rows, source_url = job["fetcher"](season_group_id)
@@ -1683,6 +1973,8 @@ def run_swehockey_stats_scraper(request):
                     # Rapporten saknas for sasongens forsta matcher, och en
                     # korning dar inget andrats skriver inga rader alls.
                     "game_boxscore", "player_bio",
+                    "league_events", "league_summary", "league_goalies",
+                    "team_stats",
                 }
                 or (
                     data_type in {"player_stats", "goalie_stats"}
@@ -1706,8 +1998,27 @@ def run_swehockey_stats_scraper(request):
             result["types"][data_type]["ok"] = (
                 result["types"][data_type]["ok"] and batch_ok
             )
-            if not batch_ok:
+            if not batch_ok and (batch.get("league") or batch.get("isolated")):
+                # Seriens ovriga matcher far inte stoppa vara. Satsen hoppas
+                # over och syns som fel i svaret; nasta korning forsoker igen,
+                # eftersom inget skrevs och matcherna darfor fortfarande saknas.
+                batch["skip"] = True
+                result["types"][data_type]["error"] = "underkand i kvalitetsgrinden, inte laddad"
+                logging.error("%s for %s underkand, laddas inte", data_type, season_group_id)
+            elif not batch_ok:
                 failed_steps += 1
+
+        # Underkanns en av seriens tre satser hoppas alla tre over for samma
+        # grupp. Laddades handelserna utan skotten raknades matchen som hamtad
+        # — det ar handelserna som avgor det — och skotten kom aldrig. Nu
+        # saknas hela matchen, och nasta korning forsoker igen.
+        skipped_league = {
+            b["season_group_id"] for b in fetched_batches
+            if b.get("league") and b.get("skip")
+        }
+        for batch in fetched_batches:
+            if batch.get("league") and batch["season_group_id"] in skipped_league:
+                batch["skip"] = True
 
         if failed_steps:
             result["status"] = "failed_quality_gate"
@@ -1728,6 +2039,8 @@ def run_swehockey_stats_scraper(request):
             # Oforandrad ogonblicksbild: raderna ar redan validerade, men de
             # ar ord for ord samma som senaste generationen. Att skriva dem
             # igen ger bara en generation till att deduplicera bort.
+            if batch.get("skip"):
+                continue
             if batch.get("unchanged"):
                 logging.info(
                     "%s for sasong %s oforandrad — hoppar over skrivningen",

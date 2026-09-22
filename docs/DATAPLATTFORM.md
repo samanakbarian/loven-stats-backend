@@ -62,9 +62,26 @@ poäng likadant. Ingen rad var trasig — bara läsningen. **API:t läser aldrig
 | `game_lineups` | HTML, `/Game/LineUps/` | spelare × match × kedja |
 | **`game_boxscore`** | **PDF, `MediaGameSummary`** | **spelare × match** |
 | **`player_bio`** | **PDF, `OfficialTeamRoster`** | **spelare × säsong** |
+| `league_events`, `league_summary`, `league_goalies` | HTML, `/Game/Events/` | som ovan, seriens övriga matcher |
+| `team_stats` | HTML, `/Teams/Statistics/{sida}/` | lag × avsnitt × mått |
 
-Matchsidorna hämtas bara för lagets egna matcher. Schemat och tabellen
-täcker hela serien.
+Våra matcher hämtas i sin helhet: händelser, uppställning och PDF:erna.
+Seriens övriga matcher (feature 26) bara händelsesidan — en request per match —
+och bara i serier där laget spelar. De ligger i egna tabeller,
+`swehockey_league_game_*`, eftersom ett tiotal frågor läser våra matchtabeller
+utan lagfilter. `core.league_game_*` innehåller alltså **inte** våra matcher;
+den som vill ha hela serien läser båda.
+
+Omhämtningen skiljer sig: våra matcher i `SWEHOCKEY_REFRESH_DAYS` (21) dygn,
+seriens i `SWEHOCKEY_LEAGUE_REFRESH_DAYS` (2). Seriens har eget tak
+(`SWEHOCKEY_LEAGUE_LIMIT`, 30) och en tidsbudget (`SWEHOCKEY_LEAGUE_TIME_BUDGET`,
+150 sekunder från körningens start), så våra hinns alltid med.
+
+`team_stats` är Swehockeys egen lagstatistik: nio sidor per serie, i lång form.
+Det är facit. Över HA 25/26 gick mål, skott för och emot, powerplaymål och
+insläppta i boxplay ihop exakt med det vi räknar ur matcherna, för alla fjorton
+lag. Powerplaytillfällena gör det inte — Swehockey slår ihop överlappande
+utvisningar på sätt som händelselistan inte visar — och tas därför bara härifrån.
 
 ### 2.2 Tre mekanismer håller volymen nere
 
@@ -118,7 +135,9 @@ sex dygn gammal.
 
 **Kvalitetsgrinden** (`validate_rows`) kontrollerar *form*: att rader finns,
 att fält är ifyllda, att nycklar är unika. Den blockerar hela publiceringen
-vid fel. Den säger ingenting om värden.
+vid fel — utom för seriens matcher och lagstatistiken, som bara hoppas över.
+Underkänns en av ligans tre satser hoppas alla tre över, så en match har allt
+eller inget. Den säger ingenting om värden.
 
 **Avstämningen** (`_reconcile`) jämför *tal som måste gå ihop*, efter
 laddningen. Den fäller aldrig en körning — datat är redan skrivet — men
@@ -132,6 +151,8 @@ Cloud Logging.
 | `goalie_saves_plus_goals_equal_shots` | räddningar + insläppta = skott emot |
 | `penalties_events_match_summary` | händelsernas utvisningsminuter mot rapportens |
 | `summary_shots_match_goalie_shots_against` | skott minus målvakternas skott emot = mål i tomt mål |
+| `league_*` | samma fem för seriens övriga matcher |
+| `league_coverage` | spelade ligamatcher äldre än ett dygn mot de med händelser |
 
 Larma på `textPayload:"Avstamningen gick inte ihop"` i Cloud Logging.
 
@@ -144,7 +165,8 @@ Larma på `textPayload:"Avstamningen gick inte ihop"` i Cloud Logging.
 | vy | avdupliceras på |
 |---|---|
 | `core.game_events`, `game_team_summary`, `game_goalies`, `game_lineups`, `game_boxscore` | `game_id` |
-| `core.schedule`, `standings`, `player_season_stats`, `goalie_season_stats`, `roster`, `player_bio` | `season_group_id` |
+| `core.league_game_events`, `league_game_summary`, `league_game_goalies` | `game_id` |
+| `core.schedule`, `standings`, `player_season_stats`, `goalie_season_stats`, `roster`, `player_bio`, `team_stats` | `season_group_id` |
 | `core.season` | — (MERGE-hanterad) |
 | `core.standings_history` | `season_group_id` + dag |
 

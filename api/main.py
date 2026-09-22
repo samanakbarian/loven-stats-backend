@@ -3,6 +3,7 @@ import json
 import logging
 
 import eliteprospects
+import serien
 import random
 import requests
 import unicodedata
@@ -776,6 +777,7 @@ _VARMNINGSVAGAR = (
     ("/api/v1/goalies", True),
     ("/api/v1/lines", True),
     ("/api/v1/shots", True),
+    ("/api/v1/league", True),
     ("/api/v1/onice", True),
     ("/api/v1/lovenlaget", False),
     ("/api/v1/feed?limit=200", False),
@@ -2527,6 +2529,112 @@ def get_shots(season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/shots")
         return {"status": "error", "error": str(e), "game_log": []}
+
+
+@app.get("/api/v1/league")
+@cached_ok(cache=stats_cache)
+def get_league(season: str = None, refresh: bool = False):
+    """Seriens lag sida vid sida, med vart lags placering i varje matt.
+
+    Kallan ar Swehockeys egen lagstatistik (core.team_stats): powerplay,
+    boxplay, skott, raddningar, tekningar och utvisningar for alla fjorton
+    lag. Seriens ovriga matcher (feature 26) ger formen — de fem senaste
+    resultaten — och tackningen visar hur manga av seriens matcher som finns
+    match for match.
+
+    Placeringen delas vid lika varde. Grundserien, inte slutspelet: ett
+    slutspel ar for fa matcher mellan for fa lag for att jamfora.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular = int(active["regular"])
+
+        try:
+            rows = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT section, grp, team_code, team_name, games_played, metric, value
+                    FROM `{bq.project}.core.team_stats`
+                    WHERE season_group_id = {regular}
+                    """
+                ).result()
+            ]
+        except Exception:
+            # Vyn finns forst efter deploy.sh views och en skorning.
+            return {"status": "not_found", "error": "Lagstatistik saknas for sasongen.", "teams": []}
+        if not rows:
+            return {"status": "not_found", "error": "Lagstatistik saknas for sasongen.", "teams": []}
+
+        table = serien.fran_lagstatistik(rows, lambda n: bool(BJK_HOME.search(n or "")))
+
+        # Formen ur schemat, som tacker hela serien. Senaste fem, nyast sist.
+        schedule = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, match_date, home_team, away_team, result, period_results
+                FROM `{bq.project}.core.schedule`
+                WHERE season_group_id = {regular}
+                """
+            ).result()
+        ]
+        played = []
+        for g in schedule:
+            m = re.match(r"\s*(\d+)\s*-\s*(\d+)", str(g.get("result") or ""))
+            if m:
+                played.append((str(g.get("match_date") or ""), g, int(m.group(1)), int(m.group(2))))
+        played.sort(key=lambda x: x[0])
+        form: dict[str, list[dict]] = {}
+        for date, g, hg, ag in played:
+            ot = len([p for p in str(g.get("period_results") or "").split(",") if re.search(r"\d", p)]) > 3
+            for team, gf, ga, home in ((g["home_team"], hg, ag, True), (g["away_team"], ag, hg, False)):
+                form.setdefault(team, []).append({
+                    "date": date, "gf": gf, "ga": ga, "is_home": home, "ot": ot,
+                    "opponent": g["away_team"] if home else g["home_team"],
+                })
+        for t in table["teams"]:
+            t["form"] = form.get(t["team"], [])[-5:]
+
+        # Tackning av feature 26: seriens spelade matcher mot de som har
+        # lagsummering, vara och ovrigas. Far saknas utan att svaret faller.
+        coverage = {"played": len({g.get("game_id") for _, g, _, _ in played if g.get("game_id")})}
+        try:
+            n = next(iter(bq.query(
+                f"""
+                SELECT COUNT(DISTINCT game_id) AS n FROM (
+                  SELECT game_id FROM `{bq.project}.core.game_team_summary` WHERE season_group_id = {regular}
+                  UNION ALL
+                  SELECT game_id FROM `{bq.project}.core.league_game_summary` WHERE season_group_id = {regular}
+                )
+                """
+            ).result()))
+            coverage["with_summary"] = int(n["n"])
+        except Exception:
+            coverage["with_summary"] = None
+
+        stamp = None
+        try:
+            stamp = next(iter(bq.query(
+                f"SELECT MAX(scraped_at) AS t FROM `{bq.project}.core.team_stats` WHERE season_group_id = {regular}"
+            ).result()))["t"]
+        except Exception:
+            pass
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "updated_at": stamp.isoformat() if stamp else None,
+            "teams": table["teams"],
+            "league": table["league"],
+            "higher_is_better": serien.LAGMATT,
+            "coverage": coverage,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/league")
+        return {"status": "error", "error": str(e), "teams": []}
 
 
 @app.get("/api/v1/goalies")

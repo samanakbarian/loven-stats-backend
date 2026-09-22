@@ -13,11 +13,21 @@ första omgången. Nästa match är borta mot Örebro den 24 september.
 
 Frontend är live på `sida377.se`. Backend är live på Cloud Run.
 
-**Odeployat just nu:** `663d6ac` i backend — cachen som slutar hämta om
-säsongens målhändelser för varje spelarprofil.
+**Odeployat just nu:** `663d6ac` (cachen för spelarprofilernas målhändelser)
+och feature 26 — seriens matcher, Swehockeys lagstatistik och
+`/api/v1/league`. Ordningen spelar roll: vyerna först, sedan scrapern (som kör
+en gång och fyller tabellerna), sist API:t.
 
 ```
-cd ~/loven-stats-backend && git pull origin master && bash deploy.sh api
+cd ~/loven-stats-backend && git pull origin master && bash deploy.sh views && bash deploy.sh scraper && bash deploy.sh api
+```
+
+Förra säsongen för jämförelse — HA 25/26:s lagstatistik och dess 364 matcher.
+Tidsbudgeten gör att det blir tre-fyra körningar; kör samma rad tills
+`league_events` laddar 0 rader.
+
+```
+cd ~/loven-stats-backend && EVENTS_LIMIT=0 bash deploy.sh backfill
 ```
 
 Frontend behöver aldrig deployas för hand. Netlify bygger på push till `main`.
@@ -56,6 +66,29 @@ målvaktsstatistik hämtas varje gång; matchhändelser, uppställningar och
 protokoll bara för lagets egna matcher, och bara inom `SWEHOCKEY_REFRESH_DAYS`
 (21). En rättelse som kommer senare än så når säsongssiffrorna men inte
 matchrapporten. Det är ett medvetet val — se "Öppna punkter".
+
+## Feature 26 och lagstatistiken
+
+Seriens övriga matcher hämtas nu, händelsesidan en gång per match, i egna
+tabeller (`swehockey_league_game_*`). Våra tabeller rörs inte: en hel körning
+mot Swehockey gav dem rad för rad identiska före och efter.
+
+Under arbetet dök Swehockeys egen lagstatistik upp — `/Teams/Statistics/`, nio
+sidor per serie med powerplay, boxplay, skott, tekningar, utvisningar, ledning
+och underläge. Den är facit och hämtas också (`swehockey_team_stats`). Mätt
+över HA 25/26 går mål, skott för och emot, powerplaymål och insläppta i boxplay
+ihop exakt med det vi räknar ur matcherna, för alla fjorton lag.
+
+**Powerplaytillfällen går inte att räkna ur händelserna.** Swehockey slår ihop
+överlappande utvisningar och stryker samtidiga på ett sätt som listan inte
+visar; bästa regeln träffade 83 procent av matcherna. Ta dem ur lagstatistiken.
+`/api/v1/analytics` räknar fortfarande varje utvisning som ett tillfälle, så
+dess PP-procent ligger lägre än Swehockeys. Den är inte ändrad — det är nästa
+sak att flytta över.
+
+Frontend: kortet Serien under Statistik → Laget (vårt värde, placering och alla
+lag på en linje per mått), Skott och tur (skottandel mot PDO för alla lag) och
+fyra nya rader i Inför matchen. Alla väntar till tre omgångar spelats.
 
 ## Buggmönstret i seriestarten
 
@@ -160,6 +193,11 @@ Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
   källan är uppställningssidans struktur — första raden är de tre forwardsen,
   andra backparet. Kräver en kolumn till i råtabellen och en omskördning.
 - 88 requests från HeadlessChrome i Cloudflares loggar är oidentifierade.
+- `/api/v1/analytics` specialteam ur lagstatistiken i stället för
+  händelserna, se ovan.
+- Matchrapporten kan sätta lagets siffror mot seriens matcher ("18 skott —
+  färre än i nio av tio matcher i år") när det finns ett hundratal att jämföra
+  med. Underlaget finns i `core.league_game_summary`.
 - Backlogg: feature 27 (live), 33 (serveringslager), 34 (prediktioner),
   35 (matchdriven skörd), `SEC-002`–`SEC-006`, samt städlistan i
   `docs/STADLISTA.md`.
