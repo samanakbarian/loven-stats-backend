@@ -196,12 +196,21 @@ Tre normaliseringar som datat kräver:
 ### 3.4 Två plus/minus, med flit
 
 `fact_player_game` bär både `official_plus_minus` (Swehockeys, ur rapporten)
-och `plus_minus_on_ice` (vårt, ur händelsernas `Pos./Neg. Part.`). De skiljer
-sig med ungefär sexton procent åt båda hållen, konsekvent, över hela säsongen.
-Skillnaden beror på ett underlag vi inte ser på händelsesidan.
+och `plus_minus_on_ice` (vårt, ur händelsernas `Pos./Neg. Part.`).
+
+**Skillnaden är känd och avsiktlig.** Plus/minus räknar bara mål i lika
+styrka och i numerärt underläge; powerplaymål och straffar ger inget utslag.
+`plus_minus_on_ice` räknar alla mål medan spelaren stod på isen, oavsett
+spelform. Ett lag som gör många powerplaymål får därför ett on-ice-tal som
+ligger klart över det officiella — Marcus Nilsson hade +30 mot +50 i HA
+25/26.
+
+En tidigare version av det här stycket beskrev skillnaden som ett okänt
+underlag på cirka sexton procent. Det var fel: den är helt förklarad av
+spelformen.
 
 **Kalibrera inte bort skillnaden med en faktor.** De redovisas bredvid
-varandra.
+varandra, och sajten skriver ut vad som skiljer dem.
 
 ---
 
