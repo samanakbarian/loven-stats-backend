@@ -6214,180 +6214,17 @@ def _has_item_from_today_utc(items):
     return False
 
 
+# Gemini-anropen i X-flödet ar borttagna. Sammanfattningen och
+# sentimentet visades aldrig pa sajten, men varmhallningen byggde om flodet
+# varje halvtimme nar senaste tweeten var aldre an tolv timmar — tva
+# Gemini-anrop per gang, dygnet runt. Faltet finns kvar i svaret sa att
+# klienten inte behover andras; etiketterna ar heuristikens.
 def _build_x_ai_summary(items):
-    if not X_AI_ENABLED:
-        return {"enabled": False, "summary": "", "model": None, "error": "disabled"}
-    if not GEMINI_API_KEY:
-        return {"enabled": True, "summary": "", "model": X_AI_MODEL, "error": "missing_api_key"}
-    if not items:
-        return {"enabled": True, "summary": "Inga relevanta inlägg just nu.", "model": X_AI_MODEL, "error": None}
-    top = items[:20]
-    compact_lines = []
-    for i, item in enumerate(top, 1):
-        compact_lines.append(f"{i}. @{item.get('author_username','okand')}: {item.get('text','')[:220]}")
-    prompt = (
-        "Du analyserar ett svenskt socialt flöde om Björklöven.\n"
-        "Skriv en kort sammanfattning på svenska (max 90 ord):\n"
-        "1) Övergripande ton\n"
-        "2) Viktigaste ämnen\n"
-        "3) En tydlig risk eller möjlighet.\n"
-        "Hitta inte på fakta utanför inläggen.\n\n"
-        "Inlägg:\n" + "\n".join(compact_lines)
-    )
-    def fallback_summary():
-        positives = sum(1 for i in items if i.get("sentiment_label") == "positive")
-        negatives = sum(1 for i in items if i.get("sentiment_label") == "negative")
-        neutrals = sum(1 for i in items if i.get("sentiment_label") == "neutral")
-        top = sorted(items, key=lambda i: (i.get("public_metrics", {}).get("like_count", 0) + i.get("public_metrics", {}).get("retweet_count", 0) * 2), reverse=True)[:2]
-        topics = ", ".join([f"@{t.get('author_username','okänd')}" for t in top]) if top else "inga tydliga toppsignaler"
-        tone = "övervägande neutral" if neutrals >= max(positives, negatives) else ("övervägande positiv" if positives > negatives else "övervägande negativ")
-        return (
-            f"Flödet är {tone}. Positiva signaler: {positives}, negativa: {negatives}, neutrala: {neutrals}. "
-            f"Mest synliga konton just nu: {topics}. Fokus ligger främst på truppsnack, rykten och SHL-uppladdning."
-        )
-
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{X_AI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 220}}
-        res = requests.post(url, json=body, timeout=25)
-        if res.status_code != 200:
-            return {"enabled": True, "summary": fallback_summary(), "model": X_AI_MODEL, "error": f"gemini_http_{res.status_code}"}
-        payload = res.json()
-        parts = (
-            payload.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [])
-        )
-        text = " ".join([p.get("text", "").strip() for p in parts if isinstance(p, dict) and p.get("text")]).strip()
-        if len(text) < 60:
-            text = fallback_summary()
-        return {"enabled": True, "summary": text.strip(), "model": X_AI_MODEL, "error": None}
-    except Exception as e:
-        logging.warning(f"Gemini X summary failed: {e}")
-        return {"enabled": True, "summary": fallback_summary(), "model": X_AI_MODEL, "error": "gemini_failed"}
+    return {"enabled": False, "summary": "", "model": None, "error": "disabled"}
 
 
 def _x_apply_batch_llm_sentiment(items):
-    """
-    Classify sentiment for many tweets in one LLM call.
-    Falls back silently to heuristic labels already present on items.
-    """
-    if not items:
-        return items, {"enabled": False, "model": None, "error": "no_items"}
-    if not X_AI_ENABLED:
-        return items, {"enabled": False, "model": None, "error": "disabled"}
-    if not GEMINI_API_KEY:
-        return items, {"enabled": True, "model": X_AI_MODEL, "error": "missing_api_key"}
-
-    top = items[:60]
-    lines = []
-    for item in top:
-        tid = str(item.get("id") or "")
-        text = (item.get("text") or "").replace("\n", " ").strip()
-        text = text[:280]
-        lines.append(f"{tid}\t{text}")
-
-    prompt = (
-        "You are classifying Swedish hockey tweets for sentiment.\n"
-        "Return ONLY valid JSON as an array.\n"
-        "Each element must be: {\"id\":\"<tweet_id>\",\"label\":\"positive|neutral|negative\",\"score\":0-100}.\n"
-        "Use conservative labels. If uncertain, use neutral.\n\n"
-        "Tweets:\n" + "\n".join(lines)
-    )
-
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{X_AI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": 1200,
-                "response_mime_type": "application/json",
-            },
-        }
-        res = requests.post(url, json=body, timeout=30)
-        if res.status_code != 200:
-            return items, {"enabled": True, "model": X_AI_MODEL, "error": f"gemini_http_{res.status_code}"}
-
-        payload = res.json()
-        parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        raw = " ".join([p.get("text", "") for p in parts if isinstance(p, dict)]).strip()
-        if not raw:
-            return items, {"enabled": True, "model": X_AI_MODEL, "error": "empty_response"}
-
-        # Remove code fences if present.
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        arr = None
-        # 1) Direct JSON parse (array or object)
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                arr = parsed
-            elif isinstance(parsed, dict):
-                for key in ("items", "results", "tweets", "classifications"):
-                    if isinstance(parsed.get(key), list):
-                        arr = parsed.get(key)
-                        break
-        except Exception:
-            pass
-
-        # 2) Fallback: extract first JSON array substring
-        if arr is None:
-            start = raw.find("[")
-            end = raw.rfind("]")
-            if start != -1 and end != -1 and end > start:
-                try:
-                    arr = json.loads(raw[start:end + 1])
-                except Exception:
-                    arr = None
-
-        # 3) Fallback: JSON lines
-        if arr is None:
-            rows = []
-            for line in raw.splitlines():
-                line = line.strip().rstrip(",")
-                if not line.startswith("{"):
-                    continue
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, dict):
-                        rows.append(obj)
-                except Exception:
-                    continue
-            if rows:
-                arr = rows
-
-        if not isinstance(arr, list):
-            return items, {"enabled": True, "model": X_AI_MODEL, "error": "invalid_json_shape"}
-
-        by_id = {}
-        for row in arr:
-            if not isinstance(row, dict):
-                continue
-            rid = str(row.get("id") or "")
-            label = str(row.get("label") or "").lower()
-            score = int(row.get("score") or 50)
-            if not rid or label not in ("positive", "neutral", "negative"):
-                continue
-            score = max(0, min(100, score))
-            by_id[rid] = (label, score)
-
-        updated = 0
-        out = []
-        for item in items:
-            rid = str(item.get("id") or "")
-            if rid in by_id:
-                label, score = by_id[rid]
-                item = dict(item)
-                item["sentiment_label"] = label
-                item["sentiment_score"] = score
-                updated += 1
-            out.append(item)
-
-        return out, {"enabled": True, "model": X_AI_MODEL, "error": None, "updated": updated}
-    except Exception as e:
-        logging.warning(f"Gemini batch sentiment failed: {e}")
-        return items, {"enabled": True, "model": X_AI_MODEL, "error": "gemini_failed"}
+    return items, {"enabled": False, "model": None, "error": "disabled"}
 
 
 def _build_x_payload(query: str, max_results: int):
@@ -6496,18 +6333,18 @@ def _build_x_payload_with_fallback(max_results: int):
 @cached(cache=xfeed_cache)
 def get_x_feed(force_refresh: bool = Query(False)):
     cached = _load_x_cache()
+    # Förr kastades cachen när senaste tweeten var över tolv timmar gammal.
+    # Björklöven twittrar sällan så ofta, så flödet hämtades om från X vid
+    # varje varmhållning. Cachens egen tid räcker.
     if not force_refresh and _cache_is_fresh(cached):
-        # Do not serve "fresh" cache if content itself is stale.
         cached_items = cached.get("items", []) if isinstance(cached, dict) else []
-        latest_age_hours = _latest_item_age_hours(cached_items)
-        if latest_age_hours is None or latest_age_hours <= 12:
-            cached.setdefault("meta", {})
-            cached["meta"]["from_cache"] = True
-            cached["meta"]["latest_item_age_hours"] = latest_age_hours
-            return JSONResponse(
-                content=cached,
-                headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
-            )
+        cached.setdefault("meta", {})
+        cached["meta"]["from_cache"] = True
+        cached["meta"]["latest_item_age_hours"] = _latest_item_age_hours(cached_items)
+        return JSONResponse(
+            content=cached,
+            headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
+        )
     payload = _build_x_payload_with_fallback(X_MAX_RESULTS_DEFAULT)
     payload.setdefault("meta", {})
     payload["meta"]["from_cache"] = False
