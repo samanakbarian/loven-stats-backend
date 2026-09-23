@@ -233,12 +233,25 @@ ev_team AS (
 -- plus/minus ar Swehockeys officiella. Det skiljer sig fran vart on-ice-tal
 -- med ungefar sexton procent — se dokumentationen — sa de star bredvid
 -- varandra i stallet for att ersatta varandra.
+-- Rapporten kortar langa namn ("EKESTÅHL-JONSSON Luka") och handelserna
+-- skiljer namnar at med position ("Forsberg, Fredrik (RW)"). Namnet anvands
+-- nar det finns i uppstallningen, annars troja och lag.
 box AS (
-  SELECT game_id, player_name AS player_key, team_name,
-         shots, official_plus_minus, faceoffs_won, faceoffs_lost, faceoff_pct,
-         pim AS official_pim
-  FROM `@PROJECT@.core.game_boxscore`
-  WHERE role = 'skater' AND player_name IS NOT NULL
+  SELECT b.game_id,
+         COALESCE(ln.player_key, lnr.player_key, b.player_name) AS player_key,
+         b.team_name,
+         b.shots, b.official_plus_minus, b.faceoffs_won, b.faceoffs_lost, b.faceoff_pct,
+         b.pim AS official_pim
+  FROM `@PROJECT@.core.game_boxscore` b
+  LEFT JOIN (SELECT DISTINCT game_id, player_key FROM lineup) ln
+    ON ln.game_id = b.game_id AND ln.player_key = b.player_name
+  LEFT JOIN (
+    SELECT game_id, team_name, player_number, ANY_VALUE(player_key) AS player_key
+    FROM lineup GROUP BY game_id, team_name, player_number
+  ) lnr
+    ON lnr.game_id = b.game_id AND lnr.team_name = b.team_name
+   AND lnr.player_number = b.player_number
+  WHERE b.role = 'skater' AND b.player_name IS NOT NULL
 ),
 keys AS (
   SELECT game_id, season_group_id, player_key FROM scoring
