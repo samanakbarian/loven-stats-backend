@@ -45,7 +45,9 @@ def las(katalog: str) -> list[tuple[str, list[mm.Match]]]:
             if o is None:
                 continue
             h, a, vidare = o
+            slut = [int(x) for x in str(g.get("result") or "").replace(" ", "").split("-")[:2]]
             matcher.append(mm.Match(
+                vann_hemma_ot=(slut[0] > slut[1]) if vidare else None,
                 dag=date.fromisoformat(str(g["match_date"])[:10]),
                 hemma=mm.lagnyckel(g["home_team"]), borta=mm.lagnyckel(g["away_team"]),
                 h=h, a=a, vidare=vidare,

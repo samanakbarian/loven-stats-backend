@@ -2219,6 +2219,45 @@ def get_player(name: str, season: str = None, refresh: bool = False):
         return {"status": "error", "name": name, "error": str(e), "game_log": []}
 
 
+def _shl_historik(bq) -> list[dict]:
+    """SHL:s schema de senaste tre åren, alla lag. Underlag för matchmodellen."""
+    return [
+        dict(r.items())
+        for r in bq.query(
+            f"""
+            SELECT s.season_group_id, s.match_date, s.match_time, s.home_team, s.away_team,
+                   s.result, s.period_results, s.game_id
+            FROM `{bq.project}.core.schedule` s
+            WHERE s.season_group_id IN (
+                SELECT regular_season_id FROM `{bq.project}.core.season`
+                WHERE LOWER(league) = 'shl' AND regular_season_id IS NOT NULL
+            )
+              AND SAFE_CAST(s.match_date AS DATE) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 YEAR)
+            """
+        ).result()
+    ]
+
+
+def _skatta_matchmodell(rows: list[dict], pa) -> "matchmodell.Skattning | None":
+    spelade = []
+    for r in rows:
+        try:
+            dag = datetime.fromisoformat(str(r.get("match_date"))[:10]).date()
+        except ValueError:
+            continue
+        o = matchmodell.ordinarie(r.get("result"), r.get("period_results"))
+        if o is None:
+            continue
+        h, a, vidare = o
+        spelade.append(matchmodell.Match(
+            dag=dag, hemma=matchmodell.lagnyckel(r["home_team"]),
+            borta=matchmodell.lagnyckel(r["away_team"]), h=h, a=a, vidare=vidare,
+        ))
+    if not spelade:
+        return None
+    return matchmodell.skatta(spelade, pa, matchmodell.Parametrar())
+
+
 @app.get("/api/v1/prediction")
 @cached_ok(cache=stats_cache)
 def get_prediction(season: str = None, refresh: bool = False):
@@ -2237,21 +2276,7 @@ def get_prediction(season: str = None, refresh: bool = False):
             return {"status": "not_found", "error": "Matchmodellen finns bara for SHL.", "games": []}
 
         idag = datetime.now(timezone.utc).date()
-        rows = [
-            dict(r.items())
-            for r in bq.query(
-                f"""
-                SELECT s.season_group_id, s.match_date, s.match_time, s.home_team, s.away_team,
-                       s.result, s.period_results, s.game_id
-                FROM `{bq.project}.core.schedule` s
-                WHERE s.season_group_id IN (
-                    SELECT regular_season_id FROM `{bq.project}.core.season`
-                    WHERE LOWER(league) = 'shl' AND regular_season_id IS NOT NULL
-                )
-                  AND SAFE_CAST(s.match_date AS DATE) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 YEAR)
-                """
-            ).result()
-        ]
+        rows = _shl_historik(bq)
         spelade: list = []
         kommande: list[dict] = []
         for r in rows:
@@ -2442,9 +2467,41 @@ def get_projection(
         elo_base = [elo.get(t, 1500.0) for t in teams]
         rank_counts = [[0] * len(teams) for _ in teams]
         totals = [[] for _ in teams]
+
+        # SHL simuleras med matchmodellen, samma som ger matchprognosen, så
+        # tabellprognos och matchprognos inte kan säga olika saker. Den slog
+        # Elo i provet mot SHL 2022/23–2025/26, och osäkerheten (sigma 0,09)
+        # är kalibrerad så att slutpoängen hamnade inom p10–p90 i 81 procent
+        # av fallen på inställningsåren och 87 på provåren — se
+        # scripts/kalibrera_simulering.py. Elo står kvar som reserv, och för
+        # Allsvenskan där modellen inte är provad.
+        modell = "elo"
+        if str(active.get("key", "")).startswith("shl") and games:
+            try:
+                sk = _skatta_matchmodell(_shl_historik(bq), datetime.now(timezone.utc).date() + timedelta(days=1))
+                if sk is not None:
+                    nyckel = {t: matchmodell.lagnyckel(t) for t in teams}
+                    res = matchmodell.simulera(
+                        sk,
+                        [(nyckel[teams[h]], nyckel[teams[a]]) for h, a in games],
+                        {nyckel[t]: base.get(t, 0) for t in teams},
+                        matchmodell.Parametrar(),
+                        antal=n,
+                        sigma=0.09,
+                    )
+                    if all(nyckel[t] in res for t in teams):
+                        for t in teams:
+                            rank_counts[idx[t]] = res[nyckel[t]]["placering"][: len(teams)]
+                            totals[idx[t]] = res[nyckel[t]]["poang"]
+                        modell = "matchmodell"
+            except Exception:
+                logging.warning("Matchmodellen kunde inte simulera, faller tillbaka pa Elo", exc_info=True)
+                rank_counts = [[0] * len(teams) for _ in teams]
+                totals = [[] for _ in teams]
+
         rnd = random.Random(20260919)
 
-        for _ in range(n):
+        for _ in range(n if modell == "elo" else 0):
             drawn = [e + rnd.gauss(0, RATING_SIGMA) for e in elo_base]
             pts = start[:]
             for hi, ai in games:
@@ -2511,6 +2568,7 @@ def get_projection(
             "games_remaining": len(games),
             "simulations": n,
             "rating_sigma": RATING_SIGMA,
+            "model": modell,
             "ot_rate_pct": round(ot_rate * 100, 1),
             # Innan sasongen borjat delar alla lag rating, och siffrorna sager
             # da bara nagot om spelschemat. Sag det i stallet for att lata dem

@@ -73,6 +73,9 @@ class Match:
     a: int
     vidare: bool
     vikt_extra: float = 1.0
+    # Vem som vann efter full tid, när matchen gick vidare. Behövs för
+    # poängen, inte för målmodellen.
+    vann_hemma_ot: bool | None = None
 
 
 @dataclass
@@ -230,3 +233,71 @@ def nykomlingar_for(sasonger: list[list[Match]], index: int) -> set[str]:
     fore = {t for m in sasonger[index - 1] for t in (m.hemma, m.borta)}
     nu = {t for m in sasonger[index] for t in (m.hemma, m.borta)}
     return nu - fore
+
+
+def simulera(
+    s: Skattning,
+    kvar: list[tuple[str, str]],
+    start: dict[str, int],
+    par: Parametrar,
+    antal: int = 5000,
+    sigma: float = 0.10,
+    seed: int = 20260919,
+) -> dict[str, dict]:
+    """Resten av säsongen, spelad `antal` gånger med modellens sannolikheter.
+
+    Styrkorna är skattade, inte kända. Varje simulering drar därför en
+    avvikelse per lag, N(0, sigma) på målskalan, och låter den gälla hela
+    säsongen — utan den blir intervallen för smala. Sannolikheterna för varje
+    match räknas i förväg på ett rutnät av avvikelser, så simuleringen inte
+    behöver räkna Poisson femtusen gånger per match.
+
+    Poäng: tre för vinst i ordinarie tid, två för vinst efter förlängning,
+    en för förlust efter förlängning.
+    """
+    import random
+
+    lag = sorted(set(start) | {t for m in kvar for t in m})
+    ix = {t: i for i, t in enumerate(lag)}
+    steg = np.linspace(-4 * sigma, 4 * sigma, 33) if sigma > 0 else np.array([0.0])
+    tabeller = []
+    for h, a in kvar:
+        rad = []
+        for d in steg:
+            u = utfall(Skattning(s.niva, s.hemma,
+                                 {h: s.anfall.get(h, 0.0) + d / 2, a: s.anfall.get(a, 0.0) - d / 2},
+                                 {h: s.forsvar.get(h, 0.0) + d / 2, a: s.forsvar.get(a, 0.0) - d / 2}),
+                       h, a, par)
+            rad.append((u["hemma_ordinarie"], u["hemma_ordinarie"] + u["forlangning"]))
+        tabeller.append((ix[h], ix[a], rad))
+
+    rnd = random.Random(seed)
+    n = len(lag)
+    placering = [[0] * n for _ in range(n)]
+    totaler: list[list[int]] = [[] for _ in range(n)]
+    bas = [start.get(t, 0) for t in lag]
+    for _ in range(antal):
+        avv = [rnd.gauss(0.0, sigma) if sigma > 0 else 0.0 for _ in range(n)]
+        p = bas[:]
+        for hi, ai, rad in tabeller:
+            d = avv[hi] - avv[ai]
+            k = 0 if len(steg) == 1 else int(round((d - steg[0]) / (steg[1] - steg[0])))
+            k = max(0, min(len(rad) - 1, k))
+            p_h, p_hd = rad[k]
+            r = rnd.random()
+            if r < p_h:
+                p[hi] += 3
+            elif r < p_hd:
+                if rnd.random() < par.ot_hemma:
+                    p[hi] += 2; p[ai] += 1
+                else:
+                    p[ai] += 2; p[hi] += 1
+            else:
+                p[ai] += 3
+        # Lika poäng delas slumpvis: målskillnaden simuleras inte, och att
+        # skilja på namn vore precis det fel tabellen hade i premiären.
+        ordning = sorted(range(n), key=lambda i: (-p[i], rnd.random()))
+        for plats, i in enumerate(ordning):
+            placering[i][plats] += 1
+            totaler[i].append(p[i])
+    return {t: {"placering": placering[ix[t]], "poang": totaler[ix[t]]} for t in lag}

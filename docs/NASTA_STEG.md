@@ -105,8 +105,13 @@ Björklöven startar som ett genomsnittligt SHL-lag. En start ur hur
 nyuppflyttade lag brukat klara sig gjorde prognosen sämre de senaste fyra
 åren och är avstängd. Stapeln visas från tredje omgången.
 
-Simuleringen använder fortfarande Elo. Att flytta den till samma modell är
-nästa steg.
+Slutplaceringssimuleringen (`/api/v1/projection`) använder samma modell för
+SHL, med osäkerheten kalibrerad mot historiken (`scripts/kalibrera_simulering.py`):
+slutpoängen hamnade inom p10–p90 i 81 procent av fallen på inställningsåren
+och 87 på provåren. Elo står kvar som reserv och för Allsvenskan.
+
+Istid för utespelare finns inte: kolumnen står i Swehockeys matchrapport men
+är tom, även 26/27. Bara målvakternas istid fylls i.
 
 ## Buggmönstret i seriestarten
 

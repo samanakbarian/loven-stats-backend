@@ -1668,7 +1668,8 @@ mot SHL speldag för speldag (`scripts/backtest_matchmodell.py`): inställd på
 2016/17–2021/22, bedömd på 2022/23–2025/26 — log-loss 1,046 mot Elos 1,057
 och basfrekvensens 1,060, välkalibrerad. `/api/v1/prediction`, stapeln i
 Inför matchen efter tre omgångar. Nykomlingsstart prövad och förkastad, se
-Parametrar. Kvar: simuleringen (B) på samma modell i stället för Elo.
+Parametrar. Simuleringen flyttad till samma modell samma dag, med kalibrerad
+osäkerhet (scripts/kalibrera_simulering.py).
 
 Typ: Modell / Produkt
 Prioritet: A fore premiaren, B-D efter
