@@ -156,6 +156,11 @@ Tumregeln: **kontrollera mot Swehockeys egen sida innan du skyller på vår
 kod**, och tvärtom — kontrollera vår parser mot sparad HTML innan du skyller
 på Swehockey. Båda har haft fel den här veckan.
 
+Namnen skiljer sig också mellan källorna. Matchrapportens PDF kortar långa
+namn ("EKESTÅHL-JONSSON Luka"), och händelserna skriver position efter
+namnar ("Forsberg, Fredrik (RW)"). `fact_player_game` kopplar därför
+rapporten på namn i första hand, annars på lag och tröja.
+
 ## Hur ägaren vill ha det
 
 - **Kort.** Sidan är statistik, inte en uppsats. En not på två meningar är för
@@ -216,8 +221,6 @@ Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
   källan är uppställningssidans struktur — första raden är de tre forwardsen,
   andra backparet. Kräver en kolumn till i råtabellen och en omskördning.
 - 88 requests från HeadlessChrome i Cloudflares loggar är oidentifierade.
-- `/api/v1/analytics` specialteam ur lagstatistiken i stället för
-  händelserna, se ovan.
 - Matchrapporten kan sätta lagets siffror mot seriens matcher ("18 skott —
   färre än i nio av tio matcher i år") när det finns ett hundratal att jämföra
   med. Underlaget finns i `core.league_game_summary`.
