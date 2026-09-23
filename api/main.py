@@ -10,7 +10,7 @@ import requests
 import unicodedata
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from google.cloud import storage
 from google.cloud import bigquery
 from collections import Counter
@@ -1267,52 +1267,6 @@ def _motstandarens_spelare(bq, regular: int, them: str, played: list[dict]) -> d
             "gaa": g.get("gaa"),
         }
     return {"players": spelare, "goalie": malvakt, "games_last": len(senaste)}
-
-
-@cached_ok(cache=stats_cache)
-def _kalender(season: str = None, refresh: bool = False) -> dict:
-    import kalender
-
-    bq = bigquery.Client(project=BQ_PROJECT_ID or None)
-    active = lookup_season(season)
-    grupper = [int(g) for g in (active.get("regular"), active.get("playoff")) if g]
-    rader = [
-        dict(r.items())
-        for r in bq.query(
-            f"""
-            SELECT match_date, match_time, home_team, away_team, result, venue
-            FROM `{bq.project}.core.schedule`
-            WHERE season_group_id IN ({",".join(str(g) for g in grupper)})
-            ORDER BY match_date, match_time
-            """
-        ).result()
-    ]
-    vara = [r for r in rader if BJK_HOME.search(str(r.get("home_team") or ""))
-            or BJK_HOME.search(str(r.get("away_team") or ""))]
-    if not vara:
-        return {"status": "not_found"}
-    ics = kalender.bygg(vara, active["key"], active["name"], datetime.utcnow())
-    return {"status": "ok", "ics": ics}
-
-
-@app.get("/api/v1/kalender.ics")
-def get_kalender(season: str = None):
-    """Spelschemat som kalenderflöde. Prenumereras på, laddas inte ned."""
-    try:
-        svar = _kalender(season)
-    except Exception:
-        logging.exception("Kalendern kunde inte byggas")
-        return Response("Kalendern kunde inte byggas.", status_code=503, media_type="text/plain")
-    if svar.get("status") != "ok":
-        return Response("Spelschemat saknas.", status_code=404, media_type="text/plain")
-    return Response(
-        svar["ics"],
-        media_type="text/calendar; charset=utf-8",
-        headers={
-            "Content-Disposition": 'inline; filename="bjorkloven.ics"',
-            "Cache-Control": "public, max-age=3600",
-        },
-    )
 
 
 @app.get("/api/v1/next-match")
