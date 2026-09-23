@@ -1179,6 +1179,96 @@ def get_season_preview(refresh: bool = False):
         return {"status": "error", "error": str(e)}
 
 
+def _motstandarens_spelare(bq, regular: int, them: str, played: list[dict]) -> dict:
+    """Motstandarens poangbasta utespelare och forstemalvakt.
+
+    Sasongssiffrorna kommer ur Swehockeys spelarstatistik, dar team_code ar
+    lagets fulla namn. Poangen i de senaste fem matcherna raknas ur
+    handelserna: vara matcher i game_events, ovriga i league_game_events.
+    Spelarna kanns igen pa namn, inte lagkod — handelsernas lagkoder ar
+    forkortningar som inte finns i statistiken.
+    """
+    param = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("lag", "STRING", str(them)),
+    ])
+    skaters = [
+        dict(r.items())
+        for r in bq.query(
+            f"""
+            SELECT player_name, jersey_number, position, games_played, goals, assists, points
+            FROM `{bq.project}.core.player_season_stats`
+            WHERE season_group_id = {int(regular)} AND team_code = @lag
+              AND games_played > 0
+            """,
+            job_config=param,
+        ).result()
+    ]
+    goalies = [
+        dict(r.items())
+        for r in bq.query(
+            f"""
+            SELECT goalie_name, games_played, save_pct, gaa, shots_against
+            FROM `{bq.project}.core.goalie_season_stats`
+            WHERE season_group_id = {int(regular)} AND team_code = @lag
+            """,
+            job_config=param,
+        ).result()
+    ]
+
+    names = {str(p["player_name"]) for p in skaters}
+    senaste = [r.get("game_id") for r in _form_rows(played, them)]
+    senaste = [int(g) for g in senaste if g is not None]
+    form: dict[str, int] = {}
+    if senaste and names:
+        ids = ",".join(str(g) for g in senaste)
+        for tabell in ("game_events", "league_game_events"):
+            try:
+                for r in bq.query(
+                    f"""
+                    SELECT player_name, assist1_name, assist2_name
+                    FROM `{bq.project}.core.{tabell}`
+                    WHERE event_type = 'goal' AND game_id IN ({ids})
+                      AND NOT REGEXP_CONTAINS(IFNULL(score_state, ''), r'\(GWS\)')
+                    """
+                ).result():
+                    for n in (r["player_name"], r["assist1_name"], r["assist2_name"]):
+                        if n and n in names:
+                            form[n] = form.get(n, 0) + 1
+            except Exception:
+                logging.info("Kunde inte lasa %s for motstandaren", tabell, exc_info=True)
+
+    topp = sorted(
+        skaters,
+        key=lambda p: (-(p.get("points") or 0), -(p.get("goals") or 0),
+                       p.get("games_played") or 0, str(p["player_name"])),
+    )[:3]
+    spelare = [
+        {
+            "name": p["player_name"],
+            "number": p.get("jersey_number"),
+            "position": p.get("position"),
+            "games_played": p.get("games_played"),
+            "goals": p.get("goals"),
+            "assists": p.get("assists"),
+            "points": p.get("points"),
+            "points_last5": form.get(str(p["player_name"]), 0),
+        }
+        for p in topp if (p.get("points") or 0) > 0
+    ]
+
+    malvakt = None
+    spelat = [g for g in goalies if (g.get("games_played") or 0) > 0]
+    if spelat:
+        g = max(spelat, key=lambda g: (g.get("games_played") or 0, g.get("shots_against") or 0))
+        malvakt = {
+            "name": g["goalie_name"],
+            "games_played": g.get("games_played"),
+            "save_pct": g.get("save_pct"),
+            "gaa": g.get("gaa"),
+        }
+    return {"players": spelare, "goalie": malvakt, "games_last": len(senaste)}
+
+
 @app.get("/api/v1/next-match")
 @cached_ok(cache=stats_cache)
 def get_next_match(season: str = None, refresh: bool = False):
@@ -1349,6 +1439,13 @@ def get_next_match(season: str = None, refresh: bool = False):
         except Exception:
             logging.warning("Kunde inte lasa forra sasongen for nasta match", exc_info=True)
 
+        # Motstandarens spelare. Far saknas: kortet klarar sig utan.
+        them_players = None
+        try:
+            them_players = _motstandarens_spelare(bq, int(regular), them, played)
+        except Exception:
+            logging.warning("Kunde inte lasa motstandarens spelare", exc_info=True)
+
         return {
             "status": "ok",
             "season": active["name"],
@@ -1388,6 +1485,7 @@ def get_next_match(season: str = None, refresh: bool = False):
             "venue_average": round(sum(crowds) / len(crowds)) if crowds else None,
             "venue_games": len(crowds),
             "previous": previous,
+            "them_players": them_players,
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/next-match")
