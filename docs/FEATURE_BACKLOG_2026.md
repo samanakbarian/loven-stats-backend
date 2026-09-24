@@ -5,15 +5,8 @@ Galler for: `loven-stats-backend` som produktionskalla och `slutspel/frontend_v2
 
 ## Syfte
 
-Detta dokument kompletterar `docs/ROADMAP.md` med en mer konkret feature-backlog.
-Roadmapen beskriver leveransfaserna; detta dokument beskriver vad varje feature
-behover i data, API, frontend och verifiering.
-
-För avancerad hockeyanalys, machine learning, simuleringar, scoutinglager och
-modellkrav, se även `docs/ADVANCED_HOCKEY_ANALYTICS_STACK_2026.md`.
-
-Verifierad implementationsstatus och arkitekturgap finns i
-`docs/ARCHITECTURE_INTEGRATION_2026_06.md`.
+Vad varje feature behover i data, API, frontend och verifiering. Hur systemet
+ser ut i dag star i `docs/DATAPLATTFORM.md`, lagesbilden i `docs/NASTA_STEG.md`.
 
 ## Nulage att utga fran
 
@@ -27,12 +20,10 @@ Verifierad implementationsstatus och arkitekturgap finns i
 - Swehockey-scrapern kan iterera över flera aktiva regular season/playoff-id:n.
 - Sju säsongsrader är definierade från HA 2023/24 till 2026/27. Både SHL och
   HA 2026/27 är aktiva för ingestion; API-defaulten väljer SHL deterministiskt.
-- **dbt har aldrig körts.** `dbt/` innehåller modeller för `staging`,
-  `marts/core` och `serving`, men det finns ingen `target/`, ingen
-  `profiles.yml`, och `deploy.sh` anropar den inte. Allt som körs i produktion
-  är vanlig SQL i `sql/core_views.sql` och `sql/marts.sql`, deployad med
-  `deploy.sh views`. Planera aldrig en feature som *förutsätter* dbt utan att
-  först ta migrationen som eget arbete — se feature 25.
+- **Ingen dbt.** Transformationerna är vanlig SQL i `sql/core_views.sql` och
+  `sql/marts.sql`, deployad med `deploy.sh views`. Ett dbt-projekt som aldrig
+  kördes togs bort 2026-09-24; äldre features nedan som nämner dbt avser
+  samma SQL-lager.
 - **Säkerhetsgenomgång 2026-09-07.** API:t har 28 endpoints och **noll
   skrivande** — inga POST, PUT, DELETE eller PATCH. Blastradien är därmed
   kostnad och tillgänglighet, aldrig dataintegritet. Ingen SQL-injektion:

@@ -227,8 +227,7 @@ Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
   färre än i nio av tio matcher i år") när det finns ett hundratal att jämföra
   med. Underlaget finns i `core.league_game_summary`.
 - Backlogg: feature 27 (live), 33 (serveringslager), 34 (prediktioner),
-  35 (matchdriven skörd), `SEC-002`–`SEC-006`, samt städlistan i
-  `docs/STADLISTA.md`.
+  35 (matchdriven skörd), `SEC-002`–`SEC-006`.
 
 ## Om du är ny i projektet
 

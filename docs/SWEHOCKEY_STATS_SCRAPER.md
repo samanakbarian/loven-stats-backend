@@ -41,7 +41,7 @@ Tabeller:
 
 Write mode:
 
-- `WRITE_APPEND` (deduplicering sker i dbt)
+- `WRITE_APPEND` (avdupliceringen sker i core-vyerna, se `sql/core_views.sql`)
 
 Metadata per rad:
 
@@ -214,32 +214,6 @@ resource.type="cloud_run_revision"
 severity=ERROR
 textPayload:"Avstamningen gick inte ihop"
 ```
-
-## dbt
-
-Staging:
-
-- `stg_successful_ingestion_runs`
-- `stg_swehockey_player_stats`
-- `stg_swehockey_goalie_stats`
-- `stg_swehockey_standings`
-- `stg_swehockey_schedule`
-
-Source + freshness/tests:
-
-- `models/staging/core/_core_sources.yml`
-- `models/staging/core/schema_ops.yml`
-
-Freshness:
-
-- `warn_after: 3h`
-- `error_after: 12h`
-
-Facts integration:
-
-- `stg_swehockey_player_stats` -> `fact_event_players`
-- `stg_swehockey_goalie_stats` -> `fact_goalie_game_stats`
-- `stg_swehockey_standings` -> `fact_team_standings_snapshot`
 
 ## Driftstatus 2026-06-14
 

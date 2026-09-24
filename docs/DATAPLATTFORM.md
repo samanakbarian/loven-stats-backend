@@ -6,11 +6,8 @@ skrapad HockeyAllsvenskan 2025/26.*
 Det här är den gällande beskrivningen av hur data hämtas, lagras, modelleras
 och serveras. Där andra dokument säger något annat gäller det här.
 
-> **`DATA_WAREHOUSE_DESIGN.md` beskriver en dbt-baserad modell som aldrig
-> togs i bruk.** Katalogen `dbt/` finns kvar men innehåller inga dimensioner,
-> dess faktatabeller bär inga mått, dess källor pekar på tabeller som inte
-> existerar, och ingenting läser den. Transformationslagret är SQL-vyer i
-> BigQuery, beskrivna nedan.
+> Transformationslagret är SQL-vyer i BigQuery, beskrivna nedan. Ett tidigare
+> dbt-projekt som aldrig togs i bruk togs bort 2026-09-24.
 
 ---
 

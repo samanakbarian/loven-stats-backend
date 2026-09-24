@@ -10,3 +10,17 @@ logs/
 *.log
 dbt_packages/
 target/
+
+# Engångsskript hamnade förr i roten och blev kvar: 107 filer till slut.
+# Lägg dem i scratch/ i stället, som aldrig checkas in.
+scratch/
+/test_*.py
+/check_*.py
+/find_*.py
+/fix_*.py
+/patch*.py
+/trace_*.py
+/probe_*.py
+/*.json
+/*.txt
+/*.html

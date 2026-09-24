@@ -15,8 +15,8 @@ egna fel. Det fungerar, men:
 - 62 `except Exception`. Sidan kraschar inte, men fel försvinner tyst.
 - Svarens form finns bara i koden. Frontend skriver av den för hand, och ett
   fält som byter namn märks först i webbläsaren.
-- 107 lösa skript i repots rot och dokument som beskriver en plan som aldrig
-  byggdes.
+- (Åtgärdat 2026-09-24: 107 lösa skript i roten, `dbt/` och tio inaktuella
+  dokument är borttagna.)
 
 Datalagret (raw → core → marts) är sunt och berörs inte.
 
@@ -109,8 +109,7 @@ identiska före och efter. Ingen ny funktion under flytten.
 5. **Svarsmodeller.** `response_model` på alla endpoints, typer genereras till
    frontend.
 6. **Städning.** Döda endpoints (silly-season och financials om de inte
-   används), de lösa skripten i roten och inaktuella dokument
-   (`BUSINESS_MODEL.md`, `DATA_WAREHOUSE_DESIGN.md` m.fl.).
+   används). Rotskripten och de inaktuella dokumenten är redan borta.
 
 ## Klart när
 
