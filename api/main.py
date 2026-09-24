@@ -3585,44 +3585,35 @@ def get_table_history(season: str = None, refresh: bool = False):
             ).result()
         ]
 
-        def award(row, home):
-            h, a = _score(row.get("result"))
-            if h is None:
-                return None
-            beyond = len(parse_period_results(row.get("period_results"))) > 3
-            won = (h > a) if home else (a > h)
-            return (2 if beyond else 3) if won else (1 if beyond else 0)
-
-        points, played = Counter(), Counter()
-        rounds, our_round = [], 0
+        # Tabellen tas vid slutet av varje dag vi spelade, inte direkt efter
+        # vår match i listan. Förr följde snittet matchens plats i ordningen,
+        # så lag som spelade senare samma kväll saknades: efter premiären
+        # hade bara åtta av fjorton lag spelat, och Björklövens 3–0 blev en
+        # andraplats. Skiljetalen är seriens egna, via _league_table.
+        vara_dagar = []
         for row in games:
-            for team, home in ((row.get("home_team"), True), (row.get("away_team"), False)):
-                pts = award(row, home)
-                if pts is None:
-                    continue
-                points[team] += pts
-                played[team] += 1
-            ours = next((t for t in (row.get("home_team"), row.get("away_team"))
-                         if BJK_HOME.search(str(t or ""))), None)
-            if not ours or played[ours] == our_round:
-                continue
-            our_round = played[ours]
-            order = sorted(points.items(), key=lambda kv: (-kv[1], kv[0]))
+            if BJK_HOME.search(str(row.get("home_team") or "")) or BJK_HOME.search(str(row.get("away_team") or "")):
+                dag = str(row.get("match_date") or "")[:10]
+                if dag and dag not in vara_dagar:
+                    vara_dagar.append(dag)
+
+        rounds = []
+        for i, dag in enumerate(vara_dagar, 1):
+            tabell = _league_table([r for r in games if str(r.get("match_date") or "")[:10] <= dag])
             rounds.append({
-                "round": our_round,
-                "date": str(row.get("match_date") or "")[:10],
-                "table": [{"team": t, "rank": i, "points": p, "games_played": played[t]}
-                          for i, (t, p) in enumerate(order, 1)],
+                "round": i,
+                "date": dag,
+                "table": [{"team": t, "rank": n, "points": p, "games_played": gp}
+                          for n, (t, p, gp) in enumerate(tabell, 1)],
             })
 
         # Serien mats i VARA omgangar, men sasongen tar inte slut med var sista
         # match: HA 25/26 spelade tre matcher efter Bjorklovens, och Kalmar vann
-        # en av dem. Ogonblicksbilden vid var sista omgang gav dem darfor 110
-        # poang dar tabellen sager 113. Sluttabellen raknas separat, over alla
-        # matcher, och ar den som far ge final_rank.
-        order = sorted(points.items(), key=lambda kv: (-kv[1], kv[0]))
-        final = [{"team": t, "rank": i, "points": p, "games_played": played[t]}
-                 for i, (t, p) in enumerate(order, 1)]
+        # en av dem. Sluttabellen raknas darfor separat, over alla matcher, och
+        # ar den som far ge final_rank.
+        final = [{"team": t, "rank": n, "points": p, "games_played": gp}
+                 for n, (t, p, gp) in enumerate(_league_table(games), 1)]
+        played = {e["team"]: e["games_played"] for e in final}
 
         series = {}
         for entry in final:
