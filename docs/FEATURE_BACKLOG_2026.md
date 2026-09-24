@@ -1851,6 +1851,32 @@ B och C ar optimeringar av nagot som da redan fungerar.
 - En match som spelas pa en tid vi inte forutsett fangas anda av dygnets
   fasta korningar.
 
+### 36. API:ts arkitektur
+
+Typ: Arkitektur / Kodkvalitet
+Prioritet: Hög — innan API:t växer mer
+Primärt repo: `loven-stats-backend`
+Berörda områden: `api/`, `tests/`, `.github/workflows/`
+
+Beskrivning:
+`api/main.py` är 6 700 rader där varje endpoint bygger sin SQL, räknar och
+formar svaret i samma funktion. Inget av det går att testa utan BigQuery. Målet
+är tre lager — routrar (HTTP), berakning (ren Python) och data (SQL) — med
+beroenden bara inåt, Pydantic-svarsmodeller, parametriserad SQL, en
+lagdefinition och CI med ruff, mypy och pytest. Hela planen, praxis och
+ordningen står i `docs/API_ARKITEKTUR.md`.
+
+Flytten görs i steg där sparade svar jämförs före och efter. Sökvägarna ändras
+inte, så frontend berörs inte förrän typerna genereras ur OpenAPI i sista
+steget. Feature 33 (serveringslager) blir enklare efteråt och bör vänta.
+
+#### Acceptanskriterier
+
+- `main.py` under 150 rader, ingen router över 400.
+- Ingen SQL med inbakade värden, ingen tyst `except Exception`.
+- Beräkningarna enhetstestade, CI grön på varje push.
+- Alla sparade svar identiska med dagens.
+
 ## Beslutsregler
 
 - Backendkontrakt vinner over PoC-kontrakt om de skiljer sig.

@@ -217,6 +217,8 @@ Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
 
 **Kvar att göra:**
 
+- API:ts arkitektur (feature 36): tre lager, svarsmodeller, CI. Plan och
+  praxis i `docs/API_ARKITEKTUR.md`. Görs innan API:t växer mer.
 - Backparet i femmekortet hämtar positioner ur säsongsstatistiken. Den riktiga
   källan är uppställningssidans struktur — första raden är de tre forwardsen,
   andra backparet. Kräver en kolumn till i råtabellen och en omskördning.
