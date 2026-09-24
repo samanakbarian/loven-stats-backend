@@ -171,9 +171,6 @@ GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", "")
 BQ_DATASET = os.environ.get("BQ_DATASET", "loven_marts")
 BQ_LOVENLAGET_TABLE = os.environ.get("BQ_LOVENLAGET_TABLE", "mart_lovenlaget_snapshot")
-BQ_FINANCIALS_TABLE = os.environ.get("BQ_FINANCIALS_TABLE", "serving_team_economy_dashboard")
-BQ_FINANCIALS_RAW_DATASET = os.environ.get("BQ_FINANCIALS_RAW_DATASET", "raw_content")
-BQ_FINANCIALS_RAW_TABLE = os.environ.get("BQ_FINANCIALS_RAW_TABLE", "bjorkloven_financials_raw")
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN", "")
 X_QUERY_DEFAULT = os.environ.get(
     "X_QUERY_DEFAULT",
@@ -6644,69 +6641,3 @@ def get_lovenlaget_snapshot():
             },
         },
     }
-@app.get("/api/v1/financials")
-def get_financials():
-    """
-    Return current financial dashboard rows when available.
-    Falls back to lightweight economy status so UI is never empty.
-    """
-    try:
-        bq_client = bigquery.Client(project=BQ_PROJECT_ID or None)
-        raw_fqn = f"`{bq_client.project}.{BQ_FINANCIALS_RAW_DATASET}.{BQ_FINANCIALS_RAW_TABLE}`"
-        raw_sql = f"""
-            select *
-            from {raw_fqn}
-            order by financial_year desc, entity
-        """
-        raw_rows = [dict(r.items()) for r in bq_client.query(raw_sql).result()]
-        if raw_rows:
-            return {
-                "status": "ok",
-                "source": "bigquery_raw",
-                "table": f"{BQ_FINANCIALS_RAW_DATASET}.{BQ_FINANCIALS_RAW_TABLE}",
-                "count": len(raw_rows),
-                "items": raw_rows,
-            }
-
-        table_fqn = f"`{bq_client.project}.{BQ_DATASET}.{BQ_FINANCIALS_TABLE}`"
-        rows = [dict(r.items()) for r in bq_client.query(f"select * from {table_fqn}").result()]
-        if rows:
-            return {
-                "status": "ok",
-                "source": "bigquery",
-                "table": BQ_FINANCIALS_TABLE,
-                "count": len(rows),
-                "items": rows,
-            }
-    except Exception as e:
-        logging.warning(f"Kunde inte lÃ¤sa {BQ_FINANCIALS_TABLE} frÃ¥n BigQuery: {e}")
-
-    # Fallback so frontend never gets an empty economy section.
-    return {
-        "status": "ok",
-        "source": "fallback",
-        "table": BQ_FINANCIALS_TABLE,
-        "count": 1,
-        "items": [
-            {
-                "team_id": "IFB",
-                "season_id": "sr_season_2026_2027_shl",
-                "reporting_period": "latest",
-                "confidence_level": "low",
-                "revenue_total": None,
-                "operating_result": None,
-                "cash": None,
-                "debt": None,
-                "risk_level": "medel",
-                "budget_pressure": "hÃ¶g",
-                "next_question": "Har klubben rÃ¥d med tvÃ¥ spetsnamn?",
-            }
-        ],
-    }
-
-# @app.get("/api/v1/games/{game_id}/momentum")
-# def get_momentum(game_id: str):
-#     # Anropa BigQuery hÃ¤r
-#     pass
-
-

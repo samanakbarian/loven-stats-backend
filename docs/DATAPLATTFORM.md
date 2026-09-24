@@ -278,7 +278,7 @@ sextimmarscachen.
 | **`table-history`** | **tabellplacering per omgång, härledd ur resultaten** |
 | **`opponents`** | **facit per motståndare; `venue=home\|away`, `last=N`** |
 | **`swings`** | **vändningar och tapp: ställning efter två perioder mot slutresultat** |
-| `lovenlaget`, `silly-season`, `x-feed`, `financials` | innehåll utanför matchdatat |
+| `lovenlaget`, `silly-season`, `x-feed` | innehåll utanför matchdatat |
 
 ### Matchrapportens lagsummering
 

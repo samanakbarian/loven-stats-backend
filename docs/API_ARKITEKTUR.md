@@ -108,8 +108,8 @@ identiska före och efter. Ingen ny funktion under flytten.
    sist — den är 1 600 rader och har redan sin gyllene mästare.
 5. **Svarsmodeller.** `response_model` på alla endpoints, typer genereras till
    frontend.
-6. **Städning.** Döda endpoints (silly-season och financials om de inte
-   används). Rotskripten och de inaktuella dokumenten är redan borta.
+6. **Städning.** `/api/silly-season` när Nyheter inte längre faller tillbaka
+   på den. Rotskripten, dokumenten och `/api/v1/financials` är redan borta.
 
 ## Klart när
 

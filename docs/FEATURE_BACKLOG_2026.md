@@ -11,8 +11,8 @@ ser ut i dag star i `docs/DATAPLATTFORM.md`, lagesbilden i `docs/NASTA_STEG.md`.
 ## Nulage att utga fran
 
 - Backend har redan `GET /api/v1/seasons`, `GET /api/v1/statistics`,
-  `GET /api/v1/analytics`, `GET /api/silly-season`, `GET /api/v1/lovenlaget`,
-  `GET /api/v1/x-feed` och `GET /api/v1/financials`.
+  `GET /api/v1/analytics`, `GET /api/silly-season`, `GET /api/v1/lovenlaget`
+  och `GET /api/v1/x-feed`.
 - `GET /api/v1/statistics` och `GET /api/v1/analytics` laser fortfarande mest
   direkt fran `raw_sports.*` och bygger svar i Python.
 - Båda endpointsen väljer senaste `scraped_at`-snapshot och använder en
