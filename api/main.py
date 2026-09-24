@@ -3767,6 +3767,85 @@ def get_swings(season: str = None, refresh: bool = False):
         return {"status": "error", "error": str(e), "swings": []}
 
 
+# Så många lagmatcher (två per match) krävs innan en match jämförs med
+# serien. Under det säger "fler än i 9 av 10" mer om slumpen än om matchen.
+MOT_SERIEN_MINST = 60
+
+
+def _mot_serien(bq, regular: int, game_id: int, teams: dict | None,
+                league: list[dict], us: str, host: str, spectators) -> list[dict]:
+    """Matchens tal mot seriens alla matcher i år.
+
+    Varje mått är lagets tal i en match, och jämförs med samma tal för alla
+    lag i alla andra matcher i serien: "18 skott" mot alla lags skott i en
+    match. Skott, räddningar och utvisningar kommer ur matchrapporterna, vår
+    egen tabell plus seriens. Mål och publik kommer ur schemat.
+    """
+    ut: list[dict] = []
+
+    def andel(varde, fordelning: list[float]) -> dict | None:
+        if varde is None or len(fordelning) < MOT_SERIEN_MINST:
+            return None
+        under = sum(1 for v in fordelning if v < varde)
+        over = sum(1 for v in fordelning if v > varde)
+        n = len(fordelning)
+        return {"value": varde, "n": n, "below": round(under / n, 3), "above": round(over / n, 3),
+                "max": varde > max(fordelning), "min": varde < min(fordelning)}
+
+    if teams:
+        rows = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, shots, save_pct, pim FROM `{bq.project}.core.game_team_summary`
+                WHERE season_group_id = {int(regular)} AND game_id != {int(game_id)}
+                UNION ALL
+                SELECT game_id, shots, save_pct, pim FROM `{bq.project}.core.league_game_summary`
+                WHERE season_group_id = {int(regular)} AND game_id != {int(game_id)}
+                """
+            ).result()
+        ]
+        skott = [float(r["shots"]) for r in rows if r.get("shots") is not None]
+        sv = [float(r["save_pct"]) for r in rows if r.get("save_pct") is not None]
+        pim = [float(r["pim"]) for r in rows if r.get("pim") is not None]
+        o, t = teams["ours"], teams["theirs"]
+        for key, label, v, ford in (
+            ("shots_for", "Skott", o.get("shots"), skott),
+            ("shots_against", "Skott emot", t.get("shots"), skott),
+            ("save_pct", "Räddningsprocent", o.get("save_pct"), sv),
+            ("pim", "Utvisningsminuter", o.get("pim"), pim),
+        ):
+            a = andel(v, ford)
+            if a:
+                ut.append({"key": key, "label": label, **a})
+
+    # Mål och publik ur schemat, som täcker hela serien.
+    mal: list[float] = []
+    publik: list[float] = []
+    for r in league:
+        if r.get("game_id") == game_id:
+            continue
+        h, a = _score(r.get("result"))
+        if h is None:
+            continue
+        mal += [float(h), float(a)]
+        if r.get("spectators"):
+            publik.append(float(r["spectators"]))
+    denna = next((r for r in league if r.get("game_id") == game_id), None)
+    if denna:
+        h, a = _score(denna.get("result"))
+        if h is not None:
+            vara = h if str(denna.get("home_team") or "") == us else a
+            x = andel(float(vara), mal)
+            if x:
+                ut.append({"key": "goals_for", "label": "Mål", **x})
+    if spectators:
+        x = andel(float(spectators), publik)
+        if x:
+            ut.append({"key": "spectators", "label": "Publik", "host": host, **x})
+    return ut
+
+
 @app.get("/api/v1/match/{game_id}")
 @cached_ok(cache=match_cache)
 def get_match(game_id: int):
@@ -4101,7 +4180,15 @@ def get_match(game_id: int):
             ]
             avg = round(sum(crowds) / len(crowds)) if crowds else None
 
+            mot_serien: list[dict] = []
+            try:
+                mot_serien = _mot_serien(bq, int(regular), int(game_id), teams, league,
+                                         us, host, sched.get("spectators"))
+            except Exception:
+                logging.info("Kunde inte jamfora match %s med serien", game_id, exc_info=True)
+
             context = {
+                "league_compare": mot_serien,
                 "before": _place_in(_league_table(before_rows), us),
                 "after": _place_in(_league_table(through_rows), us),
                 "opponent_before": _place_in(_league_table(before_rows), them),
