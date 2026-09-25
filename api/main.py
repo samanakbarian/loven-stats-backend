@@ -4814,7 +4814,7 @@ def get_analytics(season: str = None, refresh: bool = False):
             "special_teams_index": round(pp_pct + pk_pct, 1),
             "source": st_kalla,
             "total_pim": sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES),
-            "avg_pim_per_game": round(sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES) / max(len(bjk_games), 1), 1),
+            "avg_pim_per_game": round(sum(e.get("penalty_minutes", 0) for e in events if (e.get("team_code") or "").upper() in BJK_CODES) / max(len(timeline), 1), 1),
         }
 
         # â”€â”€ Attendance â”€â”€
