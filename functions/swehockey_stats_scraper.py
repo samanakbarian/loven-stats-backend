@@ -72,6 +72,15 @@ LEAGUE_REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_LEAGUE_REFRESH_DAYS", "2"))
 # PDF:erna ska alltid hinnas med, sa ligamatcherna far det som blir over.
 LEAGUE_TIME_BUDGET = float(os.environ.get("SWEHOCKEY_LEAGUE_TIME_BUDGET", "150"))
 
+# API:t som ska tömma sin cache när nya rader skrivits. Tom sträng stänger av.
+API_WARMUP_URL = os.environ.get(
+    "API_WARMUP_URL",
+    "https://loven-stats-api-324947473206.europe-west1.run.app/api/v1/warmup?refresh=1",
+)
+# Funktionens tidsgräns i deploy.sh. Uppvärmningen får vänta på svar bara så
+# länge det finns tid kvar av den.
+FUNCTION_TIMEOUT = float(os.environ.get("SWEHOCKEY_FUNCTION_TIMEOUT", "300"))
+
 
 def _now():
     return datetime.now(timezone.utc)
@@ -1816,6 +1825,35 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
     return checks
 
 
+def _tom_api_cache(result: dict[str, Any]) -> None:
+    """Ber API:t läsa om allt efter en skörd som skrev nya rader.
+
+    Förut fick den som körde skörden för hand vänta några minuter och sedan
+    anropa uppvärmningen själv. Kom anropet innan skörden var klar serverade
+    API:t gamla siffror i upp till sex timmar, och 26 september hände just
+    det: tabellen var skriven 18.39 men sidan visade läget från 16.19.
+
+    Uppvärmningen tar en till två minuter. Den väntas in om tiden räcker;
+    annars släpps anropet efter några sekunder. API:t kör klart ändå,
+    eftersom en synkron endpoint inte avbryts när klienten går.
+    Ett fel här får aldrig fälla skörden: datat är redan skrivet.
+    """
+    if not API_WARMUP_URL:
+        return
+    kvar = FUNCTION_TIMEOUT - (time.monotonic() - _RUN_STARTED[0]) - 20
+    try:
+        r = requests.get(API_WARMUP_URL, timeout=(10, max(5.0, kvar)))
+        result["api_cache"] = {"http": r.status_code}
+        if r.status_code >= 400:
+            logging.warning("Uppvärmningen svarade %s", r.status_code)
+    except requests.exceptions.ReadTimeout:
+        result["api_cache"] = {"skickad": True, "vantade_inte_klart": True}
+        logging.info("Uppvärmningen startad men inte inväntad")
+    except Exception as e:
+        result["api_cache"] = {"fel": str(e)[:200]}
+        logging.warning("Kunde inte tömma API:ts cache: %s", e)
+
+
 @functions_framework.http
 def run_swehockey_stats_scraper(request):
     scraped_at = _now().isoformat()
@@ -2119,6 +2157,10 @@ def run_swehockey_stats_scraper(request):
             failed_steps=failed_steps,
             metadata={"types": result["types"], "reconciliation": reconciliation},
         )
+        # Bara när något nytt skrevs. En körning utan nya rader har inget
+        # att visa, och uppvärmningen är taktbegränsad.
+        if loaded_rows > 0:
+            _tom_api_cache(result)
         return json.dumps(result, ensure_ascii=False), 200, {"Content-Type": "application/json"}
     except Exception as exc:
         logging.exception("Swehockey ingestion failed run_id=%s", run_id)
