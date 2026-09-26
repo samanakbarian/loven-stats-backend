@@ -778,6 +778,17 @@ _VARMNINGSVAGAR = (
     ("/api/v1/league", True),
     ("/api/v1/prediction", True),
     ("/api/v1/onice", True),
+    # Tabellen över tid, simuleringen, vändningarna, motståndarna och truppen
+    # saknades. 26 september visade kurvan läget före kvällens övriga matcher
+    # i tre timmar efter att tabellen själv var rättad.
+    ("/api/v1/table-history", True),
+    ("/api/v1/projection", True),
+    ("/api/v1/swings", True),
+    ("/api/v1/opponents", True),
+    ("/api/v1/opponents?venue=home", True),
+    ("/api/v1/opponents?venue=away", True),
+    ("/api/v1/opponents?last=10", True),
+    ("/api/v1/roster", True),
     ("/api/v1/lovenlaget", False),
     ("/api/v1/feed?limit=200", False),
     ("/api/v1/x-feed", False),
@@ -828,8 +839,10 @@ def warmup(refresh: bool = False):
     vagar: list[tuple[str, bool]] = []
     for vag, foljer in _VARMNINGSVAGAR:
         vagar.append((vag, foljer))
-        if aktiv and foljer and "?" not in vag and vag != "/api/v1/seasons":
-            vagar.append((f"{vag}?season={aktiv}", foljer))
+        # Även vägar som redan har en parameter: motståndarvyn skickar både
+        # season och venue, och cachenyckeln skiljer på dem.
+        if aktiv and foljer and vag != "/api/v1/seasons":
+            vagar.append((f"{vag}{'&' if '?' in vag else '?'}season={aktiv}", foljer))
 
     for vag, foljer_skorden in vagar:
         url = f"http://127.0.0.1:{port}{vag}"
