@@ -87,6 +87,13 @@ class Parametrar:
     vann laget 55 % av gångerna.
     """
     # Halveringstid i dagar för en matchs vikt.
+    #
+    # Prövat 27 september 2026: en extra vikt under 1 för tidigare säsonger
+    # (0,2–0,7), halveringstid 120–360 och krympning 20–60, inställt på
+    # 2016/17–2021/22. Ingen kombination slog dagens på provåren, varken
+    # totalt eller i säsongens första tio matcher per lag (log-loss 1,0173
+    # mot 1,0184 för den näst bästa). Förra säsongen säger alltså mer om
+    # hösten än trupprotationen ger sken av.
     halvering: float = 240.0
     # Hur hårt en styrka dras mot sitt förväntade värde. Större = försiktigare.
     krympning: float = 40.0
