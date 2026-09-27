@@ -1868,6 +1868,28 @@ steget. Feature 33 (serveringslager) blir enklare efteråt och bör vänta.
 - Beräkningarna enhetstestade, CI grön på varje push.
 - Alla sparade svar identiska med dagens.
 
+### 37. SHL som andra källa
+
+Typ: Data / Ny källa
+Prioritet: Medel — spärrad tills SHL:s villkor är utredda
+Primärt repo: `loven-stats-backend`
+Berörda områden: `functions/`, `sql/`, `api/`
+
+Beskrivning:
+SHL:s sajt har istid per spelare, skott med position (även missade och
+blockerade), tacklingar och blockeringar — allt som Swehockey saknar och som
+behövs för xG, skottkartor och poäng per 60 minuter. Swehockey förblir facit;
+SHL berikar med det som saknas och stäms av där källorna överlappar. Lag,
+matcher och spelare kopplas i egna vyer, spelare per match på tröjnummer och
+aldrig på namn. Modell, kopplingar, öppna frågor och ordning står i
+`docs/SHL_KALLA.md`.
+
+#### Acceptanskriterier
+
+- Sajten visar samma resultat, tabell och poäng med SHL-hämtningen avstängd.
+- Alla spelade SHL-matcher och alla spelare i uppställningen kopplade.
+- Skott på mål per lag och match stämmer mellan källorna.
+
 ## Beslutsregler
 
 - Backendkontrakt vinner over PoC-kontrakt om de skiljer sig.
