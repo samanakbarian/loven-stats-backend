@@ -1890,6 +1890,27 @@ aldrig på namn. Modell, kopplingar, öppna frågor och ordning står i
 - Alla spelade SHL-matcher och alla spelare i uppställningen kopplade.
 - Skott på mål per lag och match stämmer mellan källorna.
 
+### 38. Hela serien i datamodellen
+
+Typ: Data / Modell
+Prioritet: Hög — grunden för jämförelser med övriga lag och för SHL-källan
+Primärt repo: `loven-stats-backend`
+Berörda områden: `sql/`, `functions/`, `api/`
+
+Beskrivning:
+Våra matcher och seriens övriga ligger i dag i skilda tabeller med olika
+djup. Målet är en uppsättning matchtabeller för hela serien där "vårt lag" är
+ett filter, fakta för mål och utvisningar, uppställningen hämtad för alla
+matcher så att på isen och plus/minus går att räkna för alla spelare, och
+avstämning av varje spelares mål och assist mot Swehockeys säsongstotaler.
+Modell, nycklar, kvalitet och ordning står i `docs/DATAMODELL.md`.
+
+#### Acceptanskriterier
+
+- `fact_player_game`, `fact_team_game` och `fact_goalie_game` täcker hela serien.
+- Mål och assist per spelare stämmer mot `player_season_stats` för alla spelare.
+- Inget befintligt API-svar ändras under flytten.
+
 ## Beslutsregler
 
 - Backendkontrakt vinner over PoC-kontrakt om de skiljer sig.

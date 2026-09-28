@@ -6,6 +6,9 @@ skrapad HockeyAllsvenskan 2025/26.*
 Det här är den gällande beskrivningen av hur data hämtas, lagras, modelleras
 och serveras. Där andra dokument säger något annat gäller det här.
 
+Datamodellen — tabellernas korn, nycklarna och målbilden för hela serien —
+står i `DATAMODELL.md`.
+
 > Transformationslagret är SQL-vyer i BigQuery, beskrivna nedan. Ett tidigare
 > dbt-projekt som aldrig togs i bruk togs bort 2026-09-24.
 
