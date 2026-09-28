@@ -6,7 +6,9 @@
 beskriver datat. Gäller från 2026-09-28.*
 
 Status: **läget i dag** är beskrivet i avsnitt 3–4. **Målbilden** i avsnitt
-5–7 är beslutad men inte byggd (backlogg 38).
+5–7 är beslutad (backlogg 38). Steg 1 i avsnitt 7 är byggt: `core.match_*`,
+`fact_goal`, `fact_penalty` och `check_player_scoring`; avsnitt 4 är ännu inte
+omskrivet efter det.
 
 ---
 

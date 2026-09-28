@@ -262,7 +262,8 @@ keys AS (
   UNION DISTINCT SELECT b.game_id, l.season_group_id, b.player_key
     FROM box b JOIN (SELECT DISTINCT game_id, season_group_id FROM lineup) l
       USING (game_id)
-)
+),
+vara AS (
 SELECT
   k.game_id,
   k.season_group_id,
@@ -302,7 +303,58 @@ LEFT JOIN on_against a ON a.game_id = k.game_id AND a.player_key = k.player_key
 LEFT JOIN lineup    lu ON lu.game_id = k.game_id AND lu.player_key = k.player_key
 LEFT JOIN ev_team   et ON et.game_id = k.game_id AND et.player_key = k.player_key
 LEFT JOIN box       bx ON bx.game_id = k.game_id AND bx.player_key = k.player_key
-GROUP BY k.game_id, k.season_group_id, k.player_key;
+GROUP BY k.game_id, k.season_group_id, k.player_key
+),
+-- Seriens övriga matcher (backlogg 38). Mål, assist och utvisningar står
+-- med namn i händelserna och går att räkna direkt. Laget kommer ur
+-- händelsens lagkod via core.match_team_code. På isen kräver uppställningen,
+-- som ännu bara hämtas för våra matcher: de fälten är NULL, inte noll.
+-- Räknas som raderna ovan, avgörande straffar inräknade, så att hela serien
+-- mäts lika. Avstämningen i check_player_scoring visar skillnaden mot
+-- Swehockeys säsongstotaler.
+serie_ev AS (
+  SELECT e.*, c.team_name AS lag
+  FROM `@PROJECT@.core.match_events` e
+  LEFT JOIN `@PROJECT@.core.match_team_code` c
+    ON c.game_id = e.game_id AND c.team_code = e.team_code
+  WHERE NOT e.is_ours
+),
+serie_rader AS (
+  SELECT game_id, season_group_id, player_name AS player_key, lag, 1 AS goals, 0 AS assists, 0 AS pim, 0 AS penalties
+  FROM serie_ev WHERE event_type = 'goal' AND player_name IS NOT NULL
+  UNION ALL
+  SELECT game_id, season_group_id, assist1_name, lag, 0, 1, 0, 0
+  FROM serie_ev WHERE event_type = 'goal' AND assist1_name IS NOT NULL
+  UNION ALL
+  SELECT game_id, season_group_id, assist2_name, lag, 0, 1, 0, 0
+  FROM serie_ev WHERE event_type = 'goal' AND assist2_name IS NOT NULL
+  UNION ALL
+  SELECT game_id, season_group_id, player_name, lag, 0, 0, IFNULL(penalty_minutes, 0), 1
+  FROM serie_ev WHERE event_type = 'penalty' AND player_name IS NOT NULL
+),
+serie AS (
+  SELECT game_id, season_group_id, player_key, MAX(lag) AS team_key,
+         SUM(goals) AS goals, SUM(assists) AS assists,
+         SUM(pim) AS pim, SUM(penalties) AS penalties
+  FROM serie_rader
+  GROUP BY game_id, season_group_id, player_key
+)
+SELECT v.* REPLACE (SAFE_CAST(v.game_id AS INT64) AS game_id,
+                   SAFE_CAST(v.season_group_id AS INT64) AS season_group_id),
+       TRUE AS is_ours_game
+FROM vara v
+UNION ALL
+SELECT
+  game_id, season_group_id, player_key, team_key,
+  goals, assists, goals + assists AS points, pim, penalties,
+  CAST(NULL AS INT64) AS gf_on, CAST(NULL AS INT64) AS ga_on, CAST(NULL AS INT64) AS plus_minus_on_ice,
+  CAST(NULL AS INT64) AS gf_on_ev, CAST(NULL AS INT64) AS ga_on_ev, CAST(NULL AS INT64) AS plus_minus,
+  CAST(NULL AS INT64) AS shots, CAST(NULL AS INT64) AS official_plus_minus,
+  CAST(NULL AS INT64) AS faceoffs_won, CAST(NULL AS INT64) AS faceoffs_lost,
+  CAST(NULL AS FLOAT64) AS faceoff_pct,
+  FALSE AS has_report, CAST(NULL AS BOOL) AS in_lineup,
+  FALSE AS is_ours_game
+FROM serie;
 
 -- Lag x match: skott, räddningar, utvisningar och PDO ur matchrapporten,
 -- mål ur resultatet.
@@ -318,23 +370,29 @@ SELECT
   s.shots, s.saves, s.pim, s.pp_pct, s.pp_time,
   s.shooting_pct, s.save_pct, s.pdo,
   s.shots_by_period, s.saves_by_period, s.pim_by_period,
-  g.match_date, g.venue, g.spectators, g.went_beyond_regulation
-FROM `@PROJECT@.core.game_team_summary` s
+  g.match_date, g.venue, g.spectators, g.went_beyond_regulation,
+  s.is_ours AS is_ours_game
+-- Hela serien sedan backlogg 38. API:t läser vyn per game_id.
+FROM `@PROJECT@.core.match_team_summary` s
 LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = s.game_id;
 
 -- Målvakt x match. Lagkoden saknas i ungefär var femte rad hos Swehockey, så
 -- laget hämtas ur uppställningens målvaktsblock i stället.
 CREATE OR REPLACE VIEW `@PROJECT@.marts.fact_goalie_game` AS
 SELECT
-  k.game_id,
-  k.season_group_id,
-  k.goalie_name AS player_key,
-  COALESCE(l.team_name, k.team_code) AS team_key,
-  k.goalie_number AS jersey_number,
-  k.shots_against, k.saves, k.goals_against, k.save_pct,
-  b.time_on_ice,
-  b.shutout,
-  g.match_date
+  SAFE_CAST(k.game_id AS INT64) AS game_id,
+  SAFE_CAST(k.season_group_id AS INT64) AS season_group_id,
+  CAST(k.goalie_name AS STRING) AS player_key,
+  CAST(COALESCE(l.team_name, k.team_code) AS STRING) AS team_key,
+  SAFE_CAST(k.goalie_number AS INT64) AS jersey_number,
+  SAFE_CAST(k.shots_against AS INT64) AS shots_against,
+  SAFE_CAST(k.saves AS INT64) AS saves,
+  SAFE_CAST(k.goals_against AS INT64) AS goals_against,
+  SAFE_CAST(k.save_pct AS FLOAT64) AS save_pct,
+  CAST(b.time_on_ice AS STRING) AS time_on_ice,
+  SAFE_CAST(b.shutout AS INT64) AS shutout,
+  g.match_date,
+  TRUE AS is_ours_game
 FROM `@PROJECT@.core.game_goalies` k
 LEFT JOIN (
   SELECT game_id, player_name, time_on_ice, shutout
@@ -342,7 +400,21 @@ LEFT JOIN (
 ) b ON b.game_id = k.game_id AND b.player_name = k.goalie_name
 LEFT JOIN `@PROJECT@.core.game_lineups` l
   ON l.game_id = k.game_id AND l.player_name = k.goalie_name AND l.block = 'goalie'
-LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = k.game_id;
+LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = k.game_id
+-- Seriens övriga matcher: laget ur lagkoden, speltid och nolla saknas
+-- (de står i matchrapporten, som bara hämtas för våra).
+UNION ALL
+SELECT
+  k.game_id, k.season_group_id, k.goalie_name, c.team_name, k.goalie_number,
+  k.shots_against, k.saves, k.goals_against, k.save_pct,
+  CAST(NULL AS STRING), CAST(NULL AS INT64),
+  g.match_date,
+  FALSE
+FROM `@PROJECT@.core.match_goalies` k
+LEFT JOIN `@PROJECT@.core.match_team_code` c
+  ON c.game_id = k.game_id AND c.team_code = k.team_code
+LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = k.game_id
+WHERE NOT k.is_ours;
 
 -- Spelare x match x kedja. Klubbens egen indelning, inte gissad ur vilka som
 -- gör mål tillsammans.
@@ -369,3 +441,115 @@ CREATE OR REPLACE VIEW `@PROJECT@.marts.fact_standings_snapshot` AS
 SELECT season_group_id, snapshot_date, team_name AS team_key,
        rank, games_played, wins, ot_wins, ot_losses, losses, points, goal_diff
 FROM `@PROJECT@.core.standings_history`;
+
+
+-- ============================================== HELA SERIEN (backlogg 38) ==
+
+-- Mål. En rad per mål i hela serien, med laget ur lagkoden. Straffslag och
+-- avgörande straffar markeras: de ger inget plus/minus och avgörandet räknas
+-- inte som mål i Swehockeys spelarstatistik.
+CREATE OR REPLACE VIEW `@PROJECT@.marts.fact_goal` AS
+SELECT
+  e.game_id,
+  e.season_group_id,
+  e.event_index,
+  e.period,
+  e.time,
+  c.team_name AS team_key,
+  CASE WHEN c.team_name = e.home_team THEN e.away_team
+       WHEN c.team_name = e.away_team THEN e.home_team END AS opponent_key,
+  e.player_name AS scorer_key,
+  e.assist1_name AS assist1_key,
+  e.assist2_name AS assist2_key,
+  e.home_goals,
+  e.away_goals,
+  e.score_state,
+  IFNULL(e.is_power_play, FALSE) AS is_power_play,
+  IFNULL(e.is_short_handed, FALSE) AS is_short_handed,
+  IFNULL(e.is_empty_net, FALSE) AS is_empty_net,
+  COALESCE(REGEXP_CONTAINS(e.score_state, r'\(PS\)'), FALSE) AS is_penalty_shot,
+  COALESCE(REGEXP_CONTAINS(e.score_state, r'\(GWS\)'), FALSE) AS is_shootout_winner,
+  e.on_ice_for,
+  e.on_ice_against,
+  g.match_date,
+  e.is_ours AS is_ours_game
+FROM `@PROJECT@.core.match_events` e
+LEFT JOIN `@PROJECT@.core.match_team_code` c
+  ON c.game_id = e.game_id AND c.team_code = e.team_code
+LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = e.game_id
+WHERE e.event_type = 'goal';
+
+-- Utvisningar. En rad per utvisning i hela serien.
+CREATE OR REPLACE VIEW `@PROJECT@.marts.fact_penalty` AS
+SELECT
+  e.game_id,
+  e.season_group_id,
+  e.event_index,
+  e.period,
+  e.time,
+  c.team_name AS team_key,
+  e.player_name AS player_key,
+  e.penalty_minutes,
+  e.detail AS reason,
+  g.match_date,
+  e.is_ours AS is_ours_game
+FROM `@PROJECT@.core.match_events` e
+LEFT JOIN `@PROJECT@.core.match_team_code` c
+  ON c.game_id = e.game_id AND c.team_code = e.team_code
+LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = e.game_id
+WHERE e.event_type = 'penalty';
+
+-- Avstämning: varje spelares mål och assist räknade ur matcherna mot
+-- Swehockeys egna säsongstotaler. En rad per spelare där något skiljer.
+-- Prövar hela kedjan händelse → spelarnyckel → spelare, och ger listan över
+-- namnvarianter och saknade matcher. mal_utan_straffar räknar bort
+-- avgörande straffar, som Swehockey inte räknar som mål.
+CREATE OR REPLACE VIEW `@PROJECT@.marts.check_player_scoring` AS
+WITH matcher AS (
+  SELECT SAFE_CAST(season_group_id AS INT64) AS season_group_id, player_key,
+         SUM(goals) AS mal, SUM(assists) AS assist,
+         COUNT(DISTINCT game_id) AS matcher_med_handelse
+  FROM `@PROJECT@.marts.fact_player_game`
+  GROUP BY 1, player_key
+),
+straffar AS (
+  SELECT season_group_id, scorer_key AS player_key, COUNT(*) AS avgorande
+  FROM `@PROJECT@.marts.fact_goal`
+  WHERE is_shootout_winner AND scorer_key IS NOT NULL
+  GROUP BY season_group_id, scorer_key
+),
+facit AS (
+  SELECT SAFE_CAST(season_group_id AS INT64) AS season_group_id, player_key,
+         ANY_VALUE(team_key) AS team_key,
+         SUM(SAFE_CAST(goals AS INT64)) AS mal,
+         SUM(SAFE_CAST(assists AS INT64)) AS assist,
+         SUM(SAFE_CAST(games_played AS INT64)) AS matcher
+  FROM `@PROJECT@.marts.fact_player_season`
+  GROUP BY 1, player_key
+)
+SELECT
+  COALESCE(f.season_group_id, m.season_group_id) AS season_group_id,
+  COALESCE(f.player_key, m.player_key) AS player_key,
+  f.team_key,
+  f.matcher AS matcher_officiella,
+  f.mal AS mal_officiella,
+  m.mal AS mal_matcher,
+  IFNULL(m.mal, 0) - IFNULL(s.avgorande, 0) AS mal_utan_straffar,
+  f.assist AS assist_officiella,
+  m.assist AS assist_matcher,
+  CASE
+    WHEN f.player_key IS NULL THEN 'saknas i säsongsstatistiken'
+    WHEN m.player_key IS NULL THEN 'saknas i matcherna'
+    ELSE 'skiljer'
+  END AS typ
+FROM facit f
+FULL OUTER JOIN matcher m
+  ON m.season_group_id = f.season_group_id AND m.player_key = f.player_key
+LEFT JOIN straffar s
+  ON s.season_group_id = COALESCE(f.season_group_id, m.season_group_id)
+ AND s.player_key = COALESCE(f.player_key, m.player_key)
+WHERE f.player_key IS NULL
+   OR (m.player_key IS NULL AND IFNULL(f.mal, 0) + IFNULL(f.assist, 0) > 0)
+   OR (m.player_key IS NOT NULL AND (
+         IFNULL(m.mal, 0) - IFNULL(s.avgorande, 0) != IFNULL(f.mal, 0)
+         OR IFNULL(m.assist, 0) != IFNULL(f.assist, 0)));
