@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_lineups` 
   scraped_at TIMESTAMP
 );
 
+-- Avstämningens avvikelser per körning (backlogg 46). Skrivs av skrapan, en
+-- rad per spelare som avviker plus en markörrad per kontroll och körning,
+-- så att det går att se hur länge en avvikelse legat kvar.
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.quality_deviations` (
+  check_name STRING, season_group_id INT64, item_key STRING, detail STRING,
+  run_id STRING, scraped_at TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_team_stats` (
   season_group_id INT64, page STRING, section STRING, grp STRING,
   team_code STRING, team_name STRING, rank INT64, games_played INT64,

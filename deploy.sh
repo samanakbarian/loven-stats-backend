@@ -419,8 +419,9 @@ for k,v in (d.get('types') or {}).items():
     print(f\"    {mark} {k:<14} {v.get('rows',0):>5} rader  {v.get('bq_loaded',0):>5} laddade{note}\")
 for c in (d.get('reconciliation') or []):
     ok = c.get('ok')
-    mark = 'ok ' if ok else ('  ?' if ok is None else 'AVVIKER')
+    mark = 'ok ' if ok else ('  ?' if ok is None else ('VARNING' if c.get('severity') == 'warning' else 'AVVIKER'))
     extra = '' if ok else f\"  {c.get('observed')} mot {c.get('expected')}  {c.get('note','')}\"
+    if c.get('info'): extra = '  ' + c['info'] + extra
     print(f\"    {mark} {c['name']}{extra}\")
 " || true
 fi
@@ -499,8 +500,9 @@ for k,v in (d.get('types') or {}).items():
     print(line)
 for c in (d.get('reconciliation') or []):
     ok = c.get('ok')
-    mark = 'ok ' if ok else ('  ?' if ok is None else 'AVVIKER')
+    mark = 'ok ' if ok else ('  ?' if ok is None else ('VARNING' if c.get('severity') == 'warning' else 'AVVIKER'))
     extra = '' if ok else f\"  {c.get('observed')} mot {c.get('expected')}  {c.get('note','')}\"
+    if c.get('info'): extra = '  ' + c['info'] + extra
     print(f\"    {mark} {c['name']}{extra}\")
 " || true
   # API:ts cache lever i sex timmar och tommas inte av en skordning. Efter en

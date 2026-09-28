@@ -1654,7 +1654,7 @@ def _append_bq_rows(
 
 
 
-def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str, Any]]:
+def _reconcile(client: bigquery.Client, season_ids: list[str], run_id: str = "") -> list[dict[str, Any]]:
     """Stammer de harledda talen mot det Swehockey sjalv redovisar?
 
     Kvalitetsgrinden kontrollerar form — att rader finns, att falt ar ifyllda,
@@ -1904,7 +1904,163 @@ def _reconcile(client: bigquery.Client, season_ids: list[str]) -> list[dict[str,
         "spelade ligamatcher med handelser, mot alla spelade aldre an ett dygn",
     )
 
+    # Samma sak for uppstallningen (backlogg 38, steg 2): ligamatcher med
+    # handelser som ocksa har uppstallning.
+    _run(
+        "league_lineup_coverage",
+        f"""
+        SELECT
+          (SELECT COUNT(DISTINCT game_id) FROM `{proj}.{BQ_DATASET}.swehockey_league_game_lineups`
+           WHERE season_group_id IN ({ids})
+             AND game_id IN (SELECT game_id FROM `{proj}.{BQ_DATASET}.swehockey_league_game_events`
+                             WHERE SAFE_CAST(match_date AS DATE) < DATE_SUB(CURRENT_DATE('Europe/Stockholm'), INTERVAL 1 DAY))) AS a,
+          (SELECT COUNT(DISTINCT game_id) FROM `{proj}.{BQ_DATASET}.swehockey_league_game_events`
+           WHERE season_group_id IN ({ids})
+             AND SAFE_CAST(match_date AS DATE) < DATE_SUB(CURRENT_DATE('Europe/Stockholm'), INTERVAL 1 DAY)) AS b
+        """,
+        "ligamatcher med uppstallning, mot de med handelser aldre an ett dygn",
+    )
+
+    checks.extend(_player_checks(client, ids, run_id))
     return checks
+
+
+# Avstamningen per spelare (backlogg 46). Vyerna i marts listar spelare vars
+# mal, assist eller plus/minus ur matcherna inte stammer med Swehockeys
+# sasongstotaler. En sadan avvikelse ar ofta tillfallig: totalerna och
+# protokollen uppdateras vid olika tider, och protokollen rattas i upp till
+# tva veckor. Forst nar den ligger kvar langre an omhamtningsfonstret ar den
+# ett fel — hos oss eller i kallan — och da syns den som varning.
+_PLAYER_CHECKS = (
+    ("player_scoring", "check_player_scoring",
+     "CONCAT(typ, ': mal ', IFNULL(CAST(mal_officiella AS STRING), '-'), '/', IFNULL(CAST(mal_matcher AS STRING), '-'),"
+     " ', assist ', IFNULL(CAST(assist_officiella AS STRING), '-'), '/', IFNULL(CAST(assist_matcher AS STRING), '-'))"),
+    ("player_plus_minus", "check_player_plus_minus",
+     "CONCAT('plus/minus ', CAST(plus_minus_officiell AS STRING), '/', CAST(plus_minus_matcher AS STRING))"),
+)
+QUALITY_TABLE = "quality_deviations"
+
+
+def _player_checks(client: bigquery.Client, ids: str, run_id: str) -> list[dict[str, Any]]:
+    """Avvikelser per spelare, sparade per korning sa att deras alder syns.
+
+    Varje korning skriver dagens avvikelser till raw_sports.quality_deviations,
+    plus en markorrad utan spelare sa att en korning utan avvikelser ocksa
+    syns. En avvikelse ar lika gammal som den obrutna foljden av korningar
+    dar den funnits.
+    """
+    proj = client.project
+    out: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc).isoformat()
+    window = LEAGUE_REFRESH_DAYS
+    for name, view, detail in _PLAYER_CHECKS:
+        try:
+            rows = [
+                dict(r.items())
+                for r in client.query(
+                    f"""
+                    SELECT season_group_id, player_key, {detail} AS detail
+                    FROM `{proj}.marts.{view}`
+                    WHERE season_group_id IN ({ids})
+                    ORDER BY season_group_id, player_key
+                    """
+                ).result()
+            ]
+        except Exception as exc:
+            out.append({"name": name, "ok": None, "note": f"kunde inte koras: {exc}"[:180]})
+            continue
+
+        records = [
+            {"check_name": name, "season_group_id": int(r["season_group_id"]),
+             "item_key": str(r["player_key"]), "detail": r.get("detail"),
+             "run_id": run_id, "scraped_at": now}
+            for r in rows
+        ]
+        records.append({"check_name": name, "season_group_id": None, "item_key": None,
+                        "detail": None, "run_id": run_id, "scraped_at": now})
+        try:
+            job = client.load_table_from_json(
+                records,
+                f"{proj}.{BQ_DATASET}.{QUALITY_TABLE}",
+                job_config=bigquery.LoadJobConfig(
+                    write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                    schema=[
+                        bigquery.SchemaField("check_name", "STRING"),
+                        bigquery.SchemaField("season_group_id", "INT64"),
+                        bigquery.SchemaField("item_key", "STRING"),
+                        bigquery.SchemaField("detail", "STRING"),
+                        bigquery.SchemaField("run_id", "STRING"),
+                        bigquery.SchemaField("scraped_at", "TIMESTAMP"),
+                    ],
+                ),
+            )
+            job.result()
+        except Exception as exc:
+            # Utan historik gar aldern inte att avgora. Antalet rapporteras anda.
+            out.append({
+                "name": name, "ok": None, "observed": len(rows), "expected": 0,
+                "note": f"historiken kunde inte skrivas: {exc}"[:180],
+            })
+            continue
+
+        # Aldern: sedan den senaste korningen dar spelaren INTE fanns med.
+        try:
+            aged = [
+                dict(r.items())
+                for r in client.query(
+                    f"""
+                    WITH korningar AS (
+                      SELECT DISTINCT run_id, scraped_at
+                      FROM `{proj}.{BQ_DATASET}.{QUALITY_TABLE}`
+                      WHERE check_name = '{name}' AND item_key IS NULL
+                    ),
+                    nu AS (
+                      SELECT season_group_id, item_key, detail
+                      FROM `{proj}.{BQ_DATASET}.{QUALITY_TABLE}`
+                      WHERE check_name = '{name}' AND run_id = '{run_id}' AND item_key IS NOT NULL
+                    ),
+                    forekomst AS (
+                      SELECT season_group_id, item_key, run_id
+                      FROM `{proj}.{BQ_DATASET}.{QUALITY_TABLE}`
+                      WHERE check_name = '{name}' AND item_key IS NOT NULL
+                    ),
+                    senast_utan AS (
+                      SELECT n.season_group_id, n.item_key, MAX(k.scraped_at) AS t
+                      FROM nu n CROSS JOIN korningar k
+                      LEFT JOIN forekomst f
+                        ON f.run_id = k.run_id AND f.item_key = n.item_key
+                       AND f.season_group_id = n.season_group_id
+                      WHERE f.run_id IS NULL
+                      GROUP BY 1, 2
+                    )
+                    SELECT n.season_group_id, n.item_key, n.detail,
+                           MIN(k.scraped_at) AS forst
+                    FROM nu n
+                    LEFT JOIN senast_utan u USING (season_group_id, item_key)
+                    JOIN korningar k ON k.scraped_at > IFNULL(u.t, TIMESTAMP '1970-01-01')
+                    GROUP BY 1, 2, 3
+                    HAVING MIN(k.scraped_at) < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {window} DAY)
+                    ORDER BY forst
+                    """
+                ).result()
+            ]
+        except Exception as exc:
+            out.append({
+                "name": name, "ok": None, "observed": len(rows), "expected": 0,
+                "note": f"aldern kunde inte raknas: {exc}"[:180],
+            })
+            continue
+
+        out.append({
+            "name": name,
+            "ok": not aged,
+            "severity": "warning",
+            "observed": len(aged),
+            "expected": 0,
+            "info": f"{len(rows)} avvikelser, {len(aged)} aldre an {window} dygn",
+            "note": "; ".join(f"{a['item_key']} ({a['detail']})" for a in aged[:5]),
+        })
+    return out
 
 
 def _tom_api_cache(result: dict[str, Any]) -> None:
@@ -2219,13 +2375,26 @@ def run_swehockey_stats_scraper(request):
         # datat ar redan skrivet — men en avvikelse ska synas i svaret och i
         # korloggen sa den gar att larma pa.
         try:
-            reconciliation = _reconcile(bq_client, active_season_ids)
+            reconciliation = _reconcile(bq_client, active_season_ids, run_id)
         except Exception:
             logging.exception("Avstamningen kunde inte koras run_id=%s", run_id)
             reconciliation = []
         if reconciliation:
             result["reconciliation"] = reconciliation
-            mismatched = [c["name"] for c in reconciliation if c.get("ok") is False]
+            mismatched = [
+                c["name"] for c in reconciliation
+                if c.get("ok") is False and c.get("severity") != "warning"
+            ]
+            warnings = [
+                c["name"] for c in reconciliation
+                if c.get("ok") is False and c.get("severity") == "warning"
+            ]
+            if warnings:
+                result["reconciliation_warnings"] = warnings
+                logging.warning(
+                    "Avvikelser som legat kvar langre an omhamtningsfonstret run_id=%s: %s",
+                    run_id, ", ".join(warnings),
+                )
             if mismatched:
                 result["reconciliation_failed"] = mismatched
                 logging.error(
