@@ -504,12 +504,40 @@ WHERE e.event_type = 'penalty';
 -- Prövar hela kedjan händelse → spelarnyckel → spelare, och ger listan över
 -- namnvarianter och saknade matcher. mal_utan_straffar räknar bort
 -- avgörande straffar, som Swehockey inte räknar som mål.
+-- Täckning per säsong: spelade matcher mot matcher med händelser,
+-- sammanfattning och målvakter. Avstämningen nedan gäller bara säsonger där
+-- alla spelade matcher har händelser; annars blir varje spelare fel.
+CREATE OR REPLACE VIEW `@PROJECT@.marts.check_coverage` AS
+WITH spelade AS (
+  SELECT SAFE_CAST(season_group_id AS INT64) AS season_group_id,
+         SAFE_CAST(game_id AS INT64) AS game_id
+  FROM `@PROJECT@.marts.dim_game`
+  WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL
+),
+ev AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_events`),
+sam AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_team_summary`),
+mv AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_goalies`)
+SELECT
+  s.season_group_id,
+  COUNT(*) AS spelade,
+  COUNTIF(ev.game_id IS NOT NULL) AS med_handelser,
+  COUNTIF(sam.game_id IS NOT NULL) AS med_sammanfattning,
+  COUNTIF(mv.game_id IS NOT NULL) AS med_malvakter,
+  COUNTIF(ev.game_id IS NOT NULL) = COUNT(*) AS komplett
+FROM spelade s
+LEFT JOIN ev USING (game_id)
+LEFT JOIN sam USING (game_id)
+LEFT JOIN mv USING (game_id)
+GROUP BY s.season_group_id;
+
 CREATE OR REPLACE VIEW `@PROJECT@.marts.check_player_scoring` AS
 WITH matcher AS (
   SELECT SAFE_CAST(season_group_id AS INT64) AS season_group_id, player_key,
          SUM(goals) AS mal, SUM(assists) AS assist,
          COUNT(DISTINCT game_id) AS matcher_med_handelse
   FROM `@PROJECT@.marts.fact_player_game`
+  WHERE season_group_id IN (
+    SELECT season_group_id FROM `@PROJECT@.marts.check_coverage` WHERE komplett)
   GROUP BY 1, player_key
 ),
 straffar AS (
@@ -525,6 +553,8 @@ facit AS (
          SUM(SAFE_CAST(assists AS INT64)) AS assist,
          SUM(SAFE_CAST(games_played AS INT64)) AS matcher
   FROM `@PROJECT@.marts.fact_player_season`
+  WHERE SAFE_CAST(season_group_id AS INT64) IN (
+    SELECT season_group_id FROM `@PROJECT@.marts.check_coverage` WHERE komplett)
   GROUP BY 1, player_key
 )
 SELECT
