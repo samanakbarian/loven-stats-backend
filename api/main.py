@@ -782,6 +782,7 @@ _VARMNINGSVAGAR = (
     # saknades. 26 september visade kurvan läget före kvällens övriga matcher
     # i tre timmar efter att tabellen själv var rättad.
     ("/api/v1/table-history", True),
+    ("/api/v1/league-trend", True),
     ("/api/v1/projection", True),
     ("/api/v1/swings", True),
     ("/api/v1/opponents", True),
@@ -2929,6 +2930,69 @@ def get_league(season: str = None, refresh: bool = False):
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/league")
+        return {"status": "error", "error": str(e), "teams": []}
+
+
+@app.get("/api/v1/league-trend")
+@cached_ok(cache=stats_cache)
+def get_league_trend(season: str = None, refresh: bool = False):
+    """Utvecklingen över tid för alla lag: skottandel, PDO och mål.
+
+    Samma lagrader per match som /league och /shots, våra och seriens
+    övriga, räknade med serien.trend_per_lag. X-axeln är lagets egen
+    matchordning, inte datum: lagen har spelat olika många matcher, och
+    efter tio matcher betyder samma sak för alla.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular = int(active["regular"])
+        cfg = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("sasong", "INT64", regular),
+        ])
+        try:
+            rader = [
+                dict(r.items())
+                for r in bq.query(
+                    f"""
+                    SELECT game_id, team_name, is_home, shots, saves
+                    FROM `{bq.project}.core.game_team_summary` WHERE season_group_id = @sasong
+                    UNION ALL
+                    SELECT game_id, team_name, is_home, shots, saves
+                    FROM `{bq.project}.core.league_game_summary` WHERE season_group_id = @sasong
+                    """,
+                    job_config=cfg,
+                ).result()
+            ]
+            datum = {
+                int(r["game_id"]): str(r["match_date"])[:10]
+                for r in bq.query(
+                    f"""
+                    SELECT game_id, match_date FROM `{bq.project}.core.schedule`
+                    WHERE season_group_id = @sasong AND game_id IS NOT NULL
+                    """,
+                    job_config=cfg,
+                ).result()
+            }
+        except Exception:
+            logging.warning("Lagrader saknas for /league-trend", exc_info=True)
+            return {"status": "not_found", "error": "Matchdata saknas for sasongen.", "teams": []}
+
+        lag = serien.trend_per_lag(rader, datum)
+        if not lag:
+            return {"status": "not_found", "error": "Inga spelade matcher med skott.", "teams": []}
+        for t in lag:
+            t["is_ours"] = bool(BJK_HOME.search(t["team"]))
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "window": serien.TREND_FONSTER,
+            "teams": lag,
+            "league": serien.trend_snitt(lag),
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/league-trend")
         return {"status": "error", "error": str(e), "teams": []}
 
 

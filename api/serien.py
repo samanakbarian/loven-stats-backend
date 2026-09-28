@@ -435,3 +435,95 @@ def fran_lagstatistik(rows: list[dict[str, Any]], is_ours) -> dict[str, Any]:
     }
     teams.sort(key=lambda t: t["team"])
     return {"teams": teams, "league": league}
+
+
+# ── Utvecklingen över tid, för alla lag ───────────────────────────────────
+
+TREND_FONSTER = 10
+
+
+def trend_per_lag(rader: list[dict[str, Any]], datum: dict[int, str], fonster: int = TREND_FONSTER) -> list[dict[str, Any]]:
+    """Skottandel, PDO och mål för och emot, match för match för varje lag.
+
+    `rader` är lagens rader ur matchernas sammanfattning, två per match
+    (game_id, team_name, is_home, shots, saves). `datum` ger matchdagen per
+    game_id. Värdena är rullande över `fonster` matcher, räknade ur
+    totalerna i fönstret, som /api/v1/shots räknar vårt eget lag. Innan laget
+    spelat `fonster` matcher gäller alla hittills.
+
+    Mål ur skotten: skott minus motståndarmålvaktens räddningar. Samma
+    definition som resten av sajten, så Björklövens kurva här är densamma
+    som i vår egen utvecklingsvy.
+    """
+    per_match: dict[int, dict[bool, dict[str, Any]]] = defaultdict(dict)
+    for r in rader:
+        gid = _int(r.get("game_id"))
+        if gid is None or gid not in datum:
+            continue
+        per_match[gid][bool(r.get("is_home"))] = r
+
+    matcher: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for gid, sidor in per_match.items():
+        if True not in sidor or False not in sidor:
+            continue
+        for hemma in (True, False):
+            vi, de = sidor[hemma], sidor[not hemma]
+            sf, sa = _int(vi.get("shots")), _int(de.get("shots"))
+            if sf is None or sa is None:
+                continue
+            gf = sf - (_int(de.get("saves")) or 0)
+            ga = sa - (_int(vi.get("saves")) or 0)
+            matcher[str(vi.get("team_name") or "")].append(
+                {"game_id": gid, "date": datum[gid], "sf": sf, "sa": sa, "gf": gf, "ga": ga}
+            )
+
+    ut = []
+    for lag, lista in matcher.items():
+        if not lag:
+            continue
+        lista.sort(key=lambda m: (m["date"], m["game_id"]))
+        punkter = []
+        for i in range(len(lista)):
+            f = lista[max(0, i - fonster + 1): i + 1]
+            sf = sum(m["sf"] for m in f)
+            sa = sum(m["sa"] for m in f)
+            gf = sum(m["gf"] for m in f)
+            ga = sum(m["ga"] for m in f)
+            # Två decimaler och oavrundade delar, som /api/v1/shots, så att
+            # Björklövens kurva blir exakt densamma som i vår egen vy.
+            pdo = (gf / sf + (sa - ga) / sa) * 100 if sf and sa else None
+            punkter.append({
+                "match": i + 1,
+                "date": lista[i]["date"],
+                "window": len(f),
+                "shot_share": round(sf / (sf + sa) * 100, 2) if sf + sa else None,
+                "pdo": round(pdo, 2) if pdo is not None else None,
+                "gf_pg": round(gf / len(f), 2),
+                "ga_pg": round(ga / len(f), 2),
+            })
+        ut.append({"team": lag, "games": len(lista), "points": punkter})
+    ut.sort(key=lambda t: t["team"])
+    return ut
+
+
+def trend_snitt(lag: list[dict[str, Any]], nycklar=("shot_share", "pdo", "gf_pg", "ga_pg")) -> list[dict[str, Any]]:
+    """Seriens snitt efter N matcher, bara där minst hälften av lagen spelat N.
+
+    Utan kravet hade snittet i kurvans slut vilat på de två lag som råkat
+    spela flest matcher.
+    """
+    if not lag:
+        return []
+    ut = []
+    n = 1
+    while True:
+        vid = [t["points"][n - 1] for t in lag if len(t["points"]) >= n]
+        if len(vid) * 2 < len(lag):
+            break
+        rad: dict[str, Any] = {"match": n, "teams": len(vid)}
+        for k in nycklar:
+            v = [p[k] for p in vid if p.get(k) is not None]
+            rad[k] = round(sum(v) / len(v), 2) if v else None
+        ut.append(rad)
+        n += 1
+    return ut
