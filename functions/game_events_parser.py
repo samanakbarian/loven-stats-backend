@@ -413,7 +413,8 @@ _LINE_LABEL = re.compile(r"^(1st|2nd|3rd|4th)\s+Line$", re.I)
 # fargen stod utsatt, och motstandarens spelare tillskrevs da fel lag.
 _TEAM_HEADER = re.compile(r"^(?!\d+\.)(.+?)\s*\(([^)]*)\)$")
 _LINE_NUMBER = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
-_POSITION = re.compile(r"\s*\((?:LW|RW|C|D|F|G)\)$")
+# "(RW)", "(LD)", "(CE)": en eller tva versaler i parentes sist i namnet.
+_POSITION = re.compile(r"\s*\([A-Z]{1,2}\)$")
 
 
 def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:

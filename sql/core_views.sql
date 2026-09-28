@@ -84,6 +84,16 @@ CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_goalies` 
   scraped_at TIMESTAMP
 );
 
+-- Uppställningen för seriens övriga matcher (backlogg 38, steg 2). Samma
+-- fält som vår swehockey_game_lineups.
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_lineups` (
+  game_id INT64, season_group_id INT64, match_date STRING,
+  team_name STRING, jersey_colour STRING, home_team STRING, away_team STRING,
+  block STRING, line_number INT64, player_number INT64, player_name STRING,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_team_stats` (
   season_group_id INT64, page STRING, section STRING, grp STRING,
   team_code STRING, team_name STRING, rank INT64, games_played INT64,
@@ -128,6 +138,10 @@ QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_goalies` AS
 SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_goalies`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
+
+CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_lineups` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_lineups`
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 
 -- --------------------------------------------------------- ögonblicksbilder --
@@ -340,6 +354,31 @@ SELECT
   SAFE_CAST(shots_against AS INT64) AS shots_against,
   SAFE_CAST(goals_against AS INT64) AS goals_against
 FROM `@PROJECT@.core.league_game_goalies`;
+
+CREATE OR REPLACE VIEW `@PROJECT@.core.match_lineups` AS
+SELECT
+  TRUE AS is_ours,
+  SAFE_CAST(game_id AS INT64) AS game_id,
+  SAFE_CAST(season_group_id AS INT64) AS season_group_id,
+  CAST(team_name AS STRING) AS team_name,
+  CAST(jersey_colour AS STRING) AS jersey_colour,
+  CAST(block AS STRING) AS block,
+  SAFE_CAST(line_number AS INT64) AS line_number,
+  SAFE_CAST(player_number AS INT64) AS player_number,
+  CAST(player_name AS STRING) AS player_name
+FROM `@PROJECT@.core.game_lineups`
+UNION ALL
+SELECT
+  FALSE AS is_ours,
+  SAFE_CAST(game_id AS INT64) AS game_id,
+  SAFE_CAST(season_group_id AS INT64) AS season_group_id,
+  CAST(team_name AS STRING) AS team_name,
+  CAST(jersey_colour AS STRING) AS jersey_colour,
+  CAST(block AS STRING) AS block,
+  SAFE_CAST(line_number AS INT64) AS line_number,
+  SAFE_CAST(player_number AS INT64) AS player_number,
+  CAST(player_name AS STRING) AS player_name
+FROM `@PROJECT@.core.league_game_lineups`;
 
 -- Lagkod till lagnamn per säsong. Händelserna bär koden ("MIF"),
 -- sammanfattningen namnet. Ett mål som ökar hemmalagets siffra är

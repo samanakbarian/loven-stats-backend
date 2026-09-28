@@ -9,8 +9,13 @@ Status: **läget i dag** är beskrivet i avsnitt 3–4. **Målbilden** i avsnitt
 5–7 är beslutad (backlogg 38). Steg 1 i avsnitt 7 är i drift sedan
 2026-09-28: `core.match_*`, `fact_goal`, `fact_penalty`, `check_coverage` och
 `check_player_scoring`. Avstämningen var tom för 2026/27 efter rättningarna i
-uppställningens parser och seriens omhämtningsfönster. Avsnitt 4 är ännu inte
-omskrivet efter det.
+uppställningens parser och seriens omhämtningsfönster. Steg 2 är byggt:
+`swehockey_league_game_lineups`, `core.match_lineups`, på isen och plus/minus
+för seriens spelare i `fact_player_game`, `fact_lineup_slot` för hela serien
+och `check_player_plus_minus`. Provräknat i förväg på 2026/27 (24 matcher):
+321 av 333 spelares plus/minus stämmer exakt med Swehockeys; resten skiljer
+redan mellan Swehockeys statistik och deras egna matchprotokoll. Avsnitt 4
+är ännu inte omskrivet efter det.
 
 ---
 

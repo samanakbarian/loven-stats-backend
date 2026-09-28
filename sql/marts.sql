@@ -307,17 +307,29 @@ GROUP BY k.game_id, k.season_group_id, k.player_key
 ),
 -- Seriens övriga matcher (backlogg 38). Mål, assist och utvisningar står
 -- med namn i händelserna och går att räkna direkt. Laget kommer ur
--- händelsens lagkod via core.match_team_code. På isen kräver uppställningen,
--- som ännu bara hämtas för våra matcher: de fälten är NULL, inte noll.
--- Räknas som raderna ovan, avgörande straffar inräknade, så att hela serien
--- mäts lika. Avstämningen i check_player_scoring visar skillnaden mot
--- Swehockeys säsongstotaler.
+-- händelsens lagkod via core.match_team_code. På isen och plus/minus kräver
+-- uppställningen, som för seriens matcher hämtas från steg 2: i en match
+-- utan uppställning är de fälten NULL, inte noll.
+-- Räknas som raderna ovan, avgörande straffar inräknade.
 serie_ev AS (
   SELECT e.*, c.team_name AS lag
   FROM `@PROJECT@.core.match_events` e
   LEFT JOIN `@PROJECT@.core.match_team_code` c
     ON c.game_id = e.game_id AND c.team_code = e.team_code
   WHERE NOT e.is_ours
+),
+serie_lineup AS (
+  -- Målvakterna står i på-isen-listorna men har inget plus/minus i
+  -- Swehockeys statistik. De räknas därför inte på isen.
+  SELECT game_id, season_group_id, team_name, player_number,
+         ANY_VALUE(player_name) AS player_key,
+         LOGICAL_AND(block != 'goalie') AS utespelare
+  FROM `@PROJECT@.core.match_lineups`
+  WHERE NOT is_ours AND player_name IS NOT NULL
+  GROUP BY game_id, season_group_id, team_name, player_number
+),
+serie_med_uppst AS (
+  SELECT DISTINCT game_id FROM serie_lineup
 ),
 serie_rader AS (
   SELECT game_id, season_group_id, player_name AS player_key, lag, 1 AS goals, 0 AS assists, 0 AS pim, 0 AS penalties
@@ -331,13 +343,57 @@ serie_rader AS (
   UNION ALL
   SELECT game_id, season_group_id, player_name, lag, 0, 0, IFNULL(penalty_minutes, 0), 1
   FROM serie_ev WHERE event_type = 'penalty' AND player_name IS NOT NULL
+  UNION ALL
+  -- Den som stod i uppställningen utan att synas i händelserna.
+  SELECT game_id, season_group_id, player_key, team_name, 0, 0, 0, 0
+  FROM serie_lineup
+),
+serie_mal AS (
+  SELECT game_id, lag, on_ice_for, on_ice_against,
+         NOT COALESCE(is_power_play, FALSE)
+           AND NOT COALESCE(REGEXP_CONTAINS(score_state, r'\((PS|GWS)\)'), FALSE) AS ger_plus
+  FROM serie_ev
+  WHERE event_type = 'goal' AND lag IS NOT NULL
+),
+-- Samma definition som för våra matcher: gf_on/ga_on räknar alla mål med
+-- spelaren på isen, _ev bara de som ger plus/minus enligt regelboken.
+serie_on AS (
+  SELECT m.game_id, l.player_key,
+         COUNT(*) AS gf_on, COUNTIF(m.ger_plus) AS gf_on_ev, 0 AS ga_on, 0 AS ga_on_ev
+  FROM serie_mal m, UNNEST(SPLIT(m.on_ice_for, ',')) AS num
+  JOIN serie_lineup l ON l.game_id = m.game_id AND l.team_name = m.lag
+                     AND l.player_number = SAFE_CAST(TRIM(num) AS INT64)
+                     AND l.utespelare
+  WHERE m.on_ice_for IS NOT NULL
+  GROUP BY m.game_id, l.player_key
+  UNION ALL
+  SELECT m.game_id, l.player_key,
+         0, 0, COUNT(*), COUNTIF(m.ger_plus)
+  FROM serie_mal m, UNNEST(SPLIT(m.on_ice_against, ',')) AS num
+  JOIN serie_lineup l ON l.game_id = m.game_id AND l.team_name != m.lag
+                     AND l.player_number = SAFE_CAST(TRIM(num) AS INT64)
+                     AND l.utespelare
+  WHERE m.on_ice_against IS NOT NULL
+  GROUP BY m.game_id, l.player_key
+),
+serie_on_sum AS (
+  SELECT game_id, player_key,
+         SUM(gf_on) AS gf_on, SUM(ga_on) AS ga_on,
+         SUM(gf_on_ev) AS gf_on_ev, SUM(ga_on_ev) AS ga_on_ev
+  FROM serie_on
+  GROUP BY game_id, player_key
 ),
 serie AS (
-  SELECT game_id, season_group_id, player_key, MAX(lag) AS team_key,
-         SUM(goals) AS goals, SUM(assists) AS assists,
-         SUM(pim) AS pim, SUM(penalties) AS penalties
-  FROM serie_rader
-  GROUP BY game_id, season_group_id, player_key
+  SELECT r.game_id, r.season_group_id, r.player_key,
+         -- Uppställningens lag före händelsens: lagkoden kan saknas.
+         COALESCE(ANY_VALUE(lu.team_name), MAX(r.lag)) AS team_key,
+         SUM(r.goals) AS goals, SUM(r.assists) AS assists,
+         SUM(r.pim) AS pim, SUM(r.penalties) AS penalties,
+         MAX(lu.player_key IS NOT NULL) AS in_lineup
+  FROM serie_rader r
+  LEFT JOIN (SELECT DISTINCT game_id, team_name, player_key FROM serie_lineup) lu
+    ON lu.game_id = r.game_id AND lu.player_key = r.player_key
+  GROUP BY r.game_id, r.season_group_id, r.player_key
 )
 SELECT v.* REPLACE (SAFE_CAST(v.game_id AS INT64) AS game_id,
                    SAFE_CAST(v.season_group_id AS INT64) AS season_group_id),
@@ -345,16 +401,23 @@ SELECT v.* REPLACE (SAFE_CAST(v.game_id AS INT64) AS game_id,
 FROM vara v
 UNION ALL
 SELECT
-  game_id, season_group_id, player_key, team_key,
-  goals, assists, goals + assists AS points, pim, penalties,
-  CAST(NULL AS INT64) AS gf_on, CAST(NULL AS INT64) AS ga_on, CAST(NULL AS INT64) AS plus_minus_on_ice,
-  CAST(NULL AS INT64) AS gf_on_ev, CAST(NULL AS INT64) AS ga_on_ev, CAST(NULL AS INT64) AS plus_minus,
+  s.game_id, s.season_group_id, s.player_key, s.team_key,
+  s.goals, s.assists, s.goals + s.assists AS points, s.pim, s.penalties,
+  IF(u.game_id IS NULL, NULL, IFNULL(o.gf_on, 0)) AS gf_on,
+  IF(u.game_id IS NULL, NULL, IFNULL(o.ga_on, 0)) AS ga_on,
+  IF(u.game_id IS NULL, NULL, IFNULL(o.gf_on, 0) - IFNULL(o.ga_on, 0)) AS plus_minus_on_ice,
+  IF(u.game_id IS NULL, NULL, IFNULL(o.gf_on_ev, 0)) AS gf_on_ev,
+  IF(u.game_id IS NULL, NULL, IFNULL(o.ga_on_ev, 0)) AS ga_on_ev,
+  IF(u.game_id IS NULL, NULL, IFNULL(o.gf_on_ev, 0) - IFNULL(o.ga_on_ev, 0)) AS plus_minus,
   CAST(NULL AS INT64) AS shots, CAST(NULL AS INT64) AS official_plus_minus,
   CAST(NULL AS INT64) AS faceoffs_won, CAST(NULL AS INT64) AS faceoffs_lost,
   CAST(NULL AS FLOAT64) AS faceoff_pct,
-  FALSE AS has_report, CAST(NULL AS BOOL) AS in_lineup,
+  FALSE AS has_report,
+  IF(u.game_id IS NULL, CAST(NULL AS BOOL), s.in_lineup) AS in_lineup,
   FALSE AS is_ours_game
-FROM serie;
+FROM serie s
+LEFT JOIN serie_med_uppst u ON u.game_id = s.game_id
+LEFT JOIN serie_on_sum o ON o.game_id = s.game_id AND o.player_key = s.player_key;
 
 -- Lag x match: skott, räddningar, utvisningar och PDO ur matchrapporten,
 -- mål ur resultatet.
@@ -421,8 +484,9 @@ WHERE NOT k.is_ours;
 CREATE OR REPLACE VIEW `@PROJECT@.marts.fact_lineup_slot` AS
 SELECT game_id, season_group_id, team_name AS team_key,
        player_name AS player_key, player_number AS jersey_number,
-       block, line_number, jersey_colour
-FROM `@PROJECT@.core.game_lineups`;
+       block, line_number, jersey_colour,
+       is_ours AS is_ours_game
+FROM `@PROJECT@.core.match_lineups`;
 
 -- Spelare x säsong: Swehockeys egna totaler, som facit mot de härledda talen.
 CREATE OR REPLACE VIEW `@PROJECT@.marts.fact_player_season` AS
@@ -511,18 +575,22 @@ WITH spelade AS (
 ),
 ev AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_events`),
 sam AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_team_summary`),
-mv AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_goalies`)
+mv AS (SELECT DISTINCT SAFE_CAST(game_id AS INT64) AS game_id FROM `@PROJECT@.core.match_goalies`),
+lu AS (SELECT DISTINCT game_id FROM `@PROJECT@.core.match_lineups`)
 SELECT
   s.season_group_id,
   COUNT(*) AS spelade,
   COUNTIF(ev.game_id IS NOT NULL) AS med_handelser,
   COUNTIF(sam.game_id IS NOT NULL) AS med_sammanfattning,
   COUNTIF(mv.game_id IS NOT NULL) AS med_malvakter,
-  COUNTIF(ev.game_id IS NOT NULL) = COUNT(*) AS komplett
+  COUNTIF(lu.game_id IS NOT NULL) AS med_uppstallning,
+  COUNTIF(ev.game_id IS NOT NULL) = COUNT(*) AS komplett,
+  COUNTIF(ev.game_id IS NOT NULL AND lu.game_id IS NOT NULL) = COUNT(*) AS komplett_uppstallning
 FROM spelade s
 LEFT JOIN ev USING (game_id)
 LEFT JOIN sam USING (game_id)
 LEFT JOIN mv USING (game_id)
+LEFT JOIN lu USING (game_id)
 GROUP BY s.season_group_id;
 
 -- Avstämning: varje spelares mål och assist räknade ur matcherna mot
@@ -585,3 +653,35 @@ WHERE f.player_key IS NULL
    OR (m.player_key IS NOT NULL AND (
          IFNULL(m.mal, 0) != IFNULL(f.mal, 0)
          OR IFNULL(m.assist, 0) != IFNULL(f.assist, 0)));
+
+-- Plus/minus per spelare, härlett ur på isen och uppställningen, mot
+-- Swehockeys officiella. Bara säsonger där alla spelade matcher har
+-- uppställning. Skillnader väntas: uppställningen listar inte alltid alla,
+-- och ett tröjnummer utan namn ger ingen rad. Vyn visar hur stora de är.
+CREATE OR REPLACE VIEW `@PROJECT@.marts.check_player_plus_minus` AS
+WITH matcher AS (
+  SELECT season_group_id, player_key,
+         SUM(plus_minus) AS plus_minus, COUNT(DISTINCT game_id) AS matcher
+  FROM `@PROJECT@.marts.fact_player_game`
+  WHERE plus_minus IS NOT NULL
+    -- Våra matcher räknar målvakterna på isen; Swehockey ger dem inget.
+    AND player_key NOT IN (
+      SELECT player_key FROM `@PROJECT@.marts.fact_goalie_game` WHERE player_key IS NOT NULL)
+    AND season_group_id IN (
+      SELECT season_group_id FROM `@PROJECT@.marts.check_coverage` WHERE komplett_uppstallning)
+  GROUP BY season_group_id, player_key
+),
+facit AS (
+  SELECT SAFE_CAST(season_group_id AS INT64) AS season_group_id, player_key,
+         ANY_VALUE(team_key) AS team_key,
+         SUM(SAFE_CAST(official_plus_minus AS INT64)) AS plus_minus
+  FROM `@PROJECT@.marts.fact_player_season`
+  GROUP BY 1, player_key
+)
+SELECT m.season_group_id, m.player_key, f.team_key, m.matcher,
+       f.plus_minus AS plus_minus_officiell,
+       m.plus_minus AS plus_minus_matcher,
+       m.plus_minus - f.plus_minus AS skillnad
+FROM matcher m
+JOIN facit f USING (season_group_id, player_key)
+WHERE m.plus_minus != f.plus_minus;

@@ -628,6 +628,8 @@ _LEAGUE_SCRAPED: set[int] = set()
 # Handelserna valjer urvalet; skott och malvakter tar samma matcher, sa en
 # match far alla tre eller ingen.
 _LEAGUE_GAMES: dict[str, list[dict[str, Any]]] = {}
+# Seriens matcher som redan har uppstallning i datalagret (backlogg 38, steg 2).
+_LEAGUE_LINEUPS_SCRAPED: set[int] = set()
 _RUN_STARTED: list[float] = [0.0]
 
 
@@ -651,6 +653,7 @@ _LEAGUE_TABLES = (
     "swehockey_league_game_events",
     "swehockey_league_game_summary",
     "swehockey_league_game_goalies",
+    "swehockey_league_game_lineups",
 )
 
 # Tabeller som hamtas som en hel ogonblicksbild per sasongsgrupp. De ar
@@ -694,6 +697,7 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
     _SCRAPED_GAMES.clear()
     _LEAGUE_SCRAPED.clear()
     _LEAGUE_GAMES.clear()
+    _LEAGUE_LINEUPS_SCRAPED.clear()
     _GAME_HASHES.clear()
     _REPORT_ETAGS.clear()
     ids = ",".join(str(int(s)) for s in season_ids if str(s).isdigit())
@@ -727,6 +731,21 @@ def _load_scraped_games(client: bigquery.Client, season_ids: list[str]) -> None:
         logging.info("%s av seriens ovriga matcher finns redan", len(_LEAGUE_SCRAPED))
     except Exception as exc:
         logging.info("Inga ligamatcher att jamfora mot an: %s", str(exc)[:120])
+
+    # Tabellen skapas av `deploy.sh views`. Saknas den ar mangden tom, och
+    # uppstallningen hamtas for alla matcher som tidsbudgeten racker till.
+    try:
+        rows = client.query(
+            f"""
+            SELECT DISTINCT game_id
+            FROM `{client.project}.{BQ_DATASET}.swehockey_league_game_lineups`
+            WHERE season_group_id IN ({ids}) AND game_id IS NOT NULL
+            """
+        ).result()
+        _LEAGUE_LINEUPS_SCRAPED.update(int(r["game_id"]) for r in rows)
+        logging.info("%s av seriens ovriga matcher har uppstallning", len(_LEAGUE_LINEUPS_SCRAPED))
+    except Exception as exc:
+        logging.info("Ingen uppstallning for serien an: %s", str(exc)[:120])
 
     # Hashen for den senaste generationen av varje match. Tabeller som annu
     # saknar kolumnen ger ett fel har; da star ordboken tom for den tabellen
@@ -1149,6 +1168,57 @@ def _fetch_league_events(season_group_id: str, limit: int | None = None) -> tupl
     return out, url
 
 
+def _fetch_league_lineups(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Uppstallningen for seriens ovriga matcher, backlogg 38 steg 2.
+
+    Handelserna anger bara trojnummer for spelarna pa isen; uppstallningen
+    ger namnen, och darmed plus/minus for alla spelare i serien.
+
+    Matcherna ar de vars handelser hamtades i den har korningen, och darefter
+    spelade matcher som annu saknar uppstallning. Sa kommer ocksa de matcher
+    med som hamtades innan uppstallningen fanns, eller som tidsbudgeten inte
+    racker till: nasta korning tar vid. Budgeten ar densamma som for
+    handelserna, sa korningen blir aldrig langre an forut.
+    """
+    url = f"{BASE_URL}/Game/LineUps/"
+    out: list[dict[str, Any]] = []
+    try:
+        games = list(_LEAGUE_GAMES.get(season_group_id, []))
+        seen = {int(g["game_id"]) for g in games}
+        if limit != 0:
+            for g in _league_games(season_group_id, None):
+                gid = int(g["game_id"])
+                if gid not in seen and gid not in _LEAGUE_LINEUPS_SCRAPED:
+                    games.append(g)
+                    seen.add(gid)
+        if limit is not None:
+            games = games[: max(0, limit)]
+        for n, game in enumerate(games):
+            if time.monotonic() - _RUN_STARTED[0] > LEAGUE_TIME_BUDGET:
+                logging.info("Tidsbudgeten for seriens uppstallning slut efter %s av %s matcher", n, len(games))
+                break
+            gid = int(game["game_id"])
+            html = _lineup_html(gid)
+            if not html:
+                continue
+            try:
+                rows = parse_lineups(html, gid)
+            except Exception:
+                logging.exception("Kunde inte tolka uppstallningen for ligamatch %s", gid)
+                continue
+            for r in rows:
+                r["season_group_id"] = int(season_group_id)
+                r["match_date"] = game.get("match_date")
+                r["source"] = SOURCE
+            if _unchanged("swehockey_league_game_lineups", gid, rows):
+                continue
+            out.extend(rows)
+    except Exception:
+        logging.exception("Seriens uppstallning kunde inte hamtas for %s", season_group_id)
+        return [], url
+    return out, url
+
+
 def _fetch_league_summary(season_group_id: str, limit: int | None = None) -> tuple[list[dict[str, Any]], str | None]:
     try:
         return _summary_rows(season_group_id, _LEAGUE_GAMES.get(season_group_id, []), "swehockey_league_game_summary")
@@ -1398,6 +1468,18 @@ def _scrape_jobs():
             "required_fields": ("game_id", "goalie_name"),
             "key_fields": ("game_id", "team_code", "goalie_number"),
             "league": True,
+        },
+        # Uppstallningen star for sig: underkanns den ska handelserna, skotten
+        # och malvakterna anda laddas. Den far seriens tak men inte dess
+        # alla-eller-inget.
+        {
+            "data_type": "league_lineups",
+            "fetcher": _fetch_league_lineups,
+            "table_name": "swehockey_league_game_lineups",
+            "required_fields": ("game_id", "team_name", "player_number"),
+            "key_fields": ("game_id", "team_name", "block", "line_number", "player_number"),
+            "isolated": True,
+            "league_limit": True,
         },
         {
             "data_type": "team_stats",
@@ -1956,7 +2038,7 @@ def run_swehockey_stats_scraper(request):
         for season_group_id in active_season_ids:
             for job in _scrape_jobs():
                 data_type = job["data_type"]
-                if job.get("league"):
+                if job.get("league") or job.get("league_limit"):
                     rows, source_url = job["fetcher"](season_group_id, league_limit)
                 elif data_type in ("game_events", "game_summary", "game_goalies",
                                    "game_lineups", "game_boxscore"):

@@ -113,6 +113,7 @@ swehockey_roster roster
 swehockey_league_game_events league_game_events
 swehockey_league_game_summary league_game_summary
 swehockey_league_game_goalies league_game_goalies
+swehockey_league_game_lineups league_game_lineups
 swehockey_team_stats team_stats
 TABLES
     printf ' ORDER BY tabell'
