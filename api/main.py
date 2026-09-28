@@ -1710,13 +1710,16 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         # 34:29 innan han byttes ut, och backupen slappte in alla sju — sa
         # talet ar ratt. Men den som mott fyrtio skott har visat mer an den
         # som mott tjugoen, och det ska listan saga.
+        # Alla som spelat, inte de femton forsta. Taket fallde malvakter med
+        # lika manga matcher men lagre raddningsprocent, och en av tva i
+        # nasta motstandares mal saknades i listan.
         top_goalies = sorted(
-            regular_goalies,
+            [g for g in regular_goalies if int(g.get("games_played") or 0) > 0],
             key=lambda g: (-int(g.get("games_played") or 0),
                            -float(g.get("save_pct") or 0),
                            -int(g.get("shots_against") or 0),
                            str(g.get("goalie_name") or "")),
-        )[:15]
+        )
 
         # Team standing
         team_standing = next((s for s in standings if _matches(str(s.get("team_name", "")))), None)
