@@ -1911,7 +1911,7 @@ Modell, nycklar, kvalitet och ordning står i `docs/DATAMODELL.md`.
 - Mål och assist per spelare stämmer mot `player_season_stats` för alla spelare.
 - Inget befintligt API-svar ändras under flytten.
 
-### 39. Motståndaren inför matchen
+### 39. Motståndaren inför matchen — KLAR 2026-09-28
 
 Typ: Produkt / Inför matchen
 Prioritet: Hög — störst nytta av hela serien, och sidan finns redan
@@ -2063,7 +2063,7 @@ inställning och prov på skilda säsonger, och bara in om provet blir bättre.
 Kräver historik; uppställning för tidigare säsonger hämtas i så fall med
 backfill.
 
-### 46. Avstämningen i körningen
+### 46. Avstämningen i körningen — KLAR 2026-09-28
 
 Typ: Datakvalitet
 Prioritet: Hög — liten, och fångar fel innan de syns på sajten
