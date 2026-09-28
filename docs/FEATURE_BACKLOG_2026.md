@@ -1911,6 +1911,177 @@ Modell, nycklar, kvalitet och ordning står i `docs/DATAMODELL.md`.
 - Mål och assist per spelare stämmer mot `player_season_stats` för alla spelare.
 - Inget befintligt API-svar ändras under flytten.
 
+### 39. Motståndaren inför matchen
+
+Typ: Produkt / Inför matchen
+Prioritet: Hög — störst nytta av hela serien, och sidan finns redan
+Primärt repo: `loven-stats-backend`, `slutspel`
+Berörda områden: `api/`, `frontend_v2/src/pages/InforMatchen.tsx`
+
+Beskrivning:
+Inför matchen jämför i dag lagen på lagnivå. Med hela serien i marten går det
+att visa motståndarens spelare: poängbästa och vem som är het (poäng senaste
+fem matcherna), senaste uppställningen med kedjor, målvakten som troligen
+startar och hans räddningsprocent de senaste matcherna, och vilka som gör mål
+i powerplay. Allt ur `fact_player_game`, `fact_lineup_slot`,
+`fact_goalie_game` och `fact_goal`.
+
+#### Förslag
+
+- Ett kort "Att hålla koll på": tre spelare med poäng senaste fem och säsongen.
+- Motståndarens senaste femmor, med vår förstakedja bredvid.
+- Målvakten: starter senaste matcherna och räddningsprocent, med antal
+  matcher utskrivet.
+
+#### Acceptanskriterier
+
+- Allt räknas ur marten; inga nya hämtningar.
+- Små urval visas med antal matcher, aldrig som bara en procentsats.
+
+### 40. Spelarna mot resten av serien
+
+Typ: Produkt / Spelare
+Prioritet: Medel
+Primärt repo: `loven-stats-backend`, `slutspel`
+Berörda områden: `api/`, `Spelare.tsx`, `Truppen.tsx`
+
+Beskrivning:
+Spelarsidan jämför i dag bara inom truppen. Nu finns poäng, plus/minus och
+utvisningar match för match för varje spelare i serien. Förslaget är en
+placering i serien per mått — "7:e bland seriens backar i poäng per match" —
+och en poängliga för hela serien där våra spelare markeras.
+
+#### Förslag
+
+- Placering och percentil per mått på spelarsidan, bland spelare på samma
+  position med ett minsta antal matcher.
+- Seriens poängliga och plus/minus-liga som egen vy, filtrerbar per lag.
+- Position och ålder ur `player_season_stats` och truppen; biografi för
+  övriga lag finns inte (se `DATAMODELL.md` 5.3).
+
+#### Acceptanskriterier
+
+- Placeringarna bygger på samma tal som Swehockeys, avstämda i
+  `check_player_scoring` och `check_player_plus_minus`.
+
+### 41. Powerplay och boxplay för hela serien, match för match
+
+Typ: Produkt / Lag
+Prioritet: Medel
+Primärt repo: `loven-stats-backend`, `slutspel`
+Berörda områden: `sql/marts.sql`, `api/`, `Statistics.tsx`
+
+Beskrivning:
+Swehockeys lagstatistik ger powerplay och boxplay som säsongstotal. Ur
+`fact_penalty` och `fact_goal` går det att räkna match för match för alla lag:
+utvisningar dragna och tagna, mål i powerplay och boxplay, och därmed en
+kurva över säsongen som den för PDO och skottandel i Utveckling. Totalerna
+stäms av mot `team_stats`.
+
+#### Förslag
+
+- En mart `fact_team_special_teams` (lag × match).
+- Special teams som mått i "Serien över tid".
+- Disciplin: utvisningsminuter per match och vilka förseelser, per lag.
+
+#### Acceptanskriterier
+
+- Summan över säsongen stämmer mot Swehockeys lagstatistik, eller avvikelsen
+  är förklarad (sammanfallande utvisningar räknas olika).
+
+### 42. Femmor och kedjor i hela serien
+
+Typ: Analys
+Prioritet: Låg — små tal tidigt på säsongen
+Primärt repo: `loven-stats-backend`, `slutspel`
+Berörda områden: `sql/marts.sql`, `api/`
+
+Beskrivning:
+Uppställningen och spelarna på isen vid varje mål finns nu för alla matcher.
+Det ger mål för och emot i lika styrka per kedja och backpar, för alla lag,
+och vem som ställs mot vem. Mål är få: en kedja har ett tiotal mål på isen
+efter en tredjedel av säsongen. Det håller för en översikt, inte för
+slutsatser om enskilda matcher.
+
+#### Förslag
+
+- Mart `fact_line_game`: kedja × match med mål för och emot i lika styrka.
+- Seriens mest och minst effektiva kedjor, med antal mål utskrivet.
+- Vilken av motståndarens kedjor våra förstakedja mött flest mål mot.
+- Skott per kedja kräver istid och skott på spelarnivå, alltså feature 37.
+
+### 43. Matchbilder: ledning, underläge och vändningar
+
+Typ: Produkt / Lag
+Prioritet: Medel — enkelt, och bra underlag för texter och delningskort
+Primärt repo: `loven-stats-backend`, `slutspel`
+Berörda områden: `sql/marts.sql`, `api/`
+
+Beskrivning:
+`fact_goal` har ställningen efter varje mål i alla matcher. Ur den går att
+räkna hur lag klarar sig vid ledning och underläge: vinst vid ledning efter
+två perioder, poäng efter att ha släppt in första målet, vändningar, mål i
+slutminuterna. Jämförbart över hela serien.
+
+#### Förslag
+
+- Mart `fact_game_state`: lag × match med ställningen efter varje period och
+  första målet.
+- "När Björklöven leder efter två" mot seriens snitt, i Statistik.
+- Underlag till feature 21 (genererade notiser): "första vändningen sedan …".
+
+### 44. Seriens målvakter
+
+Typ: Produkt / Målvakter
+Prioritet: Medel
+Primärt repo: `loven-stats-backend`, `slutspel`
+Berörda områden: `api/`, `frontend_v2`
+
+Beskrivning:
+`fact_goalie_game` har räddningar och insläppta mål per match för varje
+målvakt i serien. Förslaget är en målvaktsliga med räddningsprocent, form
+senaste fem matcherna och spridning match för match, och vem som startat i
+vilka matcher. Istid finns bara för våra matcher (matchrapporten), så GAA för
+övriga räknas per start, med det utskrivet.
+
+#### Acceptanskriterier
+
+- Räddningsprocenten över säsongen stämmer mot Swehockeys målvaktsstatistik.
+
+### 45. Matchmodellen med spelare
+
+Typ: Modell
+Prioritet: Låg — prövas först, byggs bara om den slår dagens
+Primärt repo: `loven-stats-backend`
+Berörda områden: `api/matchmodell.py`, `scripts/backtest_matchmodell.py`
+
+Beskrivning:
+Matchmodellen räknar på lagens mål. Med uppställning och målvakter för alla
+matcher går det att pröva om den blir bättre av att veta vilken målvakt som
+startar eller vilka spelare som saknas. Samma disciplin som förut:
+inställning och prov på skilda säsonger, och bara in om provet blir bättre.
+Kräver historik; uppställning för tidigare säsonger hämtas i så fall med
+backfill.
+
+### 46. Avstämningen i körningen
+
+Typ: Datakvalitet
+Prioritet: Hög — liten, och fångar fel innan de syns på sajten
+Primärt repo: `loven-stats-backend`
+Berörda områden: `functions/swehockey_stats_scraper.py`, `sql/`
+
+Beskrivning:
+`check_coverage`, `check_player_scoring` och `check_player_plus_minus` körs i
+dag för hand. De ska in i `_reconcile` så att varje körning loggar antal
+avvikelser, och en ny avvikelse syns i körloggen. Rättningarna 28 september
+(uppställningens parser, omhämtningsfönstret) hittades just så. Namnvarianter
+som dyker upp samlas i `core.player_alias` (`DATAMODELL.md` 3.1).
+
+#### Acceptanskriterier
+
+- Varje körning loggar täckning och antal avvikelser per kontroll.
+- En avvikelse som ligger kvar längre än omhämtningsfönstret syns som varning.
+
 ## Beslutsregler
 
 - Backendkontrakt vinner over PoC-kontrakt om de skiljer sig.
