@@ -6,8 +6,10 @@
 beskriver datat. Gäller från 2026-09-28.*
 
 Status: **läget i dag** är beskrivet i avsnitt 3–4. **Målbilden** i avsnitt
-5–7 är beslutad (backlogg 38). Steg 1 i avsnitt 7 är byggt: `core.match_*`,
-`fact_goal`, `fact_penalty` och `check_player_scoring`; avsnitt 4 är ännu inte
+5–7 är beslutad (backlogg 38). Steg 1 i avsnitt 7 är i drift sedan
+2026-09-28: `core.match_*`, `fact_goal`, `fact_penalty`, `check_coverage` och
+`check_player_scoring`. Avstämningen var tom för 2026/27 efter rättningarna i
+uppställningens parser och seriens omhämtningsfönster. Avsnitt 4 är ännu inte
 omskrivet efter det.
 
 ---
