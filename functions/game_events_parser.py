@@ -413,6 +413,7 @@ _LINE_LABEL = re.compile(r"^(1st|2nd|3rd|4th)\s+Line$", re.I)
 # fargen stod utsatt, och motstandarens spelare tillskrevs da fel lag.
 _TEAM_HEADER = re.compile(r"^(?!\d+\.)(.+?)\s*\(([^)]*)\)$")
 _LINE_NUMBER = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+_POSITION = re.compile(r"\s*\((?:LW|RW|C|D|F|G)\)$")
 
 
 def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:
@@ -440,12 +441,18 @@ def parse_lineups(html: str, game_id: int) -> list[dict[str, Any]]:
     block: str | None = None
     line_no: int | None = None
 
+    # Extraspelarna kan sta tva i samma cell och bar ibland position efter
+    # namnet: "17. Eriksson, Henrik (RW) 46. Grewe, Albin (LW)". Utan
+    # delningen och rensningen blev det en spelare med hela texten som namn,
+    # och "Forsberg, Fredrik (RW)" en annan nyckel an "Forsberg, Fredrik".
     def _players(cells: list[str]) -> list[dict[str, Any]]:
         found = []
         for c in cells:
-            m = _PLAYER.match(_clean(c))
-            if m:
-                found.append({"number": int(m.group(1)), "name": _clean(m.group(2)).rstrip(",").strip()})
+            for chunk in re.split(r"\s+(?=\d{1,2}\.\s)", _clean(c)):
+                m = _PLAYER.match(_clean(chunk))
+                if m:
+                    name = _POSITION.sub("", _clean(m.group(2))).rstrip(",").strip()
+                    found.append({"number": int(m.group(1)), "name": name})
         return found
 
     for cells in table:

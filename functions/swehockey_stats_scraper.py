@@ -62,12 +62,12 @@ REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_REFRESH_DAYS", "21"))
 
 # Seriens ovriga matcher, feature 26. Bara handelsesidan — den bar handelser,
 # skott och malvakter, sa det ar en request per match — och bara i serier dar
-# laget spelar. De hamtas om i tva dygn i stallet for tjugoen: rattelserna pa
-# matchkvallen kommer med (Djurgardens skott i premiaren skrevs om 38 till 40
-# samma kvall), men omhamtningsfonstret vaxer inte till 150 matcher som
-# trangs med vara egna.
-LEAGUE_LIMIT_DEFAULT = int(os.environ.get("SWEHOCKEY_LEAGUE_LIMIT", "30"))
-LEAGUE_REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_LEAGUE_REFRESH_DAYS", "2"))
+# laget spelar. De hamtas om i fjorton dygn i stallet for tjugoen, sa att
+# fonstret inte vaxer till 150 matcher som trangs med vara egna. Tva dygn
+# racker inte: hosten 2026 rattades protokoll fyra och nio dagar efter
+# matchen, och en assist fattades i avstamningen mot spelarstatistiken.
+LEAGUE_LIMIT_DEFAULT = int(os.environ.get("SWEHOCKEY_LEAGUE_LIMIT", "45"))
+LEAGUE_REFRESH_DAYS = int(os.environ.get("SWEHOCKEY_LEAGUE_REFRESH_DAYS", "14"))
 # Sekunder fran korningens start. Funktionen har 300; vara egna matcher och
 # PDF:erna ska alltid hinnas med, sa ligamatcherna far det som blir over.
 LEAGUE_TIME_BUDGET = float(os.environ.get("SWEHOCKEY_LEAGUE_TIME_BUDGET", "150"))

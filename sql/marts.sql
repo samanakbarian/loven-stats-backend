@@ -499,11 +499,6 @@ LEFT JOIN `@PROJECT@.core.match_team_code` c
 LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = e.game_id
 WHERE e.event_type = 'penalty';
 
--- Avstämning: varje spelares mål och assist räknade ur matcherna mot
--- Swehockeys egna säsongstotaler. En rad per spelare där något skiljer.
--- Prövar hela kedjan händelse → spelarnyckel → spelare, och ger listan över
--- namnvarianter och saknade matcher. mal_utan_straffar räknar bort
--- avgörande straffar, som Swehockey inte räknar som mål.
 -- Täckning per säsong: spelade matcher mot matcher med händelser,
 -- sammanfattning och målvakter. Avstämningen nedan gäller bara säsonger där
 -- alla spelade matcher har händelser; annars blir varje spelare fel.
@@ -530,13 +525,18 @@ LEFT JOIN sam USING (game_id)
 LEFT JOIN mv USING (game_id)
 GROUP BY s.season_group_id;
 
+-- Avstämning: varje spelares mål och assist räknade ur matcherna mot
+-- Swehockeys egna säsongstotaler. En rad per spelare där något skiljer.
+-- Prövar hela kedjan händelse → spelarnyckel → spelare, och ger listan över
+-- namnvarianter och saknade matcher.
 CREATE OR REPLACE VIEW `@PROJECT@.marts.check_player_scoring` AS
 WITH matcher AS (
   SELECT SAFE_CAST(season_group_id AS INT64) AS season_group_id, player_key,
          SUM(goals) AS mal, SUM(assists) AS assist,
          COUNT(DISTINCT game_id) AS matcher_med_handelse
   FROM `@PROJECT@.marts.fact_player_game`
-  WHERE season_group_id IN (
+  WHERE player_key != 'Team penalty'
+    AND season_group_id IN (
     SELECT season_group_id FROM `@PROJECT@.marts.check_coverage` WHERE komplett)
   GROUP BY 1, player_key
 ),
@@ -564,7 +564,9 @@ SELECT
   f.matcher AS matcher_officiella,
   f.mal AS mal_officiella,
   m.mal AS mal_matcher,
-  IFNULL(m.mal, 0) - IFNULL(s.avgorande, 0) AS mal_utan_straffar,
+  -- Straffläggningens avgörande mål räknas i Swehockeys spelarstatistik,
+  -- som i våra matcher. Kolumnen visar hur många av målen som var sådana.
+  IFNULL(s.avgorande, 0) AS avgorande_straffar,
   f.assist AS assist_officiella,
   m.assist AS assist_matcher,
   CASE
@@ -581,5 +583,5 @@ LEFT JOIN straffar s
 WHERE f.player_key IS NULL
    OR (m.player_key IS NULL AND IFNULL(f.mal, 0) + IFNULL(f.assist, 0) > 0)
    OR (m.player_key IS NOT NULL AND (
-         IFNULL(m.mal, 0) - IFNULL(s.avgorande, 0) != IFNULL(f.mal, 0)
+         IFNULL(m.mal, 0) != IFNULL(f.mal, 0)
          OR IFNULL(m.assist, 0) != IFNULL(f.assist, 0)));
