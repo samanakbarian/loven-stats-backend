@@ -1190,14 +1190,25 @@ def get_season_preview(refresh: bool = False):
         return {"status": "error", "error": str(e)}
 
 
+# Positionerna i Swehockeys spelarstatistik. Forwards och backar skiljs at
+# i femman: uppstallningen anger bara kedja, inte position.
+_FORWARD = ("LW", "CE", "RW")
+_BACK = ("LD", "RD")
+
+
+def _namnnyckel(n) -> str:
+    """Spelarnamnet utan transfermarkering, som player_key i marten."""
+    return re.sub(r"[* ]+$", "", str(n or "")).strip()
+
+
 def _motstandarens_spelare(bq, regular: int, them: str, played: list[dict]) -> dict:
-    """Motstandarens poangbasta utespelare och forstemalvakt.
+    """Motstandarens poangbasta, heta spelare, startmalvakt och forstafemma.
 
     Sasongssiffrorna kommer ur Swehockeys spelarstatistik, dar team_code ar
-    lagets fulla namn. Poangen i de senaste fem matcherna raknas ur
-    handelserna: vara matcher i game_events, ovriga i league_game_events.
-    Spelarna kanns igen pa namn, inte lagkod — handelsernas lagkoder ar
-    forkortningar som inte finns i statistiken.
+    lagets fulla namn. Matcherna — poang match for match, vem som startade i
+    malet och femman — ur marten, som tacker hela serien (backlogg 38 och 39).
+    Spelarna kanns igen pa namnet utan transfermarkering; lagkoderna i
+    handelserna ar forkortningar som inte finns i statistiken.
     """
     param = bigquery.QueryJobConfig(query_parameters=[
         bigquery.ScalarQueryParameter("lag", "STRING", str(them)),
@@ -1226,58 +1237,154 @@ def _motstandarens_spelare(bq, regular: int, them: str, played: list[dict]) -> d
         ).result()
     ]
 
-    names = {str(p["player_name"]) for p in skaters}
-    senaste = [r.get("game_id") for r in _form_rows(played, them)]
-    senaste = [int(g) for g in senaste if g is not None]
-    form: dict[str, int] = {}
-    if senaste and names:
-        ids = ",".join(str(g) for g in senaste)
-        for tabell in ("game_events", "league_game_events"):
-            try:
+    senaste_rader = _form_rows(played, them)
+    senaste = [int(r["game_id"]) for r in senaste_rader if r.get("game_id") is not None]
+    ids = ",".join(str(g) for g in senaste)
+
+    # Poang per spelare och match. En spelare utan rad i en match spelade
+    # inte: marten har en rad for alla i uppstallningen, aven utan poang.
+    per_match: dict[str, dict[int, int]] = {}
+    starter: dict[int, str] = {}
+    malvakt_match: dict[tuple[int, str], dict] = {}
+    femma: list[dict] = []
+    if ids:
+        try:
+            for r in bq.query(
+                f"""
+                SELECT game_id, player_key, points
+                FROM `{bq.project}.marts.fact_player_game`
+                WHERE game_id IN ({ids}) AND team_key = @lag
+                """,
+                job_config=param,
+            ).result():
+                per_match.setdefault(_namnnyckel(r["player_key"]), {})[int(r["game_id"])] = int(r["points"] or 0)
+        except Exception:
+            logging.info("Kunde inte lasa motstandarens matcher", exc_info=True)
+        # Startmalvakten ar den som gar in 00:00. Raddningarna per match ur
+        # malvaktssammanfattningen.
+        try:
+            for r in bq.query(
+                f"""
+                SELECT e.game_id, e.player_name
+                FROM `{bq.project}.core.match_events` e
+                JOIN `{bq.project}.core.match_team_code` c
+                  ON c.game_id = e.game_id AND c.team_code = e.team_code
+                WHERE e.game_id IN ({ids}) AND c.team_name = @lag
+                  AND e.event_type = 'goalie_in' AND e.time = '00:00'
+                """,
+                job_config=param,
+            ).result():
+                starter[int(r["game_id"])] = _namnnyckel(r["player_name"])
+            for r in bq.query(
+                f"""
+                SELECT game_id, player_key, saves, shots_against
+                FROM `{bq.project}.marts.fact_goalie_game`
+                WHERE game_id IN ({ids}) AND team_key = @lag
+                """,
+                job_config=param,
+            ).result():
+                malvakt_match[(int(r["game_id"]), _namnnyckel(r["player_key"]))] = {
+                    "saves": r["saves"], "shots": r["shots_against"],
+                }
+        except Exception:
+            logging.info("Kunde inte lasa motstandarens malvakter", exc_info=True)
+        try:
+            femma = [
+                dict(r.items())
                 for r in bq.query(
                     f"""
-                    SELECT player_name, assist1_name, assist2_name
-                    FROM `{bq.project}.core.{tabell}`
-                    WHERE event_type = 'goal' AND game_id IN ({ids})
-                      AND NOT REGEXP_CONTAINS(IFNULL(score_state, ''), r'\(GWS\)')
-                    """
-                ).result():
-                    for n in (r["player_name"], r["assist1_name"], r["assist2_name"]):
-                        if n and n in names:
-                            form[n] = form.get(n, 0) + 1
-            except Exception:
-                logging.info("Kunde inte lasa %s for motstandaren", tabell, exc_info=True)
+                    SELECT player_key, jersey_number
+                    FROM `{bq.project}.marts.fact_lineup_slot`
+                    WHERE game_id = {senaste[-1]} AND team_key = @lag
+                      AND block = 'line' AND line_number = 1
+                    """,
+                    job_config=param,
+                ).result()
+            ]
+        except Exception:
+            logging.info("Kunde inte lasa motstandarens femma", exc_info=True)
 
-    topp = sorted(
-        skaters,
-        key=lambda p: (-(p.get("points") or 0), -(p.get("goals") or 0),
-                       p.get("games_played") or 0, str(p["player_name"])),
-    )[:3]
-    spelare = [
-        {
-            "name": p["player_name"],
+    def senast(namn: str) -> list[int | None]:
+        m = per_match.get(_namnnyckel(namn), {})
+        return [m.get(g) for g in senaste]
+
+    n_senaste = len(senaste)
+    # Het: poang i nastan varje match nyligen. Samma grans som kortet haft.
+    het_grans = max(3, n_senaste - 1)
+
+    def rad(p: dict) -> dict:
+        last = senast(p["player_name"])
+        p5 = sum(v or 0 for v in last)
+        return {
+            "name": _namnnyckel(p["player_name"]),
             "number": p.get("jersey_number"),
             "position": p.get("position"),
             "games_played": p.get("games_played"),
             "goals": p.get("goals"),
             "assists": p.get("assists"),
             "points": p.get("points"),
-            "points_last5": form.get(str(p["player_name"]), 0),
+            "points_last5": p5,
+            "last": last,
+            "hot": (p.get("games_played") or 0) > n_senaste and n_senaste >= 3 and p5 >= het_grans,
         }
-        for p in topp if (p.get("points") or 0) > 0
-    ]
+
+    ordning = sorted(
+        skaters,
+        key=lambda p: (-(p.get("points") or 0), -(p.get("goals") or 0),
+                       p.get("games_played") or 0, str(p["player_name"])),
+    )
+    spelare = [rad(p) for p in ordning[:3] if (p.get("points") or 0) > 0]
+    # En spelare utanfor topp tre som ar het far en fjarde rad: det ar den
+    # tabellen missar.
+    toppnamn = {s["name"] for s in spelare}
+    heta = [rad(p) for p in ordning[3:]]
+    heta = [h for h in heta if h["hot"] and h["name"] not in toppnamn]
+    if heta:
+        spelare.append(max(heta, key=lambda h: (h["points_last5"], h["points"] or 0)))
 
     malvakt = None
     spelat = [g for g in goalies if (g.get("games_played") or 0) > 0]
     if spelat:
-        g = max(spelat, key=lambda g: (g.get("games_played") or 0, g.get("shots_against") or 0))
+        per_namn = {_namnnyckel(g["goalie_name"]): g for g in spelat}
+        # Den som startade senast ar den troliga starten. Utan handelser:
+        # den som spelat flest matcher, som forut.
+        sist = next((starter[g] for g in reversed(senaste) if g in starter), None)
+        g = per_namn.get(sist) if sist else None
+        if g is None:
+            g = max(spelat, key=lambda g: (g.get("games_played") or 0, g.get("shots_against") or 0))
+        namn = _namnnyckel(g["goalie_name"])
+        starts = [starter.get(gid) == namn if gid in starter else None for gid in senaste]
+        rs = [malvakt_match.get((gid, namn)) for gid in senaste]
+        sparat = sum(r["saves"] or 0 for r in rs if r)
+        skott = sum(r["shots"] or 0 for r in rs if r)
         malvakt = {
-            "name": g["goalie_name"],
+            "name": namn,
             "games_played": g.get("games_played"),
             "save_pct": g.get("save_pct"),
             "gaa": g.get("gaa"),
+            "started_last": sist == namn if sist else None,
+            "starts": starts,
+            "save_pct_last": round(100 * sparat / skott, 1) if skott else None,
+            "shots_last": skott,
         }
-    return {"players": spelare, "goalie": malvakt, "games_last": len(senaste)}
+
+    # Forstafemman i senaste matchen, forwards och backar ur positionen.
+    pos = {_namnnyckel(p["player_name"]): p.get("position") for p in skaters}
+    def plats(r: dict) -> dict:
+        n = _namnnyckel(r["player_key"])
+        return {"name": n, "number": r.get("jersey_number"), "position": pos.get(n)}
+    ordn = {"LW": 0, "CE": 1, "RW": 2, "LD": 3, "RD": 4}
+    femman = sorted((plats(r) for r in femma), key=lambda x: ordn.get(x["position"] or "", 9))
+    first_unit = None
+    if len(femman) >= 4:
+        first_unit = {
+            "date": senaste_rader[-1]["date"] if senaste_rader else None,
+            "forwards": [x for x in femman if x["position"] not in _BACK],
+            "defense": [x for x in femman if x["position"] in _BACK],
+        }
+
+    return {"players": spelare, "goalie": malvakt, "games_last": n_senaste,
+            "last_dates": [r["date"] for r in senaste_rader], "first_unit": first_unit}
 
 
 @app.get("/api/v1/next-match")
