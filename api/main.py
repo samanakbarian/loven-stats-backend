@@ -3065,10 +3065,10 @@ def get_league_trend(season: str = None, refresh: bool = False):
                 dict(r.items())
                 for r in bq.query(
                     f"""
-                    SELECT game_id, team_name, is_home, shots, saves
+                    SELECT game_id, team_name, is_home, shots, saves, pim
                     FROM `{bq.project}.core.game_team_summary` WHERE season_group_id = @sasong
                     UNION ALL
-                    SELECT game_id, team_name, is_home, shots, saves
+                    SELECT game_id, team_name, is_home, shots, saves, pim
                     FROM `{bq.project}.core.league_game_summary` WHERE season_group_id = @sasong
                     """,
                     job_config=cfg,

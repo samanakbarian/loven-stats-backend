@@ -103,33 +103,88 @@ def _matchkoder(game_events: list[dict[str, Any]], names: set[str], koder: dict[
 _PP_MINUTER = (2, 4, 5)
 
 
-def powerplaytillfallen(game_events: list[dict[str, Any]], match_koder: dict[str, str]) -> Counter:
-    """Utvisningar som gav motstandaren powerplay, per lag.
+def _sek(tid: Any) -> int | None:
+    """"54:54" -> 3294, matchklockan i sekunder."""
+    try:
+        m, sek = str(tid).split(":")
+        return int(m) * 60 + int(sek)
+    except (ValueError, AttributeError):
+        return None
 
-    Swehockey raknar inte utvisningar som doms samtidigt pa bada lagen: tva
-    mot tva vid samma tid tar ut varandra. Att rakna varje utvisning gav
-    Farjestad 4 av 8 i premiaren dar Swehockey skriver 80 procent, 4 av 5.
+
+def powerplaytillfallen(game_events: list[dict[str, Any]], match_koder: dict[str, str]) -> Counter:
+    """Powerplaytillfallen motstandaren fick, per lag, som Swehockey raknar dem.
+
+    Tva regler, provade mot Swehockeys lagstatistik 2026/27:
+
+    - Utvisningar som doms samtidigt pa bada lagen tar ut varandra. Att
+      rakna varje utvisning gav Farjestad 4 av 8 i premiaren dar Swehockey
+      skriver 80 procent, 4 av 5.
+    - En utvisning nar matchen tar slut ger inget tillfalle. Bjorkloven
+      utvisades 60.00 mot Djurgarden; Swehockey raknar det inte.
+
+    Samtidiga utvisningar pa samma lag (5 mot 3) raknas som var sitt
+    tillfalle. Att rakna dem som ett ratt Brynas mot Skelleftea men gjorde
+    tre andra lag fel, bland dem Malmos boxplay 17 procent mot 38.
     """
-    per_tid: dict[str, Counter] = defaultdict(Counter)
+    # Matchen slutar 60.00, eller 65.00 om nagot hande efter full tid.
+    # Klockan i stallet for perioden: alla anropare hamtar inte perioden.
+    tider = [_sek(e.get("time")) or 0 for e in game_events]
+    slut = 3600 if max(tider, default=0) <= 3600 else 3900
+
+    per_tid: dict[int, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for e in game_events:
         if e.get("event_type") != "penalty":
             continue
-        if (_int(e.get("penalty_minutes")) or 0) not in _PP_MINUTER:
+        minuter = _int(e.get("penalty_minutes")) or 0
+        if minuter not in _PP_MINUTER:
             continue
         team = match_koder.get(str(e.get("team_code") or "").strip())
-        if team:
-            per_tid[str(e.get("time") or "")][team] += 1
+        t = _sek(e.get("time"))
+        if team and t is not None:
+            per_tid[t][team].append(minuter)
+
     out: Counter = Counter()
-    for c in per_tid.values():
+    for t, c in per_tid.items():
+        if t >= slut:
+            continue
         lag = list(c)
-        if len(lag) == 2:
-            lika = min(c[lag[0]], c[lag[1]])
-            for t in lag:
-                out[t] += c[t] - lika
-        else:
-            for t in lag:
-                out[t] += c[t]
+        lika = min(len(c[lag[0]]), len(c[lag[1]])) if len(lag) == 2 else 0
+        for namn in lag:
+            out[namn] += len(c[namn]) - lika
     return out
+
+
+def specialteam_i_match(
+    game_events: list[dict[str, Any]], names: set[str], koder: dict[str, str]
+) -> dict[str, Counter] | None:
+    """Powerplay och boxplay for bada lagen i en match, eller None.
+
+    None nar lagkoderna inte gar att knyta till lagen: hellre ingen siffra
+    an noll powerplay. Samma rakning i serietabellen och i kurvorna over tid.
+    """
+    if not game_events:
+        return None
+    match_koder = _matchkoder(game_events, names, koder)
+    if not match_koder:
+        return None
+    tillfallen = powerplaytillfallen(game_events, match_koder)
+    ut: dict[str, Counter] = {}
+    for name in names:
+        other = next(n for n in names if n != name)
+        t: Counter = Counter()
+        t["pp_opps"] += tillfallen[other]
+        t["pk_opps"] += tillfallen[name]
+        for e in game_events:
+            if e.get("event_type") != "goal" or not e.get("is_power_play"):
+                continue
+            team = match_koder.get(str(e.get("team_code") or "").strip())
+            if team == name:
+                t["pp_goals"] += 1
+            elif team == other:
+                t["pk_ga"] += 1
+        ut[name] = t
+    return ut
 
 
 def lagtabell(
@@ -184,26 +239,14 @@ def lagtabell(
 
         # Specialteam ur handelserna. En match utan handelser raknas inte
         # alls har, hellre an som noll powerplay.
-        game_events = ev_by_game.get(gid) or []
         names = {str(home.get("team_name") or ""), str(away.get("team_name") or "")}
-        match_koder = _matchkoder(game_events, names, koder) if game_events else None
-        if not match_koder:
+        st = specialteam_i_match(ev_by_game.get(gid) or [], names, koder)
+        if not st:
             continue
-        tillfallen = powerplaytillfallen(game_events, match_koder)
-        for name in names:
-            other = next(n for n in names if n != name)
+        for name, c in st.items():
             t = tot[name]
             t["st_gp"] += 1
-            t["pp_opps"] += tillfallen[other]
-            t["pk_opps"] += tillfallen[name]
-            for e in game_events:
-                if e.get("event_type") != "goal" or not e.get("is_power_play"):
-                    continue
-                team = match_koder.get(str(e.get("team_code") or "").strip())
-                if team == name:
-                    t["pp_goals"] += 1
-                elif team == other:
-                    t["pk_ga"] += 1
+            t.update(c)
 
     teams: list[dict[str, Any]] = []
     for name, t in tot.items():
@@ -454,6 +497,12 @@ def trend_per_lag(rader: list[dict[str, Any]], datum: dict[int, str], fonster: i
     Mål ur skotten: skott minus motståndarmålvaktens räddningar. Samma
     definition som resten av sajten, så Björklövens kurva här är densamma
     som i vår egen utvecklingsvy.
+
+    Skott, skott- och räddningsprocent och utvisningsminuter stämmer exakt
+    med Swehockeys lagstatistik. Powerplay och boxplay finns inte här: de
+    kräver att tillfällena räknas ur utvisningarna, och Swehockeys regler
+    för samtidiga utvisningar gick inte att återskapa — tre lag av fjorton
+    skilde ett tillfälle (2026-09-28).
     """
     per_match: dict[int, dict[bool, dict[str, Any]]] = defaultdict(dict)
     for r in rader:
@@ -473,9 +522,11 @@ def trend_per_lag(rader: list[dict[str, Any]], datum: dict[int, str], fonster: i
                 continue
             gf = sf - (_int(de.get("saves")) or 0)
             ga = sa - (_int(vi.get("saves")) or 0)
-            matcher[str(vi.get("team_name") or "")].append(
-                {"game_id": gid, "date": datum[gid], "sf": sf, "sa": sa, "gf": gf, "ga": ga}
-            )
+            lagnamn = str(vi.get("team_name") or "")
+            matcher[lagnamn].append({
+                "game_id": gid, "date": datum[gid], "sf": sf, "sa": sa, "gf": gf, "ga": ga,
+                "pim": _int(vi.get("pim")),
+            })
 
     ut = []
     for lag, lista in matcher.items():
@@ -492,6 +543,7 @@ def trend_per_lag(rader: list[dict[str, Any]], datum: dict[int, str], fonster: i
             # Två decimaler och oavrundade delar, som /api/v1/shots, så att
             # Björklövens kurva blir exakt densamma som i vår egen vy.
             pdo = (gf / sf + (sa - ga) / sa) * 100 if sf and sa else None
+            pimf = [m["pim"] for m in f if m["pim"] is not None]
             punkter.append({
                 "match": i + 1,
                 "date": lista[i]["date"],
@@ -500,13 +552,20 @@ def trend_per_lag(rader: list[dict[str, Any]], datum: dict[int, str], fonster: i
                 "pdo": round(pdo, 2) if pdo is not None else None,
                 "gf_pg": round(gf / len(f), 2),
                 "ga_pg": round(ga / len(f), 2),
+                "sf_pg": round(sf / len(f), 2),
+                "sh_pct": round(gf / sf * 100, 2) if sf else None,
+                "sv_pct": round((sa - ga) / sa * 100, 2) if sa else None,
+                "pim_pg": round(sum(pimf) / len(pimf), 2) if pimf else None,
             })
         ut.append({"team": lag, "games": len(lista), "points": punkter})
     ut.sort(key=lambda t: t["team"])
     return ut
 
 
-def trend_snitt(lag: list[dict[str, Any]], nycklar=("shot_share", "pdo", "gf_pg", "ga_pg")) -> list[dict[str, Any]]:
+TREND_MATT = ("shot_share", "pdo", "gf_pg", "ga_pg", "sf_pg", "sh_pct", "sv_pct", "pim_pg")
+
+
+def trend_snitt(lag: list[dict[str, Any]], nycklar=TREND_MATT) -> list[dict[str, Any]]:
     """Seriens snitt efter N matcher, bara där minst hälften av lagen spelat N.
 
     Utan kravet hade snittet i kurvans slut vilat på de två lag som råkat
