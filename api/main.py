@@ -4,6 +4,7 @@ import logging
 
 import eliteprospects
 import serien
+import gamescore
 import matchmodell
 import random
 import requests
@@ -4087,6 +4088,13 @@ def get_match(game_id: int):
                 WHERE p.game_id = {int(game_id)}
                   AND REGEXP_CONTAINS(IFNULL(p.team_key, ''), r'(?i)bj[oö]rkl[oö]ven')
                 """,
+            # Båda lagens utespelare, för Matchens bästa.
+            "alla": f"""
+                SELECT player_key, team_key, shots, faceoffs_won, faceoffs_lost,
+                       gf_on_ev, ga_on_ev
+                FROM `{bq.project}.marts.fact_player_game`
+                WHERE game_id = {int(game_id)}
+                """,
             "lineup": f"""
                 SELECT block, line_number, player_number, player_name
                 FROM `{bq.project}.core.game_lineups`
@@ -4377,6 +4385,19 @@ def get_match(game_id: int):
             # ga att lasa.
             logging.warning("Kunde inte rakna matchkontexten for %s", game_id, exc_info=True)
 
+        # Matchens bästa enligt GameScore, båda lagen. Får saknas: rapporten
+        # ska gå att läsa utan den.
+        basta: list[dict] = []
+        try:
+            basta = gamescore.matchens_basta(
+                events, rader.get("alla") or [], rader.get("goalies") or [],
+            )
+            for b in basta:
+                b["name"] = clean_person(b["name"])
+                b["is_ours"] = bool(BJK_HOME.search(str(b.get("team") or "")))
+        except Exception:
+            logging.warning("Kunde inte rakna matchens basta for %s", game_id, exc_info=True)
+
         return {
             "status": "ok",
             "game_id": game_id,
@@ -4397,6 +4418,8 @@ def get_match(game_id: int):
             "skaters": skaters,
             # Femmor, malvakter och extraspelare som klubben registrerade.
             "lineup": lineup,
+            # De tre bästa i matchen enligt GameScore, se gamescore.py.
+            "best": basta,
             # Var matchen stod i serien: placering fore och efter, form in i
             # matchen, inbordes moten och publiken mot arenans snitt.
             "context": context,
