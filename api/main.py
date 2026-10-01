@@ -4398,6 +4398,22 @@ def get_match(game_id: int):
         except Exception:
             logging.warning("Kunde inte rakna matchens basta for %s", game_id, exc_info=True)
 
+        # Tekningarna per spelare, båda lagen, ur matchrapporten. Tomt när den
+        # inte hämtats.
+        tekningar: list[dict] = []
+        for r in rader.get("alla") or []:
+            vunna, forlorade = int(r.get("faceoffs_won") or 0), int(r.get("faceoffs_lost") or 0)
+            if vunna + forlorade == 0:
+                continue
+            tekningar.append({
+                "name": clean_person(r.get("player_key")),
+                "team": r.get("team_key"),
+                "is_ours": bool(BJK_HOME.search(str(r.get("team_key") or ""))),
+                "won": vunna,
+                "lost": forlorade,
+            })
+        tekningar.sort(key=lambda t: (not t["is_ours"], -(t["won"] + t["lost"]), t["name"]))
+
         return {
             "status": "ok",
             "game_id": game_id,
@@ -4420,6 +4436,8 @@ def get_match(game_id: int):
             "lineup": lineup,
             # De tre bästa i matchen enligt GameScore, se gamescore.py.
             "best": basta,
+            # Tekningar per spelare, båda lagen; vårt lag först.
+            "faceoffs": tekningar,
             # Var matchen stod i serien: placering fore och efter, form in i
             # matchen, inbordes moten och publiken mot arenans snitt.
             "context": context,
