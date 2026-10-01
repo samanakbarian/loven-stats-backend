@@ -3090,6 +3090,33 @@ def get_league_trend(season: str = None, refresh: bool = False):
             return {"status": "not_found", "error": "Matchdata saknas for sasongen.", "teams": []}
 
         lag = serien.trend_per_lag(rader, datum)
+
+        # Täckning: spelade matcher mot matcher med båda lagens sammanfattning.
+        # Seriens övriga matcher hämtas från hösten 2026; för äldre säsonger
+        # finns bara våra, och då vilar de andra lagens kurvor på matcherna
+        # mot oss. Frontend visar dem bara när serien finns.
+        per_match: dict[int, int] = {}
+        for r in rader:
+            if r.get("game_id") is not None:
+                per_match[int(r["game_id"])] = per_match.get(int(r["game_id"]), 0) + 1
+        try:
+            spelade = {
+                int(r["game_id"])
+                for r in bq.query(
+                    f"""
+                    SELECT game_id FROM `{bq.project}.core.schedule`
+                    WHERE season_group_id = @sasong AND game_id IS NOT NULL
+                      AND REGEXP_CONTAINS(IFNULL(result, ''), r'\\d+\\s*-\\s*\\d+')
+                    """,
+                    job_config=cfg,
+                ).result()
+            }
+        except Exception:
+            spelade = set()
+        tackning = {
+            "games": sum(1 for g in spelade if per_match.get(g, 0) >= 2),
+            "played": len(spelade),
+        }
         if not lag:
             return {"status": "not_found", "error": "Inga spelade matcher med skott.", "teams": []}
         for t in lag:
@@ -3099,6 +3126,7 @@ def get_league_trend(season: str = None, refresh: bool = False):
             "season": active["name"],
             "season_key": active["key"],
             "window": serien.TREND_FONSTER,
+            "coverage": tackning,
             "teams": lag,
             "league": serien.trend_snitt(lag),
         }
