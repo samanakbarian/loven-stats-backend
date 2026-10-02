@@ -1649,12 +1649,10 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
                         return True
             return False
 
-        def _query_season(table_name: str, season_ids: list[int]):
-            """Rader ur en core-vy, filtrerade pa sasongsgrupp."""
-            if not season_ids:
-                return []
+        def _sql_season(table_name: str, season_ids: list[int]) -> str:
+            """SQL for raderna ur en core-vy, filtrerade pa sasongsgrupp."""
             ids_str = ",".join(str(sid) for sid in season_ids if sid)
-            q = f"""
+            return f"""
             SELECT a.* FROM `{bq_client.project}.core.{table_name}` a
             INNER JOIN (
                 SELECT season_group_id, MAX(scraped_at) as max_scraped
@@ -1663,7 +1661,6 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
                 GROUP BY season_group_id
             ) b ON a.season_group_id = b.season_group_id AND a.scraped_at = b.max_scraped
             """
-            return [dict(row.items()) for row in bq_client.query(q).result()]
 
         # Lookup season
         active = lookup_season(season)
@@ -1671,10 +1668,23 @@ def get_statistics_snapshot(season: str = None, team_query: str = Query(default=
         HA_PLAYOFF = active.get("playoff")
         season_ids = list(set([sid for sid in [HA_REGULAR, HA_PLAYOFF] if sid]))
 
-        all_players = _query_season("player_season_stats", season_ids)
-        all_goalies = _query_season("goalie_season_stats", season_ids)
-        standings = _query_season("standings", season_ids)
-        schedule = _query_season("schedule", season_ids)
+        # De fyra fragorna kordes en i taget. Var och en kostar BigQuerys fasta
+        # avgift pa ett par tiondelar, sa en cachemiss tog fyra sekunder —
+        # matt 2 oktober, 4,02 s kall mot 0,76 varm. Det ar Matcher-flikens
+        # langsammaste anrop. Parallellt blir det en rundresa i stallet for
+        # fyra. strikt=True: ett fel ska fortsatta ge ett felsvar, som det
+        # gjorde nar fragorna lag i foljd i samma try.
+        if season_ids:
+            rader = fraga_parallellt(bq_client, {
+                namn: _sql_season(namn, season_ids)
+                for namn in ("player_season_stats", "goalie_season_stats", "standings", "schedule")
+            }, strikt=True)
+        else:
+            rader = {}
+        all_players = rader.get("player_season_stats", [])
+        all_goalies = rader.get("goalie_season_stats", [])
+        standings = rader.get("standings", [])
+        schedule = rader.get("schedule", [])
 
         # Split players by season type
         regular_players = [p for p in all_players if p.get("season_group_id") == HA_REGULAR]
