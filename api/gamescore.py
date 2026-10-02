@@ -7,6 +7,12 @@ talet blir något lägre än hos den som räknar på SHL:s data. Provat mot
 @AJanssonn 29 september 2026: Ekeståhl-Jonsson 1,75 här mot 1,8 där, och
 samma fem spelare i omgångens topp.
 
+Bara utespelare. Målvaktens tal (0,1 per räddning, −0,75 per insläppt)
+styrs mest av hur många skott laget släpper till: 40 skott och två mål ger
+2,5, mer än nittiofem procent av utespelarnas matcher. I SHL:s 34 första
+matcher 2026/27 var en målvakt matchens bästa i tio och bland de tre bästa
+i nitton, av två målvakter på runt 38 spelare. Skalorna mäter olika saker.
+
 Rena funktioner utan BigQuery.
 """
 
@@ -23,8 +29,6 @@ SKOTT = 0.075
 UTVISNING = -0.15
 TEKNING = 0.01
 PA_ISEN = 0.15
-MV_INSLAPPT = -0.75
-MV_RADDNING = 0.1
 
 # Utvisningar som ger motståndaren powerplay. Tio minuter och matchstraff
 # lämnar laget fullt.
@@ -41,14 +45,12 @@ def _int(v: Any) -> int:
 def matchens_basta(
     events: list[dict[str, Any]],
     skaters: list[dict[str, Any]],
-    goalies: list[dict[str, Any]],
     antal: int = 3,
 ) -> list[dict[str, Any]]:
-    """De `antal` bästa i matchen, båda lagen, med det som gav poängen.
+    """De `antal` bästa utespelarna i matchen, båda lagen, med det som gav poängen.
 
     events: matchens händelser (mål med assist1/assist2, utvisningar).
     skaters: rader ur fact_player_game för matchen, båda lagen.
-    goalies: rader ur fact_goalie_game för matchen.
 
     Mål och assist tas ur händelserna, för att skilja första och andra
     assist. Straffläggningens avgörande mål räknas inte: det är inget
@@ -89,16 +91,6 @@ def matchens_basta(
             "name": namn, "team": s.get("team_key"), "goalie": False,
             "score": round(poang, 2), "parts": d,
             "full": s.get("shots") is not None,
-        })
-    for k in goalies:
-        namn = k.get("player_key")
-        if not namn or k.get("saves") is None:
-            continue
-        sv, ga = _int(k.get("saves")), _int(k.get("goals_against"))
-        ut.append({
-            "name": namn, "team": k.get("team_key"), "goalie": True,
-            "score": round(MV_INSLAPPT * ga + MV_RADDNING * sv, 2),
-            "parts": {"sv": sv, "ga": ga}, "full": True,
         })
     ut.sort(key=lambda x: (-x["score"], x["name"]))
     return ut[:antal]

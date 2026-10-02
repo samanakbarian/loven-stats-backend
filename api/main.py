@@ -4471,13 +4471,11 @@ def get_match(game_id: int):
             # ga att lasa.
             logging.warning("Kunde inte rakna matchkontexten for %s", game_id, exc_info=True)
 
-        # Matchens bästa enligt GameScore, båda lagen. Får saknas: rapporten
+        # Matchens bästa utespelare enligt GameScore, båda lagen. Får saknas: rapporten
         # ska gå att läsa utan den.
         basta: list[dict] = []
         try:
-            basta = gamescore.matchens_basta(
-                events, rader.get("alla") or [], rader.get("goalies") or [],
-            )
+            basta = gamescore.matchens_basta(events, rader.get("alla") or [])
             for b in basta:
                 b["name"] = clean_person(b["name"])
                 b["is_ours"] = bool(BJK_HOME.search(str(b.get("team") or "")))
