@@ -61,6 +61,16 @@ med något annat, och inte för att det råkar ligga klart.
   gäller. Ändrar inga svar: verifierat i båda kandidaterna, alla elva
   säsongsendpoints identiska för båda säsongerna.
 
+**P3 S2.1 Loggrad per anrop** — commit `69d928f` på grenen.
+- Provad mot riktig FastAPI och riktiga `google-cloud-bigquery`, inte i
+  Cloud Run. Inga svar ändras.
+- Parkerad av ägaren 2026-10-02: ingen större ändring före lördagens match
+  (3 oktober). Tas upp efter den.
+- När den går ut: ny kandidat (bär även P1), jämförelsen och gyllene
+  mästaren mot kandidaten, kontrollera att loggraderna syns i Logs Explorer
+  (`MATNING.md`), ägarens `promote`.
+- S2.2 kräver P3 i produktion — kandidaten får ingen besökartrafik.
+
 ## F1 — Grind och skyddsnät
 
 Kommer först. Inget i F3–F6 får påbörjas innan S1.1 och S1.2 är klara, för
@@ -91,7 +101,7 @@ utan dem går det inte att visa att något blev rätt.
 
 ## F2 — Mätning (etapp 0)
 
-**S2.1 Loggrad per anrop** — klar på grenen, ej i produktion
+**S2.1 Loggrad per anrop** — klar på grenen, parkerad som P3
 - a. Mellanlager som mäter tiden per anrop
 - b. Räkna BigQuery-frågor per anrop
 - c. Cache träff eller miss

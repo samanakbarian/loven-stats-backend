@@ -9,16 +9,24 @@ arkitekturen och skälen i `docs/HALLBAR_ARKITEKTUR.md`.
 
 - **Gren:** `claude/hockey-app-frontend-redesign-5p5x1j` i båda repona.
   Inget av serveringsarbetet är i produktion. `master` och `main` orörda.
-- **Klart:** S1.1, S1.2, lagkodsrättelsen, S2.1 (loggrad per anrop).
-- **Parkerat:** lagkodsrättelsen är granskad men ska **inte** prodsättas än —
-  ägarens beslut. Den står som P1 under "Väntar på prodsättning" i
-  `PLAN.md`. Kör inte `promote`.
-- **S2.1 är inte provad i Cloud Run.** Den är provad mot riktig FastAPI och
-  riktiga `google-cloud-bigquery`. Nästa steg är en kandidat som ägaren kör;
-  den bär då både S2.1 och lagkodsrättelsen. Promote är fortfarande ägarens.
+- **Klart på grenen:** S1.1, S1.2, lagkodsrättelsen (P1), S2.1 (P3).
+- **Allt parkerat till efter lördagens match (3 oktober).** Ägaren vill inte
+  göra någon större ändring före den. Ingen kandidat, ingen `promote`, inget
+  nytt arbete förrän ägaren säger till. Vad som väntar och hur det ska ut
+  står under "Väntar på prodsättning" i `PLAN.md`.
 - **Kandidatrevisionen ligger kvar** med noll procent trafik.
-- **Nästa:** S2.2 (baslinje en matchkväll). Kräver att S2.1 är i produktion —
-  kandidaten får ingen besökartrafik. Ägarens beslut när.
+- **Nästa, när ägaren säger till:** kandidat med P1 + P3, jämför, ägarens
+  `promote`. Sedan S2.2 (baslinje en matchkväll).
+
+---
+
+## 2026-10-02, natt (senare)
+
+### Parkerat till efter lördagens match
+
+Ägaren: "lägg allt i backlogg, vill inte göra stor justering idag, blir efter
+lördagens match". S2.1 flyttad till "Väntar på prodsättning" som P3. Inget
+kört mot produktion eller kandidat.
 
 ---
 
