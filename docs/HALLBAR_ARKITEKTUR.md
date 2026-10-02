@@ -139,6 +139,29 @@ backlogg 33 pekade ut, att en innehållshash inte märker när *koden* ändrats.
 äldre än sex timmar under en matchdag. Blobar som tyst slutar uppdateras är
 den största risken med det här, och den ska synas utifrån.
 
+## Vilka mönster det är
+
+Inget av det här är uppfunnet för sajten. Namnen, så att den som kommer efter
+kan slå upp dem:
+
+- **Medaljongarkitektur** — det datalagret redan är. `raw_sports` är brons
+  (rådata som den kom), `core` är silver (avduplicerat och typat), `marts` är
+  guld (modellerat för frågor). Oförändrat.
+- **Separata läs- och skrivmodeller (CQRS-tanken).** Skrivsidan är skörden
+  och BigQuery, byggd för att ta emot och räkna. Läsmodellen är förberäknade
+  svar, byggda för att serveras. Det är idén ur CQRS, inte hela mönstret —
+  ingen eventlogg, inga kommandon.
+- **Inkrementell förgenerering.** Samma princip som Jamstack-sajter kallar
+  ISR: bygg om bara de sidor vars data ändrats. Innehållshasharna är
+  signalen.
+- **Från lat cache till förberäkning.** I dag fylls cachen när någon frågar
+  (cache-aside) och glöms när instansen dör. Efteråt finns svaret innan någon
+  frågat.
+- **Strangler fig för migreringen.** En endpoint i taget flyttar till bloben,
+  den gamla vägen ligger kvar som reserv tills den nya bevisat sig.
+- **Versionerade, oföränderliga artefakter.** `serving/v{N}/` — en ny form
+  på svaret får en ny sökväg i stället för att skriva över den gamla.
+
 ## Migreringen
 
 Varje etapp går att deploya ensam, går att backa genom att ta bort bloben,
