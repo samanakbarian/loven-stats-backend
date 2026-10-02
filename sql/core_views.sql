@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_summary` 
   saves INT64, saves_by_period STRING, save_pct FLOAT64, pdo FLOAT64,
   pim INT64, pim_by_period STRING, pp_pct FLOAT64, pp_time STRING,
   spectators INT64,
+  source_updated_at STRING,
   source STRING, content_hash STRING, run_id STRING, source_url STRING,
   scraped_at TIMESTAMP
 );
@@ -109,6 +110,15 @@ CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_team_stats` (
   source STRING, content_hash STRING, run_id STRING, source_url STRING,
   scraped_at TIMESTAMP
 );
+
+-- Swehockeys egen redigeringstid per match. Laddningen lagger till kolumnen
+-- av sig sjalv vid nasta skord, men vyerna nedan laser den med en gang —
+-- utan de har tva raderna gar de sonder om vyerna deployas fore skrapern.
+ALTER TABLE `@PROJECT@.raw_sports.swehockey_game_summary`
+  ADD COLUMN IF NOT EXISTS source_updated_at STRING;
+ALTER TABLE `@PROJECT@.raw_sports.swehockey_league_game_summary`
+  ADD COLUMN IF NOT EXISTS source_updated_at STRING;
+
 
 -- ---------------------------------------------------------------- matcher --
 
@@ -314,7 +324,9 @@ SELECT
   SAFE_CAST(pdo AS FLOAT64) AS pdo,
   CAST(shots_by_period AS STRING) AS shots_by_period,
   CAST(saves_by_period AS STRING) AS saves_by_period,
-  CAST(pim_by_period AS STRING) AS pim_by_period
+  CAST(pim_by_period AS STRING) AS pim_by_period,
+  CAST(source_updated_at AS STRING) AS source_updated_at,
+  scraped_at
 FROM `@PROJECT@.core.game_team_summary`
 UNION ALL
 SELECT
@@ -333,7 +345,9 @@ SELECT
   SAFE_CAST(pdo AS FLOAT64) AS pdo,
   CAST(shots_by_period AS STRING) AS shots_by_period,
   CAST(saves_by_period AS STRING) AS saves_by_period,
-  CAST(pim_by_period AS STRING) AS pim_by_period
+  CAST(pim_by_period AS STRING) AS pim_by_period,
+  CAST(source_updated_at AS STRING) AS source_updated_at,
+  scraped_at
 FROM `@PROJECT@.core.league_game_summary`;
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.match_goalies` AS

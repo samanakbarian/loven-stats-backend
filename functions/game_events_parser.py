@@ -106,9 +106,30 @@ def _penalty_type(text: str) -> str:
 
 
 def parse_header(html: str) -> dict[str, Any]:
-    """Lagnamn, datum och publik ur sidhuvudet."""
+    """Lagnamn, datum, publik och nar Swehockey senast rorde sidan.
+
+    `source_updated_at` ar deras egen stampel, inte var skord. Protokollet
+    skrivs klart i efterhand: 1 oktober slutade matchen mot Vaxjo kvart over
+    nio och sidan andrades till 21:24:45. Skordar vi daremellan far vi ett
+    halvskrivet protokoll som ser fardigt ut — Forsberg stod pa tva skott och
+    hade tre, malvaktsraderna saknades helt. Med stampeln gar det att saga
+    att talet ar preliminart i stallet for att lata sakert.
+    """
     soup = BeautifulSoup(html, "lxml")
-    out: dict[str, Any] = {"home_team": None, "away_team": None, "spectators": None}
+    out: dict[str, Any] = {
+        "home_team": None, "away_team": None, "spectators": None,
+        "source_updated_at": None,
+    }
+
+    # Soppans text, inte raa html: etiketten och tidsstampeln ligger i var
+    # sin tagg och ar inte grannar i kallan.
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+    m = re.search(r"Last update:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})", text)
+    if m:
+        # Swehockey skriver svensk lokaltid utan zon. Lagras som den star;
+        # jamforelsen nedstroms gors mot var egen scraped_at, som ar UTC, sa
+        # zonen satts dar och inte har.
+        out["source_updated_at"] = f"{m.group(1)} {m.group(2)}"
 
     for table in soup.select("table.tblContent"):
         for tr in table.select("tr"):
@@ -317,9 +338,14 @@ def parse_game_summary(html: str, game_id: int) -> dict[str, Any]:
     header = parse_header(html)
 
     # Hemma och borta i den ordning tabellen skriver dem.
+    # Swehockeys egen stampel foljer med raden. Den gor att `_unchanged`
+    # skriver en ny generation sa fort de rort protokollet, aven nar talen
+    # rakar se likadana ut — vilket ar precis vad vi vill. Stampeln ar stabil
+    # mellan hamtningar; den ar en redigeringstid, inte en rendertid.
+    rort = header.get("source_updated_at")
     sides: list[dict[str, Any]] = [
-        {"is_home": True, "team_name": header.get("home_team")},
-        {"is_home": False, "team_name": header.get("away_team")},
+        {"is_home": True, "team_name": header.get("home_team"), "source_updated_at": rort},
+        {"is_home": False, "team_name": header.get("away_team"), "source_updated_at": rort},
     ]
 
     for table in soup.select("table.tblContent"):

@@ -434,7 +434,11 @@ SELECT
   s.shooting_pct, s.save_pct, s.pdo,
   s.shots_by_period, s.saves_by_period, s.pim_by_period,
   g.match_date, g.venue, g.spectators, g.went_beyond_regulation,
-  s.is_ours AS is_ours_game
+  s.is_ours AS is_ours_game,
+  -- Swehockeys egen redigeringstid, och var skord. Skillnaden sager om
+  -- protokollet fortfarande skrevs nar vi laste det.
+  s.source_updated_at,
+  s.scraped_at
 -- Hela serien sedan backlogg 38. API:t läser vyn per game_id.
 FROM `@PROJECT@.core.match_team_summary` s
 LEFT JOIN `@PROJECT@.marts.dim_game` g ON g.game_id = s.game_id;

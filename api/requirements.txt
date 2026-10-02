@@ -6,3 +6,6 @@ requests
 google-genai
 cachetools
 numpy
+# Sommartid: ZoneInfo("Europe/Stockholm") behover tidszonsdatabasen,
+# som inte foljer med alla slimmade bilder.
+tzdata

@@ -16,6 +16,7 @@ from google.cloud import storage
 from google.cloud import bigquery
 from collections import Counter
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import functools
 import threading
 import time
@@ -4050,6 +4051,49 @@ def _mot_serien(bq, regular: int, game_id: int, teams: dict | None,
     return ut
 
 
+# Hur lange efter en andring protokollet raknas som preliminart. Matchen mot
+# Vaxjo 1 oktober slutade kvart over nio och Swehockey skrev fardigt 21:24:45;
+# en halvtimme tacker den sortens efterarbete.
+PROTOKOLL_VARMT_MINUTER = 30
+
+
+def _protokollet_var_varmt(rad: dict) -> tuple[bool | None, str | None]:
+    """Skrevs protokollet fortfarande nar vi laste det?
+
+    Swehockey skriver ut `Last update` pa matchsidan, och den stampeln ar
+    deras egen redigeringstid. Lag den nara var `scraped_at` betyder det att
+    vi hann hamta mitt i: 1 oktober hade Forsberg tva skott i var kopia och
+    tre i den fardiga, och malvaktsraderna saknades helt. Talen sag fardiga
+    ut, och kortet hade ingen anledning att saga nagot — `shots` var inte
+    tom, bara ofullstandig.
+
+    Returnerar (preliminart, stampeln). None nar stampeln saknas, vilket
+    galler allt som skordats fore det har faltet fanns.
+    """
+    ra = rad.get("source_updated_at")
+    skordat = rad.get("scraped_at")
+    if not ra or not skordat:
+        return None, None
+    try:
+        rort = datetime.strptime(str(ra), "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=ZoneInfo("Europe/Stockholm")
+        )
+    except Exception:
+        # Oparserbar stampel eller en bild utan tidszonsdatabas. Stampeln
+        # redovisas anda; det ar bara slutsatsen som uteblir.
+        logging.warning("Kunde inte tolka Swehockeys stampel %r", ra, exc_info=True)
+        return None, str(ra)
+    if isinstance(skordat, str):
+        try:
+            skordat = datetime.fromisoformat(skordat)
+        except ValueError:
+            return None, str(ra)
+    if skordat.tzinfo is None:
+        skordat = skordat.replace(tzinfo=timezone.utc)
+    minuter = (skordat - rort).total_seconds() / 60
+    return minuter < PROTOKOLL_VARMT_MINUTER, str(ra)
+
+
 @app.get("/api/v1/match/{game_id}")
 @cached_ok(cache=match_cache)
 def get_match(game_id: int):
@@ -4086,7 +4130,8 @@ def get_match(game_id: int):
             "summary": f"""
                     SELECT team_key AS team_name, is_home, shots, saves, pim,
                            shots_by_period, saves_by_period,
-                           pp_pct, pp_time, shooting_pct, save_pct, pdo
+                           pp_pct, pp_time, shooting_pct, save_pct, pdo,
+                           source_updated_at, scraped_at
                     FROM `{bq.project}.marts.fact_team_game`
                     WHERE game_id = {int(game_id)}
                     """,
@@ -4233,6 +4278,8 @@ def get_match(game_id: int):
             }
 
         teams: dict[str, dict] | None = None
+        preliminart: bool | None = None
+        rort_senast: str | None = None
         keepers: list[dict] = []
         skaters: list[dict] = []
         lineup: list[dict] = []
@@ -4244,6 +4291,7 @@ def get_match(game_id: int):
             theirs = next((r for r in summary if r is not ours), None)
             if ours and theirs:
                 teams = {"ours": _side(ours), "theirs": _side(theirs)}
+                preliminart, rort_senast = _protokollet_var_varmt(ours)
 
             for d in rader["goalies"]:
                 keepers.append(
@@ -4457,6 +4505,10 @@ def get_match(game_id: int):
             # Skott, raddningar och specialteam per lag. None nar matchen inte
             # skorats med summeringen an.
             "teams": teams,
+            # Sant nar Swehockey fortfarande skrev pa protokollet i det
+            # ogonblick vi laste det. Se `_protokollet_var_varmt`.
+            "provisional": preliminart,
+            "source_updated_at": rort_senast,
             "goalies": keepers,
             # Lagets utespelare, en rad var. Tom tills matchen skordats.
             "skaters": skaters,
