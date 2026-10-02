@@ -657,6 +657,21 @@ def _is_ours(team_code) -> bool:
     return "ifb" in low or "rkl" in low or "kloven" in low or "klöven" in low
 
 
+def _lagkoder(events) -> list[str]:
+    """Matchens lagkoder, vart lag forst och sedan motstandaren.
+
+    Tidigare en mangd omgjord till lista. Pythons mangder ordnar strangar
+    efter sitt hashvarde, och det slumpas om for varje process — sa varje
+    Cloud Run-instans svarade med sin egen ordning. Jamforelseverktyget hittade
+    det forsta gangen en kandidat provades, 2 oktober: 38 av 57 matcher skilde
+    sig mellan produktion och kandidat, och det var det enda som skilde.
+    Ingen klient laser faltet i dag, men ett svar som beror pa vilken server
+    som svarade gar inte att forberakna eller jamfora.
+    """
+    unika = {e.get("team_code") for e in events if e.get("team_code")}
+    return sorted(unika, key=lambda c: (not _is_ours(c), str(c)))
+
+
 def parse_period_results(pr):
     """'(2-1, 0-1, 1-2)' -> [{period, home_gf, away_gf}].
 
@@ -4266,7 +4281,7 @@ def get_match(game_id: int):
 
         # Lagkoder: identifiera vilken kod som ar hemmalaget, sa klienten kan
         # placera handelserna ratt utan att gissa.
-        codes = [c for c in {e.get("team_code") for e in events} if c]
+        codes = _lagkoder(events)
 
         # Skott, raddningar och powerplaytid ligger i matchsummeringen, inte i
         # handelserna. Utan dem kan rapporten bara beratta vad som hande, inte

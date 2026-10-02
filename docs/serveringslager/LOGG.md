@@ -5,43 +5,109 @@ arkitekturen och skälen i `docs/HALLBAR_ARKITEKTUR.md`.
 
 ## Läget just nu
 
-**Uppdaterad 2026-10-02.**
+**Uppdaterad 2026-10-02, eftermiddag.**
 
-- **Gren:** `claude/hockey-app-frontend-redesign-5p5x1j` i båda repona,
-  omstartad från `master` respektive `main` i dag. Allt serveringsarbete
-  ligger där. Inget av det är i produktion.
-- **Klart:** S1.2 (jämförelseverktyget). S1.1 (kandidatmiljön) är skriven
-  men inte körd — den kräver `gcloud`, som bara finns i ägarens Cloud Shell.
-- **Väntar på ägaren:** att köra `bash deploy.sh kandidat` en gång, så att
-  kandidatflödet provas på riktigt. Se "Första provet" nedan.
-- **Nästa:** S2.1 (loggrad per anrop). Får påbörjas nu — F1:s krav är att
-  S1.1 och S1.2 finns, och det gör de.
+- **Gren:** `claude/hockey-app-frontend-redesign-5p5x1j` i båda repona.
+  Inget av serveringsarbetet är i produktion.
+- **Klart:** S1.1 och S1.2. Kandidatflödet är provat skarpt och fungerar.
+- **Första kandidaten hittade ett fel** som produktion haft länge:
+  matchrapportens `team_codes` kom i slumpvis ordning per server. Rättat på
+  grenen, se posten nedan.
+- **Väntar på ägaren:** en ny kandidat med rättelsen.
+
+  ```bash
+  cd ~/loven-stats-backend && git pull && bash deploy.sh kandidat
+  ```
+
+  Förväntat utfall: skillnader BARA i `team_codes`, och bara i matcher där
+  produktionens server råkar lägga motståndaren först. Allt annat lika.
+  Därefter ägarens beslut om `promote`.
+- **Nästa för mig:** S2.1 (loggrad per anrop).
 
 ### Utanför grenen, värt att veta
 
-`139b80b` på `master` — `/statistics` kör sina fyra frågor parallellt —
-pushades innan regeln om godkännande infördes. Om den är deployad går inte
-att se utifrån: svaren är identiska oavsett, och en omräkning tog 2,3 s, vilket
-passar båda fallen. Är den inte ute går den med nästa
-`git pull origin master && bash deploy.sh api`. Föreslås bli första
-ändringen som går genom kandidatflödet; se nedan.
+`139b80b` på `master` — `/statistics` kör sina fyra frågor parallellt. Den
+första kandidaten innehöll den, och alla elva säsongsendpoints var
+identiska med produktion för båda säsongerna. Den ändrar alltså inget i
+svaren, oavsett om den redan är ute eller inte.
 
-`df31191` (preliminärt protokoll) **är** i drift — produktionens
-matchrapporter bär `provisional` och `source_updated_at`.
+`df31191` (preliminärt protokoll) **är** i drift.
 
-### Första provet
+---
 
-Två saker blir prövade på en gång:
+## 2026-10-02, eftermiddag
 
-```bash
-cd ~/loven-stats-backend && git fetch origin && git checkout claude/hockey-app-frontend-redesign-5p5x1j && git pull && bash deploy.sh kandidat
+### Första kandidaten: `loven-stats-api-00170-tad`
+
+Ägaren körde `deploy.sh kandidat`. Revisionen gick ut med noll procent av
+trafiken, och kandidatens adress lästes rätt ur `status.traffic`:
+`https://kandidat---loven-stats-api-ttpybm4dva-ew.a.run.app`. S1.1 är därmed
+provad skarpt. `promote` och `backa` är fortfarande oprovade.
+
+Ägarens skärm visade också avstämningsfilen från körningen (backlogg 46):
+24 spelade matcher i 20961, alla med händelser, noll spelare som skiljer.
+
+### Jämförelsen mot produktion
+
+```
+shl_2627  17 svar   13 lika   4 olika   0 fel
+ha_2526   64 svar   34 lika  30 olika   0 fel
 ```
 
-Grenen är i dag identisk med `master`. Det enda på `master` som kan vara
-odeployat är `139b80b`, och den ändrar hur snabbt svaret byggs, inte vad det
-innehåller. Jämförelsen ska därför vara helt grön. Är den det har både kandidatflödet
-och parallelliseringen visat sig fungera, och ägaren kan välja att
-promota.
+Alla 34 skillnader var samma sak, och inget annat skilde:
+
+```
+/api/v1/match/1109944   .team_codes[0]: 'IFB' → 'DIF'
+                        .team_codes[1]: 'DIF' → 'IFB'
+```
+
+Elva säsongsendpoints identiska i båda säsongerna. Kontrollerat genom att
+lista varje skillnadsrad och filtrera bort `team_codes`: tomt.
+
+### Orsaken
+
+`get_match` byggde lagkoderna ur en mängd:
+
+```python
+codes = [c for c in {e.get("team_code") for e in events} if c]
+```
+
+Python slumpar strängarnas hashvärden per process (`PYTHONHASHSEED`), och en
+mängds ordning följer hashvärdet. Varje Cloud Run-instans svarade därför med
+sin egen ordning för samma match. Felet har funnits sedan fältet infördes.
+Ingen klient läser `team_codes`, så det har inte syntes — men ett svar som
+beror på vilken server som svarade går varken att förberäkna eller jämföra.
+
+Självtestet i förmiddags missade det, eftersom båda sidor läste samma cache.
+Omräkningsprovet missade det, eftersom `match/{id}` saknar `refresh`. Det
+var precis den begränsningen loggen pekade ut, och kandidaten — som startar
+med tom cache och eget hashfrö — var det som täckte den.
+
+Övriga mängder i `api/` söktes igenom. En till finns, `season_ids` i
+`get_statistics`, men den håller heltal (vars hashvärde är talet självt, alltså
+samma i alla processer) och går bara in i SQL, aldrig i ett svar.
+
+### Rättelsen
+
+`_lagkoder(events)`: vårt lag först, sedan resten i bokstavsordning.
+`tests/test_lagkoder.py` kör funktionen i tolv processer med olika
+`PYTHONHASHSEED` — det som skiljer två instanser åt — och kräver samma svar
+i alla. Samma prov körs mot den gamla koden och kräver att den INTE ger
+samma svar, så att testet bevisar något.
+
+```
+4 av 4 gick igenom          tests/test_lagkoder.py
+13 av 13 gick igenom        tests/test_jamfor_svar.py
+```
+
+Svarets form ändras inte. Ordningen blir fast: `['IFB', motståndaren]`.
+
+### Lärdom för resten av planen
+
+Varje story i F4–F6 ska provas med kandidat, inte bara mot produktion med
+sig själv. Ett svar kan vara stabilt inom en process och ändå skilja mellan
+två — och det är just två processer serveringslagret består av:
+förberäkningen och API:t.
 
 ---
 
