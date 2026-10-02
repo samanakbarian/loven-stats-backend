@@ -229,15 +229,24 @@ Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
 - Backlogg: feature 27 (live), 33 (serveringslager), 34 (prediktioner),
   35 (matchdriven skörd), `SEC-002`–`SEC-006`.
 
+## Arkitekturen framåt
+
+Läsvägen är det som inte håller långsiktigt: BigQuery står direkt i
+svarsvägen bakom en cache som sitter per serverinstans. Planen för att flytta
+ut den — förberäknade svar som blobar i GCS, byggda efter skörden — ligger i
+`docs/HALLBAR_ARKITEKTUR.md`, i etapper som går att deploya och backa var för
+sig. Läs den innan du lägger till en endpoint eller ännu en värmningsväg.
+
 ## Om du är ny i projektet
 
 Läs i den här ordningen:
 
 1. Det här dokumentet.
-2. `docs/DATAPLATTFORM.md` — datamodellen och varför avdupliceringen finns.
-3. `docs/SWEHOCKEY_STATS_SCRAPER.md` — vad som hämtas och hur ofta.
-4. `docs/DEPLOY.md` — kommandona.
-5. `docs/FEATURE_BACKLOG_2026.md` — 1 843 rader, slå upp vid behov.
+2. `docs/HALLBAR_ARKITEKTUR.md` — vart läsvägen ska.
+3. `docs/DATAPLATTFORM.md` — datamodellen och varför avdupliceringen finns.
+4. `docs/SWEHOCKEY_STATS_SCRAPER.md` — vad som hämtas och hur ofta.
+5. `docs/DEPLOY.md` — kommandona.
+6. `docs/FEATURE_BACKLOG_2026.md` — 1 843 rader, slå upp vid behov.
 
 Och innan du ändrar en siffra på sajten: öppna Swehockeys sida för samma
 match och jämför. Det har löst fler frågor den här veckan än koden har.

@@ -1524,8 +1524,12 @@ Avgransning:
 
 ### 33. Serveringslager mellan datalagret och webben
 
+> **2026-10-02:** Premiären är spelad och villkoret nedan — att verklig last
+> ska styra dimensioneringen — är uppfyllt. Planen med etapper ligger i
+> `docs/HALLBAR_ARKITEKTUR.md`. Diagnosen här står sig; prioriteten är höjd.
+
 Typ: Arkitektur / Prestanda
-Prioritet: Medium — efter premiaren
+Prioritet: Hög
 Primart repo: `loven-stats-backend`
 Berorda omraden: `api/main.py`, `functions/swehockey_stats_scraper.py`, GCS
 
