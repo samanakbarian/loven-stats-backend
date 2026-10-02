@@ -5,33 +5,57 @@ arkitekturen och skälen i `docs/HALLBAR_ARKITEKTUR.md`.
 
 ## Läget just nu
 
-**Uppdaterad 2026-10-02, eftermiddag.**
+**Uppdaterad 2026-10-02, kväll.**
 
 - **Gren:** `claude/hockey-app-frontend-redesign-5p5x1j` i båda repona.
-  Inget av serveringsarbetet är i produktion.
-- **Klart:** S1.1 och S1.2. Kandidatflödet är provat skarpt och fungerar.
-- **Första kandidaten hittade ett fel** som produktion haft länge:
-  matchrapportens `team_codes` kom i slumpvis ordning per server. Rättat på
-  grenen, se posten nedan.
-- **Väntar på ägaren:** en ny kandidat med rättelsen.
-
-  ```bash
-  cd ~/loven-stats-backend && git pull && bash deploy.sh kandidat
-  ```
-
-  Förväntat utfall: skillnader BARA i `team_codes`, och bara i matcher där
-  produktionens server råkar lägga motståndaren först. Allt annat lika.
-  Därefter ägarens beslut om `promote`.
+- **Klart:** S1.1, S1.2, och rättelsen av matchrapportens lagkoder.
+- **Andra kandidaten granskad och redo:** 72 av 80 svar identiska med
+  produktion, och de 8 som skiljer gör det bara i `team_codes`, i exakt det
+  mönster rättelsen förutsade. Se posten nedan.
+- **Väntar på ägaren:** beslut om `bash deploy.sh promote`. Det blir första
+  gången `promote` körs skarpt. Kandidaten innehåller rättelsen och
+  `139b80b`; båda verifierade.
+- **Efter promote:** kör jämförelsen igen mot produktion själv med tom cache
+  — den ska då vara helt grön, eftersom alla instanser fått samma ordning.
 - **Nästa för mig:** S2.1 (loggrad per anrop).
 
 ### Utanför grenen, värt att veta
 
-`139b80b` på `master` — `/statistics` kör sina fyra frågor parallellt. Den
-första kandidaten innehöll den, och alla elva säsongsendpoints var
-identiska med produktion för båda säsongerna. Den ändrar alltså inget i
-svaren, oavsett om den redan är ute eller inte.
+`master` är orörd sedan regeln om godkännande infördes. Grenen ligger två
+commits före: F1-arbetet och lagkodsrättelsen. Vid promote körs koden från
+grenen i produktion medan `master` ligger efter — det ska slås ihop till
+`master` direkt efter, med ägarens godkännande, annars lägger nästa
+`deploy.sh api` från `master` tillbaka den gamla ordningen.
+---
 
-`df31191` (preliminärt protokoll) **är** i drift.
+## 2026-10-02, kväll
+
+### Andra kandidaten — med rättelsen
+
+Ägaren körde `deploy.sh kandidat` igen. Taggen `kandidat` pekar nu på den nya
+revisionen; adressen är densamma. Kontrollerat först att rättelsen var med:
+de tre matcher som tidigare gav motståndaren först svarar nu
+`['IFB', 'DIF']`, `['IFB', 'HV71']`, `['IFB', 'SSK']`.
+
+```
+72 lika, 8 olika, 0 fel av 80
+```
+
+Inga skillnader utom `team_codes` — kontrollerat genom att filtrera bort dem
+ur alla skillnadsrader: tomt. Och i alla åtta står produktionen med
+motståndaren först och kandidaten med vårt lag först:
+
+```
+match/1005620  AIK   match/1005793  AIK   match/1005814  AIK   match/1005930  AIK
+match/1005627  SSK   match/1005786  SSK   match/1005852  SSK   match/1005952  SSK
+```
+
+Att det är just AIK och SSK är hashfröet: med den produktionsinstans som
+svarade hamnar 'AIK' och 'SSK' före 'IFB' i mängdens ordning. Första
+kandidaten hade ett annat frö och gav ett annat mönster. Det är felet som
+syns, inte rättelsen — och precis det utfall som förutsades innan körningen.
+
+Kandidaten är granskad. Promote är ägarens beslut.
 
 ---
 
