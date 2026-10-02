@@ -107,6 +107,22 @@ Det som följer av det:
 Prejudikatet finns redan: `/api/v1/feed` läses ur en blob i GCS och svarar på
 0,85 s med bearbetning inräknad, i samma container som `/statistics`.
 
+### Rättelser i efterhand
+
+Swehockey rättar protokoll långt efter matchen — premiärprotokollet ändrades
+nio dagar senare. Filerna följer med så länge skörden hämtar om matchen:
+
+- **Säsongssvaren** byggs om efter varje körning som skrev något, se etapp 2.
+  Swehockeys tabell- och statistiksidor hämtas varje gång utan tidsgräns, så
+  en sen rättelse når alltid hit.
+- **Matchrapporten** byggs om när matchens innehållshash ändras. Skörden
+  hämtar om en match i `SWEHOCKEY_REFRESH_DAYS` dagar efter att den spelats,
+  i dag 21. En rättelse efter det når säsongssumman men inte rapporten —
+  exakt som i dag. Filerna ärver gränsen; de inför ingen ny.
+- **Snabbare än i dag, inte långsammare.** Cachen behåller ett gammalt svar i
+  upp till sex timmar. En blob byggs om direkt i körningen efter rättelsen,
+  och alla instanser byter samtidigt.
+
 ### Tre regler som gör det hållbart
 
 **En byggare per svar.** Funktionen som bygger matchrapportens svar anropas
@@ -154,8 +170,15 @@ mästaren är identisk för alla matcher i HA 25/26 och SHL 26/27.
 ### Etapp 2 — Säsongssvaren
 
 `statistics`, `standings`, `players`, `goalies`, `lines`, `onice`, `shots`,
-`analytics`, `next-match`, `table-history`. En blob per säsong och endpoint,
-ombyggd när säsongens ögonblicksbild ändrats.
+`analytics`, `next-match`, `table-history`. En blob per säsong och endpoint.
+
+**Alla säsongens blobar byggs om efter varje körning som skrev något för
+säsongen** — inte bara när Swehockeys ögonblicksbild ändrats. Flera av svaren
+räknas ur våra egna matchtabeller: femmorna, on-ice, skotten per match. En
+rättelse av skotten i omgång tre ändrar inte nödvändigtvis säsongssidan hos
+Swehockey, men den ändrar våra summor. Att spåra vilka svar som beror på vilka
+matcher vore en beroendegraf att underhålla för all framtid. Att bygga om alla
+tio är några sekunder fyra gånger om dygnet.
 
 **Klart när:** värmningsjobbet är borttaget och ingen säsongssida tar mer än
 en sekund kall.
