@@ -368,6 +368,82 @@ print(f\"  tweets: {d.get('count', 0)}\" + (f'  fel: {err}' if err else ''))
   exit 0
 fi
 
+# -- Kandidat, promote, backa (S1.1 i docs/serveringslager/PLAN.md) --
+#
+# Inget ska prodsattas utan agarens godkannande. En kandidat ar en revision
+# som INTE far trafik men har en egen adress, sa den gar att granska med
+# tests/jamfor_svar.py mot produktion innan nagon besokare ser den.
+#
+#   bash deploy.sh kandidat   lagger ut koden utan trafik
+#   bash deploy.sh promote    flyttar all trafik till kandidaten
+#   bash deploy.sh backa      flyttar tillbaka till revisionen fore promote
+if [[ "$TARGET" == "kandidat" ]]; then
+  say "Lägger ut en kandidat utan trafik"
+  gcloud run deploy loven-stats-api \
+    --source api \
+    --region "$REGION" \
+    --allow-unauthenticated \
+    --max-instances "${MAX_INSTANCES:-3}" \
+    --update-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
+    --no-traffic --tag kandidat \
+    --quiet
+  KURL=$(gcloud run services describe loven-stats-api --region "$REGION" --format=json \
+    | python3 -c "
+import json,sys
+for t in json.load(sys.stdin).get('status',{}).get('traffic',[]):
+    if t.get('tag') == 'kandidat': print(t.get('url','')); break
+")
+  [[ -n "$KURL" ]] || fail "Hittade ingen adress för kandidaten"
+  say "Kandidaten svarar på $KURL"
+  printf '  Produktion är orörd. Granska med:\n\n'
+  printf '    python3 tests/jamfor_svar.py --b %s\n\n' "$KURL"
+  printf '  Ser allt rätt ut: bash deploy.sh promote\n'
+  exit 0
+fi
+
+if [[ "$TARGET" == "promote" ]]; then
+  read -r KREV SENASTE NUVARANDE < <(gcloud run services describe loven-stats-api \
+    --region "$REGION" --format=json | python3 -c "
+import json,sys
+st=json.load(sys.stdin).get('status',{})
+tr=st.get('traffic',[])
+kand=next((t.get('revisionName','') for t in tr if t.get('tag')=='kandidat'),'')
+nu=next((t.get('revisionName','') for t in tr if t.get('percent')==100),'')
+print(kand or '-', st.get('latestCreatedRevisionName','') or '-', nu or '-')
+")
+  [[ "$KREV" != "-" ]] || fail "Det finns ingen kandidat. Kör bash deploy.sh kandidat först."
+  # Promote ska flytta trafiken till EXAKT det som granskats. Har nagon lagt
+  # ut nagot annat efter kandidaten ar det inte langre samma kod.
+  [[ "$KREV" == "$SENASTE" ]] || fail "Kandidaten ($KREV) är inte senaste revisionen ($SENASTE). Lägg ut en ny kandidat och granska den."
+  [[ "$KREV" != "$NUVARANDE" ]] || fail "Kandidaten tar redan all trafik."
+  say "Flyttar trafiken: $NUVARANDE → $KREV"
+  # Den som har trafiken nu markeras 'forra', sa backa vet vart den ska.
+  if [[ "$NUVARANDE" != "-" ]]; then
+    gcloud run services update-traffic loven-stats-api --region "$REGION" \
+      --update-tags "forra=$NUVARANDE" --quiet >/dev/null
+  fi
+  # --to-latest i stallet for --to-tags: det lamnar tjansten i laget dar nya
+  # deployer far trafik, sa `deploy.sh api` fortsatter fungera som forut.
+  gcloud run services update-traffic loven-stats-api --region "$REGION" --to-latest --quiet
+  say "Klart. Backa med: bash deploy.sh backa"
+  exit 0
+fi
+
+if [[ "$TARGET" == "backa" ]]; then
+  FREV=$(gcloud run services describe loven-stats-api --region "$REGION" --format=json \
+    | python3 -c "
+import json,sys
+for t in json.load(sys.stdin).get('status',{}).get('traffic',[]):
+    if t.get('tag') == 'forra': print(t.get('revisionName','')); break
+")
+  [[ -n "$FREV" ]] || fail "Det finns ingen revision märkt 'forra'. Har promote körts?"
+  say "Flyttar all trafik tillbaka till $FREV"
+  gcloud run services update-traffic loven-stats-api --region "$REGION" --to-tags "forra=100" --quiet
+  printf '  Trafiken är nu låst på %s.\n' "$FREV"
+  printf '  Nästa bash deploy.sh api släpper låset av sig själv.\n'
+  exit 0
+fi
+
 if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   say "Deployar API:t till Cloud Run"
   # --max-instances sätter taket i kronor, men styr också CACHETRÄFFEN.
@@ -384,6 +460,10 @@ if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
     --max-instances "${MAX_INSTANCES:-3}" \
     --update-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
     --quiet
+  # Efter `backa` ar trafiken last pa en namngiven revision, och da far en ny
+  # deploy ingen trafik alls — den gar ut och ingenting andras. Raden har
+  # slapper laset, sa `deploy.sh api` alltid betyder det den sager.
+  gcloud run services update-traffic loven-stats-api --region "$REGION" --to-latest --quiet >/dev/null
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "scraper" ]]; then

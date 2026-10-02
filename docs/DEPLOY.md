@@ -123,6 +123,26 @@ köras direkt:
 gcloud scheduler jobs run swehockey-stats-scraper-job --location=europe-west1
 ```
 
+## Kandidat före produktion
+
+Från och med serveringslagret (`docs/serveringslager/PLAN.md`) går
+API-ändringar ut som kandidat först. Kandidaten är en revision utan trafik
+med en egen adress — besökarna ser den inte.
+
+```bash
+bash deploy.sh kandidat
+python3 tests/jamfor_svar.py --b <adressen kandidat-steget skriver ut>
+bash deploy.sh promote        # först när jämförelsen är grön och godkänd
+bash deploy.sh backa          # om något ändå blev fel
+```
+
+`promote` vägrar om någon lagt ut en annan revision efter kandidaten — det
+som promotas ska vara exakt det som granskats. `backa` låser trafiken på
+revisionen före promote; nästa `deploy.sh api` släpper låset.
+
+`deploy.sh api` finns kvar och fungerar som förut, för små rättningar ägaren
+själv beslutat om.
+
 ## Rollback
 
 ```bash
