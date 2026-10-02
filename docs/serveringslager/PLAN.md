@@ -91,7 +91,7 @@ utan dem går det inte att visa att något blev rätt.
 
 ## F2 — Mätning (etapp 0)
 
-**S2.1 Loggrad per anrop**
+**S2.1 Loggrad per anrop** — klar på grenen, ej i produktion
 - a. Mellanlager som mäter tiden per anrop
 - b. Räkna BigQuery-frågor per anrop
 - c. Cache träff eller miss

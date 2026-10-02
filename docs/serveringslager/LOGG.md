@@ -5,18 +5,89 @@ arkitekturen och skälen i `docs/HALLBAR_ARKITEKTUR.md`.
 
 ## Läget just nu
 
-**Uppdaterad 2026-10-02, kväll.**
+**Uppdaterad 2026-10-02, natt.**
 
 - **Gren:** `claude/hockey-app-frontend-redesign-5p5x1j` i båda repona.
   Inget av serveringsarbetet är i produktion. `master` och `main` orörda.
-- **Klart:** S1.1, S1.2, och rättelsen av matchrapportens lagkoder.
+- **Klart:** S1.1, S1.2, lagkodsrättelsen, S2.1 (loggrad per anrop).
 - **Parkerat:** lagkodsrättelsen är granskad men ska **inte** prodsättas än —
   ägarens beslut. Den står som P1 under "Väntar på prodsättning" i
-  `PLAN.md`, med vad som ska göras när den går ut. Kör inte `promote`.
-- **Kandidatrevisionen ligger kvar** med noll procent trafik. Den kostar
-  ingenting när ingen anropar den och kan stå tills nästa kandidat ersätter
-  den.
-- **Nästa:** S2.1 (loggrad per anrop), på grenen, när ägaren säger till.
+  `PLAN.md`. Kör inte `promote`.
+- **S2.1 är inte provad i Cloud Run.** Den är provad mot riktig FastAPI och
+  riktiga `google-cloud-bigquery`. Nästa steg är en kandidat som ägaren kör;
+  den bär då både S2.1 och lagkodsrättelsen. Promote är fortfarande ägarens.
+- **Kandidatrevisionen ligger kvar** med noll procent trafik.
+- **Nästa:** S2.2 (baslinje en matchkväll). Kräver att S2.1 är i produktion —
+  kandidaten får ingen besökartrafik. Ägarens beslut när.
+
+---
+
+## 2026-10-02, natt
+
+### S2.1 Loggrad per anrop — klar på grenen
+
+Varje anrop skriver en JSON-rad till stdout: väg (routens mall), tid i ms,
+antal BigQuery-frågor, cacheutfall, status och om det var värmningen.
+Cloud Run gör den till `jsonPayload`. Fälten och Logs Explorer-frågan står i
+`MATNING.md`.
+
+Hur:
+
+- `api/matning.py`: ett mätobjekt per anrop i en contextvar.
+- `bigquery.Client.query` lindas in en gång vid start. Ingen av de 29
+  endpointsen är ändrad.
+- `fraga_parallellt` kör sina jobb i en kopia av kontexten
+  (`matning.i_kontext`). Trådpooler tar inte med contextvars, och utan det
+  hade de parallella frågorna inte räknats.
+- `cached_ok` markerar träff, miss eller förbi. Den yttersta uppslagningen
+  vinner, eftersom endpoints anropar varandra.
+- Mellanlagret ligger utanför taktbegränsningen, så 429 mäts också.
+- Övriga trådpooler genomgångna: `eliteprospects.py` gör bara HTTP, och
+  X-trådarna i bakgrunden går efter svaret. Ingen BigQuery där att tappa.
+
+Inget svar ändras. Mätningen sväljer sina egna fel.
+
+Tester, `tests/test_matning.py`, mot riktig FastAPI med den riktiga
+`cached_ok` och `fraga_parallellt` utklippta ur `main.py`:
+
+```
+14 av 14 gick igenom
+```
+
+Bland dem en kontroll: samma trådpool utan `i_kontext` ska ge `bq: 0`. Den
+gör det, så provet för trådpoolen bevisar något.
+
+Röktest av hela `main.py` med riktiga `google-cloud-bigquery`, anonyma
+uppgifter (frågorna misslyckas, men räknas):
+
+```
+/api/v1/health                   bq 0  cache ingen
+/api/v1/standings?season=...     bq 1  cache miss
+/api/v1/match/1109972            bq 7  cache miss   vag /api/v1/match/{game_id}
+```
+
+Sju frågor för en matchrapport utan cache. Det är den sortens tal S2.2 ska
+ge för riktigt.
+
+Övrigt:
+
+```
+4 av 4 gick igenom          tests/test_lagkoder.py
+13 av 13 gick igenom        tests/test_jamfor_svar.py
+29 routes kontrollerade     tests/routes_check.py
+```
+
+`tests/sammanfatta_matning.py` läser `gcloud logging read --format=json` och
+ger p50, p95, frågor och missar per väg, besökare och värmning var för sig.
+Det är verktyget för S2.2.
+
+**Inte gjort:** provat i Cloud Run, gyllene mästaren (kräver ett API att
+anropa — körs mot nästa kandidat), jämförelsen mot kandidat. Svaren ska vara
+identiska utom `team_codes` från P1.
+
+Värt att veta: värmningen gör runt 49 anrop var tionde minut, alltså runt
+7 000 rader om dygnet. Billigt, men den dominerar loggen.
+
 ---
 
 ## 2026-10-02, sent

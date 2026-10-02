@@ -6,6 +6,7 @@ import eliteprospects
 import serien
 import gamescore
 import matchmodell
+import matning
 import random
 import requests
 import unicodedata
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import storage
 from google.cloud import bigquery
+
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -27,6 +29,10 @@ from cachetools.keys import hashkey
 
 import re
 from silly_season_data import SILLY_SEASON_BASELINE
+
+# Varje BigQuery-fraga raknas per anrop (S2.1). En gang har, i stallet for i
+# var och en av endpointsen. Se api/matning.py.
+matning.instrumentera_bigquery(bigquery.Client)
 
 app = FastAPI(
     title="LÃ¶ven Stats Hub API",
@@ -135,6 +141,30 @@ async def taktbegransa(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def mat_anropet(request: Request, call_next):
+    """En loggrad per anrop: tid, BigQuery-fragor, cache (S2.1).
+
+    Ligger utanfor taktbegransningen, sa aven 429 mats. Varmningens egna
+    anrop over loopback markeras `intern` i stallet for att filtreras bort —
+    de kostar BigQuery-fragor precis som besokarnas och ska synas.
+    """
+    m, token = matning.borja()
+    status = 500
+    try:
+        svar = await call_next(request)
+        status = svar.status_code
+        return svar
+    finally:
+        try:
+            matning.skriv(matning.rad(
+                matning.vagmall(request), status,
+                _klient_ip(request) in ("127.0.0.1", "::1"), m,
+            ))
+        finally:
+            matning.sluta(token)
+
+
 # -- CORS --
 #
 # Frontend ligger pa sida377.se. Netlify ger varje deploy en egen adress under
@@ -232,7 +262,9 @@ def fraga_parallellt(bq, fragor: dict[str, str], strikt: bool = False) -> dict[s
         return [dict(r.items()) for r in bq.query(sql).result()]
 
     with ThreadPoolExecutor(max_workers=len(fragor)) as pool:
-        jobb = {pool.submit(kor, sql): namn for namn, sql in fragor.items()}
+        # i_kontext: trådpoolen tar inte med contextvars, och da hade
+        # fragorna raknats i ett tomt sammanhang. Se api/matning.py.
+        jobb = {pool.submit(matning.i_kontext(kor), sql): namn for namn, sql in fragor.items()}
         for f in as_completed(jobb):
             namn = jobb[f]
             try:
@@ -329,9 +361,12 @@ def cached_ok(cache):
             key = hashkey(fn.__qualname__, *args, **kwargs)
             if not force:
                 try:
-                    return cache[key]
+                    svar = cache[key]
+                    matning.markera_cache(matning.TRAFF)
+                    return svar
                 except KeyError:
                     pass
+            matning.markera_cache(matning.FORBI if force else matning.MISS)
             result = fn(*args, **kwargs)
             if isinstance(result, dict) and result.get("status") in ("error", "not_found"):
                 return result
