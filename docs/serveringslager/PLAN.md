@@ -38,6 +38,29 @@ ID:na är stabila. Loggen och commit-meddelandena hänvisar till dem.
 
 ---
 
+## Väntar på prodsättning
+
+Färdigt, granskat och parkerat. Går ut först när ägaren säger till — inte
+med något annat, och inte för att det råkar ligga klart.
+
+**P1 Matchrapportens lagkoder i fast ordning** — commit `a60738d` på grenen.
+- Granskad med kandidat 2026-10-02: 72 av 80 svar identiska, de 8 andra
+  skiljer bara i `team_codes`, i det förutsagda mönstret.
+- Parkerad av ägaren samma dag: "inget ska prodsättas ännu".
+- Ingen besökare märker felet i dag — ingen klient läser fältet. Det blir
+  först nödvändigt när F4 ska förberäkna matchrapporten.
+- Ligger bara på grenen, så en vanlig `deploy.sh api` från `master` tar inte
+  med den av misstag.
+- När den går ut: ny kandidat (koden kan ha ändrats sedan), jämför, ägarens
+  `promote`, kör jämförelsen igen mot produktion — då ska den vara helt grön
+  — och slå sedan ihop grenen till `master`.
+
+**P2 `/statistics` parallellt** — commit `139b80b`, redan på `master`.
+- Ligger på `master` sedan innan regeln om godkännande, och kan därför gå ut
+  med nästa `git pull origin master && deploy.sh api` vilken ändring det än
+  gäller. Ändrar inga svar: verifierat i båda kandidaterna, alla elva
+  säsongsendpoints identiska för båda säsongerna.
+
 ## F1 — Grind och skyddsnät
 
 Kommer först. Inget i F3–F6 får påbörjas innan S1.1 och S1.2 är klara, för

@@ -8,24 +8,26 @@ arkitekturen och skälen i `docs/HALLBAR_ARKITEKTUR.md`.
 **Uppdaterad 2026-10-02, kväll.**
 
 - **Gren:** `claude/hockey-app-frontend-redesign-5p5x1j` i båda repona.
+  Inget av serveringsarbetet är i produktion. `master` och `main` orörda.
 - **Klart:** S1.1, S1.2, och rättelsen av matchrapportens lagkoder.
-- **Andra kandidaten granskad och redo:** 72 av 80 svar identiska med
-  produktion, och de 8 som skiljer gör det bara i `team_codes`, i exakt det
-  mönster rättelsen förutsade. Se posten nedan.
-- **Väntar på ägaren:** beslut om `bash deploy.sh promote`. Det blir första
-  gången `promote` körs skarpt. Kandidaten innehåller rättelsen och
-  `139b80b`; båda verifierade.
-- **Efter promote:** kör jämförelsen igen mot produktion själv med tom cache
-  — den ska då vara helt grön, eftersom alla instanser fått samma ordning.
-- **Nästa för mig:** S2.1 (loggrad per anrop).
+- **Parkerat:** lagkodsrättelsen är granskad men ska **inte** prodsättas än —
+  ägarens beslut. Den står som P1 under "Väntar på prodsättning" i
+  `PLAN.md`, med vad som ska göras när den går ut. Kör inte `promote`.
+- **Kandidatrevisionen ligger kvar** med noll procent trafik. Den kostar
+  ingenting när ingen anropar den och kan stå tills nästa kandidat ersätter
+  den.
+- **Nästa:** S2.1 (loggrad per anrop), på grenen, när ägaren säger till.
+---
 
-### Utanför grenen, värt att veta
+## 2026-10-02, sent
 
-`master` är orörd sedan regeln om godkännande infördes. Grenen ligger två
-commits före: F1-arbetet och lagkodsrättelsen. Vid promote körs koden från
-grenen i produktion medan `master` ligger efter — det ska slås ihop till
-`master` direkt efter, med ägarens godkännande, annars lägger nästa
-`deploy.sh api` från `master` tillbaka den gamla ordningen.
+### Ingen promote — parkerat
+
+Ägaren: "inget ska prodsättas ännu, lägg i backlogg". Lagkodsrättelsen flyttad
+till "Väntar på prodsättning" i `PLAN.md` som P1, och `139b80b` noterad som P2
+eftersom den redan ligger på `master` och kan följa med en annan deploy.
+Ingenting kört mot produktion.
+
 ---
 
 ## 2026-10-02, kväll
