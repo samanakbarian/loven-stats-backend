@@ -4089,7 +4089,7 @@ def _mot_serien(bq, regular: int, game_id: int, teams: dict | None,
 PROTOKOLL_VARMT_MINUTER = 30
 
 
-def _protokollet_var_varmt(rad: dict) -> tuple[bool | None, str | None]:
+def _protokollet_var_varmt(rad: dict, senaste_korning=None) -> tuple[bool | None, str | None]:
     """Skrevs protokollet fortfarande nar vi laste det?
 
     Swehockey skriver ut `Last update` pa matchsidan, och den stampeln ar
@@ -4123,7 +4123,24 @@ def _protokollet_var_varmt(rad: dict) -> tuple[bool | None, str | None]:
     if skordat.tzinfo is None:
         skordat = skordat.replace(tzinfo=timezone.utc)
     minuter = (skordat - rort).total_seconds() / 60
-    return minuter < PROTOKOLL_VARMT_MINUTER, str(ra)
+    if minuter >= PROTOKOLL_VARMT_MINUTER:
+        return False, str(ra)
+    # Raden skrivs bara om nar innehallet andrats. Skrev Swehockey klart
+    # strax fore var hamtning och rorde det aldrig mer, star `scraped_at`
+    # kvar och matchen hade raknats som preliminar for alltid. En senare
+    # korning, en halvtimme efter deras sista andring, som inte hittade
+    # nagot nytt betyder att protokollet ar fardigt.
+    if isinstance(senaste_korning, str):
+        try:
+            senaste_korning = datetime.fromisoformat(senaste_korning)
+        except ValueError:
+            senaste_korning = None
+    if senaste_korning is not None:
+        if senaste_korning.tzinfo is None:
+            senaste_korning = senaste_korning.replace(tzinfo=timezone.utc)
+        if senaste_korning >= rort + timedelta(minutes=PROTOKOLL_VARMT_MINUTER):
+            return False, str(ra)
+    return True, str(ra)
 
 
 @app.get("/api/v1/match/{game_id}")
@@ -4323,7 +4340,7 @@ def get_match(game_id: int, refresh: bool = False):
             theirs = next((r for r in summary if r is not ours), None)
             if ours and theirs:
                 teams = {"ours": _side(ours), "theirs": _side(theirs)}
-                preliminart, rort_senast = _protokollet_var_varmt(ours)
+                preliminart, rort_senast = _protokollet_var_varmt(ours, _hockeydata_uppdaterad())
 
             for d in rader["goalies"]:
                 keepers.append(
