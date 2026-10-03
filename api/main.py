@@ -857,6 +857,28 @@ def warmup(refresh: bool = False):
             ut[vag] = {"http": r.status_code, "sek": round(time.perf_counter() - t0, 2)}
         except Exception as e:
             ut[vag] = {"fel": str(e)[:90]}
+
+    # Matchrapporterna. De räknas per match och låg inte med, så den första
+    # som öppnade en rapport fick vänta 5–7 sekunder (mätt 3 oktober). De fem
+    # senaste spelade är dem folk öppnar; äldre får räknas vid behov.
+    try:
+        r = requests.get(f"http://127.0.0.1:{port}/api/v1/statistics" + (f"?season={aktiv}" if aktiv else ""), timeout=120)
+        spelade = [
+            g for g in (r.json().get("games") or [])
+            if g.get("game_id") and re.match(r"\s*\d+\s*-\s*\d+", str(g.get("result") or ""))
+        ]
+        spelade.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
+        for g in spelade[:5]:
+            vag = f"/api/v1/match/{int(g['game_id'])}"
+            url = f"http://127.0.0.1:{port}{vag}" + ("?refresh=true" if refresh else "")
+            t0 = time.perf_counter()
+            try:
+                rr = requests.get(url, timeout=120)
+                ut[vag] = {"http": rr.status_code, "sek": round(time.perf_counter() - t0, 2)}
+            except Exception as e:
+                ut[vag] = {"fel": str(e)[:90]}
+    except Exception:
+        logging.exception("Kunde inte värma matchrapporterna")
     return {"status": "ok", "uppdaterad": refresh, "varmda": ut}
 
 
@@ -4106,7 +4128,7 @@ def _protokollet_var_varmt(rad: dict) -> tuple[bool | None, str | None]:
 
 @app.get("/api/v1/match/{game_id}")
 @cached_ok(cache=match_cache)
-def get_match(game_id: int):
+def get_match(game_id: int, refresh: bool = False):
     """Alla handelser for en enskild match.
 
     Bygger matchrapporten: malkronologi, utvisningar och momentumkurva.
