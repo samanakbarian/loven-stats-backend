@@ -6414,7 +6414,14 @@ def _fetch_x_recent(query: str, max_results: int):
     }
     headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
     try:
-        response = requests.get(url, params=params, headers=headers, timeout=20)
+        # X stänger ibland uppkopplingen mitt i svaret ("Connection aborted",
+        # "SSL EOF"), tre gånger i rad 3 oktober. Ett nytt försök efter en
+        # sekund brukar gå igenom.
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=20)
+        except requests.exceptions.ConnectionError:
+            time.sleep(1)
+            response = requests.get(url, params=params, headers=headers, timeout=20)
         if response.status_code != 200:
             return {"items": [], "error": f"x_http_{response.status_code}", "detail": response.text[:300]}
         payload = response.json()
@@ -6760,6 +6767,25 @@ def get_x_feed(force_refresh: bool = Query(False)):
         )
     payload = _build_x_payload_with_fallback(X_MAX_RESULTS_DEFAULT)
     payload.setdefault("meta", {})
+    # Ett misslyckat anrop utan tweets fick skriva över de sparade och
+    # serverades sedan som färskt i en timme: flödet stod tomt 3 oktober för
+    # att X tappade uppkopplingen i två minuter. Nu står de förra tweetsen
+    # kvar, och cachefilen rörs inte, så nästa varmhållning försöker igen.
+    if not payload.get("items") and payload["meta"].get("error"):
+        if isinstance(cached, dict) and cached.get("items"):
+            cached.setdefault("meta", {})
+            cached["meta"]["from_cache"] = True
+            cached["meta"]["refresh_error"] = payload["meta"]["error"]
+            cached["meta"]["latest_item_age_hours"] = _latest_item_age_hours(cached["items"])
+            return JSONResponse(
+                content=cached,
+                headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
+            )
+        payload["meta"]["from_cache"] = False
+        return JSONResponse(
+            content=payload,
+            headers={"Cache-Control": "no-store, max-age=0, must-revalidate"},
+        )
     payload["meta"]["from_cache"] = False
     payload["meta"]["latest_item_age_hours"] = _latest_item_age_hours(payload.get("items", []))
     threading.Thread(target=_persist_x_payload_to_bq, args=(payload,), daemon=True).start()
