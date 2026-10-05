@@ -372,16 +372,17 @@ if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
   say "Deployar API:t till Cloud Run"
   # --max-instances sätter taket i kronor, men styr också CACHETRÄFFEN.
   # Cacherna ligger i processminnet, alltså per instans, och varmhållningen
-  # värmer bara den instans som råkar ta emot anropet. Med tio instanser mötte
-  # många besökare en kall cache i onödan — och en kall /api/v1/analytics tog
-  # elva sekunder. Tre instanser rymmer 240 samtidiga anrop med Cloud Runs
-  # förvalda concurrency, vilket räcker med god marginal för en premiärkväll,
-  # och gör att de flesta besökare landar på en varm instans.
+  # värmer bara den instans som råkar ta emot anropet. Med tre instanser kunde
+  # en besökare hamna på en kall kopia och vänta medan allt räknades om från
+  # BigQuery (5 oktober: hälften av tolv samtidiga anrop tog 3–3,5 s). En
+  # instans tar 80 samtidiga anrop med Cloud Runs förvalda concurrency, vilket
+  # räcker gott för dagens 25–35 besökare om dygnet. Delas sajten brett och det
+  # köar: MAX_INSTANCES=3 bash deploy.sh api.
   gcloud run deploy loven-stats-api \
     --source api \
     --region "$REGION" \
     --allow-unauthenticated \
-    --max-instances "${MAX_INSTANCES:-3}" \
+    --max-instances "${MAX_INSTANCES:-1}" \
     --update-env-vars "BQ_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET}" \
     --quiet
 fi

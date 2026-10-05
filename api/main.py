@@ -11,6 +11,7 @@ import requests
 import unicodedata
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import storage
 from google.cloud import bigquery
@@ -168,6 +169,11 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+# Komprimerade svar. /statistics var 64 KB okomprimerat och 4,4 KB med gzip
+# (mätt 5 oktober) — det märks på mobilnät. Små svar lämnas som de är;
+# komprimeringen kostar mer än den sparar under en kilobyte.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "loven-stats-raw-data-prod")
 BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", "")
