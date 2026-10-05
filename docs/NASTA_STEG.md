@@ -181,13 +181,17 @@ rapporten på namn i första hand, annars på lag och tröja.
   och har en gång raderat `X_BEARER_TOKEN`. Skripten använder
   `--update-env-vars`.
 - **Bearer-värden skrivs bara till temporära filer**, aldrig till terminalen.
-- **Cachen ligger i processminnet, per instans.** `--max-instances 3` är satt
-  just därför: fler instanser betyder fler kalla cachar. Värmningen var tionde
-  minut håller en instans vid liv, men en andra samtidig besökare kan träffa
-  en kall kopia och vänta tjugo till fyrtio sekunder. `--min-instances 1`
-  löser det för ungefär sju dollar i månaden; ägaren har valt att vänta.
-- **`/api/v1/match/{id}` går inte att värma** — nyckeln är en match av
-  femtiotvå. Den lever med sin sextimmars-TTL.
+- **Cachen ligger i processminnet, per instans.** Sedan 5 oktober körs API:t
+  med `--max-instances 1`, så alla besökare träffar samma varma cache. En
+  instans tar 80 samtidiga anrop, vilket räcker för dagens 25–35 besökare om
+  dygnet. **Ägarens beslut: börjar det gå trögt när trafiken växer, höj till
+  fler instanser igen** — `MAX_INSTANCES=3 bash deploy.sh api`. Svaren
+  komprimeras med gzip (`/statistics` 64 KB → 4,4 KB).
+- **`--min-instances 1` är prövat och avfärdat** (5 oktober): varmhållningen
+  håller redan en instans vid liv, och en ständigt igångsatt instans kostar
+  ungefär 35–100 kr i månaden ovanpå dagens cirka 60 kr för allt.
+- **`/api/v1/match/{id}`** värms för de fem senaste spelade matcherna.
+  Äldre matcher räknas vid första besöket och lever sedan sex timmar.
 - **`refresh=1` är taktbegränsad till 12 anrop i timmen.** Bra att veta när man
   felsöker och undrar varför svaren plötsligt ser konstiga ut.
 
