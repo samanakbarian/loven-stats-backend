@@ -541,6 +541,13 @@ if [[ "$TARGET" == "all" || "$TARGET" == "api" ]]; then
     fi
   done
   if [[ "$PROBLEM" == "1" ]]; then fail "Minst en endpoint svarar inte som den ska."; fi
+
+  # En ny revision startar med tom cache. Utan det här fick de första
+  # besökarna efter en deploy vänta medan allt räknades från BigQuery —
+  # mätt 5 oktober: Inför matchen 6,8 s och seriens lagstatistik 5,7 s, mot
+  # 0,2 s varmt. Varmhållningen hade fyllt den inom tio minuter.
+  say "Värmer den nya revisionen"
+  curl -sS -o /dev/null -w '  %{http_code} på %{time_total} s\n' --max-time 300 "${URL}/api/v1/warmup" 2>/dev/null || true
 fi
 
 say "Klart"
