@@ -1,4 +1,5 @@
 import os
+import asyncio
 import json
 import logging
 
@@ -133,7 +134,95 @@ async def taktbegransa(request: Request, call_next):
             status_code=429,
             headers={"Retry-After": "60"},
         )
+    nej = await asyncio.to_thread(_okand_nyckel, request.url.path, q)
+    if nej:
+        return JSONResponse({"status": "not_found", "error": nej}, status_code=404)
     return await call_next(request)
+
+
+# -- Okända nycklar --
+#
+# Varje ny säsong, match eller parameter i ett anrop blir en egen cachepost och
+# nya BigQuery-frågor. En robot som provar påhittade match-id:n eller säsonger
+# hade alltså kostat pengar per anrop — och trängt ut riktiga svar ur cachen,
+# som har ett tak på antal poster. Det som inte finns avvisas därför innan
+# någon fråga ställs.
+#
+# Listan över säsonger och matcher hämtas en gång i timmen. Ett okänt match-id
+# hämtar om den direkt, högst var femte minut, så en match som skördades nyss
+# inte avvisas medan listan är gammal. Går hämtningen inte alls släpps allt
+# igenom: hellre som förut än en sida som slutar fungera.
+_kanda_lock = threading.Lock()
+_kanda: dict = {"sasonger": None, "matcher": None, "hamtad": 0.0}
+KANDA_TTL = 3600
+KANDA_OMHAMTNING = 300
+
+
+def _hamta_kanda(tvinga: bool = False) -> dict:
+    nu = time.time()
+    with _kanda_lock:
+        alder = nu - _kanda["hamtad"]
+        if _kanda["sasonger"] is not None and alder < KANDA_TTL and not (tvinga and alder >= KANDA_OMHAMTNING):
+            return _kanda
+        try:
+            bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+            sasonger = {r["season_key"] for r in bq.query(f"SELECT season_key FROM `{bq.project}.core.season`").result()}
+            matcher = {
+                int(r["game_id"])
+                # Samma två källor som /match själv läser: en match finns om
+                # den har en rad i spelschemat eller händelser.
+                for r in bq.query(
+                    f"""
+                    SELECT game_id FROM `{bq.project}.core.schedule` WHERE game_id IS NOT NULL
+                    UNION DISTINCT
+                    SELECT game_id FROM `{bq.project}.core.game_events` WHERE game_id IS NOT NULL
+                    """
+                ).result()
+            }
+            _kanda.update(sasonger=sasonger, matcher=matcher, hamtad=nu)
+        except Exception:
+            logging.warning("Kunde inte hamta kanda sasonger och matcher", exc_info=True)
+            # Försök inte igen vid varje anrop; vänta som vid en omhämtning.
+            _kanda["hamtad"] = nu - KANDA_TTL + KANDA_OMHAMTNING
+        return _kanda
+
+
+_MATCHVAG = re.compile(r"^/api/v1/match/(\d+)/?$")
+
+
+def _okand_nyckel(vag: str, q) -> str | None:
+    """Felmeddelandet om anropet pekar på något som inte finns, annars None."""
+    if not vag.startswith("/api/"):
+        return None
+    venue = (q.get("venue") or "").lower()
+    if venue not in ("", "home", "away"):
+        return "Okänd venue."
+    last = q.get("last")
+    if last is not None and not (last.isdigit() and int(last) <= 100):
+        return "Okänt värde på last."
+    sims = q.get("sims")
+    if sims is not None and not (sims.isdigit() and int(sims) % 1000 == 0):
+        return "sims ska vara jämna tusental."
+    team = q.get("team")
+    if team is not None and not BJK_HOME.search(team):
+        return "Okänt lag."
+    if q.get("team_query") is not None:
+        return "team_query stöds inte."
+
+    sasong = q.get("season")
+    m = _MATCHVAG.match(vag)
+    if not sasong and not m:
+        return None
+    kanda = _hamta_kanda()
+    if sasong and kanda["sasonger"] is not None and sasong not in kanda["sasonger"]:
+        return "Okänd säsong."
+    if m and kanda["matcher"] is not None:
+        gid = int(m.group(1))
+        if gid not in kanda["matcher"]:
+            kanda = _hamta_kanda(tvinga=True)
+            if kanda["matcher"] is not None and gid not in kanda["matcher"]:
+                return "Okänd match."
+    return None
 
 
 # -- CORS --
