@@ -5291,23 +5291,31 @@ def get_analytics(season: str = None, refresh: bool = False):
         
         for p in bjk_penalties:
             ptype = p.get("penalty_type") or "OkÃ¤nd"
-            pen_by_type[ptype] = pen_by_type.get(ptype, 0) + 1
-            
-            per = p.get("period") or 1
-            if per > 3: per = 4
-            pen_by_period[per] += 1
-            
             name = p.get("player_name") or "OkÃ¤nd"
             mins = p.get("penalty_minutes") or 2
             if name not in pen_by_player:
-                pen_by_player[name] = {"count": 0, "minutes": 0}
-            pen_by_player[name]["count"] += 1
+                pen_by_player[name] = {"count": 0, "minutes": 0, "misconduct_minutes": 0}
+            # Minuterna följer den officiella statistiken: ett game
+            # misconduct är 20 och ett misconduct 10, precis som hos Swehockey
+            # och SHL. Men de är tillägg till en utvisning, inte egna — laget
+            # spelar fullt. De räknas därför inte som utvisningar, och
+            # klienten kan skriva ut varför minuterna är så många.
             pen_by_player[name]["minutes"] += mins
+            if mins in (10, 20):
+                pen_by_player[name]["misconduct_minutes"] += mins
+                continue
+            pen_by_type[ptype] = pen_by_type.get(ptype, 0) + 1
+
+            per = p.get("period") or 1
+            if per > 3: per = 4
+            pen_by_period[per] += 1
+
+            pen_by_player[name]["count"] += 1
             
         penalty_breakdown = {
             "by_type": [{"type": k, "count": v} for k, v in sorted(pen_by_type.items(), key=lambda x: (-x[1], x[0]))[:5]],
             "by_period": [{"period": k, "count": v} for k, v in pen_by_period.items()],
-            "most_penalized": [{"name": k, "count": v["count"], "minutes": v["minutes"]} for k, v in sorted(pen_by_player.items(), key=lambda x: (-x[1]["minutes"], -x[1]["count"], x[0]))[:5]],
+            "most_penalized": [{"name": k, "count": v["count"], "minutes": v["minutes"], "misconduct_minutes": v["misconduct_minutes"]} for k, v in sorted(pen_by_player.items(), key=lambda x: (-x[1]["minutes"], -x[1]["count"], x[0]))[:5]],
         }
 
         # â”€â”€ Modul 10: The Prediction Engine (Elo) â”€â”€
