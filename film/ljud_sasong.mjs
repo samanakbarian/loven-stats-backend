@@ -104,6 +104,35 @@ export function ljudSasong(data, T) {
   }
   for (let i = 0; i < 3; i++) lagg(noter([[784, 523, 659][i]], 0.12, 'sinus', 0.16), T.kurva + 4.2 + i * 0.9);
 
+  // Åttabitarsduellerna: en liten fanfar in, skär i isen, skottet och utfallet.
+  if (T.DUELLER.length) {
+    lagg(noter([392, 523, 659, 784, 659, 784, 1046], 0.08, 'fyrkant', 0.14), T.duell + 0.2);
+    for (const d of T.DUELLER) {
+      // Skären: kort brus i takt med benen.
+      for (let k = 0; k < 6; k++) {
+        const m = Math.floor(0.05 * SR), x = new Float32Array(m);
+        for (let j = 0; j < m; j++) x[j] = (r() * 2 - 1) * 0.05 * Math.sin(Math.PI * j / m);
+        lagg(x, d.t + 0.35 + k * 0.23);
+      }
+      const knall = new Float32Array(Math.floor(0.04 * SR));
+      for (let j = 0; j < knall.length; j++) knall[j] = (r() * 2 - 1) * 0.3 * Math.exp(-6 * j / knall.length);
+      lagg(knall, d.t + 1.7);
+      if (d.utfall === 'mal') {
+        lagg(lur(0.9, 0.12), d.t + 1.95);
+        lagg(noter([523, 659, 784, 1046, 784, 1046], 0.07, 'fyrkant', 0.16), d.t + 2.0);
+      } else if (d.utfall === 'stolpe') {
+        lagg(env(ton(1760, 0.35, 'sinus', 0.18), 0.001, 0.3), d.t + 1.95);
+      } else {
+        lagg(env(ton(98, 0.18, 'fyrkant', 0.16), 0.002, 0.1), d.t + 1.95);
+        lagg(noter([330, 247], 0.1, 'fyrkant', 0.1), d.t + 2.15);
+      }
+    }
+    // Slutsignal: en drill i visselpipan.
+    const vissla = new Float32Array(Math.floor(0.7 * SR));
+    for (let j = 0; j < vissla.length; j++) vissla[j] = Math.sin(2 * Math.PI * (2500 + 120 * Math.sin(2 * Math.PI * 28 * j / SR)) * j / SR) * 0.08;
+    lagg(env(vissla, 0.01, 0.1), T.fakta - 2.9);
+  }
+
   // Siffrorna skrivs in, rad för rad.
   for (let k = 0; k < 7; k++) skrivljud(T.fakta + 0.8 + k * 0.7, 10, 60);
   lagg(noter([523, 784, 1046], 0.14, 'sinus', 0.16), T.total - 2.2);

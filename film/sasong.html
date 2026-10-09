@@ -14,6 +14,8 @@
   .rad { position: absolute; left: 0; height: var(--rh); line-height: var(--rh); white-space: pre; }
   .rad span { display: inline-block; width: var(--cw); text-align: center; }
   .dubbel { transform: scaleY(2); transform-origin: top left; }
+  /* Åttabitarsscenen: 180 x 320 punkter, uppskalad utan utjämning. */
+  #pixel { position: absolute; inset: 0; width: 720px; height: 1280px; image-rendering: pixelated; display: none; }
   #linjer {
     position: absolute; inset: 0; pointer-events: none;
     background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 3px, rgba(0,0,0,.28) 3px, rgba(0,0,0,.28) 4px);
@@ -21,7 +23,8 @@
 </style>
 </head>
 <body>
-<div id="skarm"><div id="rader"></div><div id="linjer"></div></div>
+<div id="skarm"><div id="rader"></div><canvas id="pixel" width="180" height="320"></canvas><div id="linjer"></div></div>
+<script src="hockey8.js"></script>
 <script>
 // Säsongen som Text-TV: tabellen omgång för omgång, Lövens placering som
 // kurva och säsongen i siffror. Som matchfilmen är allt en funktion av
@@ -62,7 +65,10 @@ const STEG = N <= 10 ? 2.0 : Math.max(0.45, 22 / N);
 const T = { brus: 0.6, rubrik: 0.9, titel: 1.8, tabell: 3.6, lopp: 5.0 };
 T.loppSlut = T.lopp + N * STEG;
 T.kurva = T.loppSlut + 3.4;
-T.fakta = T.kurva + 8.5;
+// Duellerna mot seriesnittet, om serien finns i datan.
+const DUELL = D.duell ? { intro: 2.2, steg: 3.2, n: D.duell.rader.length, slut: 3.0 } : null;
+T.duell = T.kurva + 8.5;
+T.fakta = DUELL ? T.duell + DUELL.intro + DUELL.n * DUELL.steg + DUELL.slut : T.duell;
 T.total = T.fakta + 10;
 
 function skriv(t, start, text, cps = 40) {
@@ -92,8 +98,16 @@ function render(t) {
   rad(0, [[skriv(t, T.rubrik, '377 SÄSONGEN'.padEnd(KOL - senast.length) + senast, 90), 'vit', 'svart']]);
   rad(1, [[` ${D.serie}`.padEnd(KOL), 'gul', 'bla']]);
 
+  const pixel = document.getElementById('pixel');
+  if (DUELL && t >= T.duell && t < T.fakta) {
+    pixel.style.display = 'block';
+    rader = [];
+    window.duellScen(pixel.getContext('2d'), t - T.duell, DUELL, D.duell, D.serie);
+    return rita();
+  }
+  pixel.style.display = 'none';
   if (t < T.kurva) tabell(t);
-  else if (t < T.fakta) kurva(t);
+  else if (t < T.duell) kurva(t);
   else fakta(t);
 
   rad(30, [[' sida377.se'.padEnd(KOL), 'svart', 'gul']]);
@@ -189,7 +203,6 @@ function fakta(t) {
   ];
   if (D.streak && D.streak.length > 1) rader_.push(['SEGERSVIT', `${D.streak.length} RAKA`]);
   if (D.poangbast) rader_.push(['POÄNGBÄST', `${efternamn(D.poangbast.name)} ${D.poangbast.points}P`]);
-  if (D.elo) rader_.push(['STYRKETAL', String(D.elo)]);
   if (D.publik) rader_.push(['PUBLIKSNITT', Number(D.publik).toLocaleString('sv-SE')]);
   rader_.forEach(([etikett, varde], k) => {
     const s = T.fakta + 0.8 + k * 0.7;
@@ -224,7 +237,12 @@ const HANDELSER = D.rounds.map((_, i) => {
 });
 
 window.render = render;
-window.TIDER = { ...T, STEG, N, HANDELSER };
+// Duellernas utfall och tider, till ljudet.
+const DUELLER = DUELL ? D.duell.rader.map((r, k) => ({
+  t: T.duell + DUELL.intro + k * DUELL.steg,
+  utfall: window.utfallAv(r),
+})) : [];
+window.TIDER = { ...T, STEG, N, HANDELSER, DUELLER };
 if (!window.RENDERA_RUTOR) {
   const t0 = performance.now();
   const loop = () => { render(((performance.now() - t0) / 1000) % T.total); requestAnimationFrame(loop); };
