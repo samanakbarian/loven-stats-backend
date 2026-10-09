@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<title>Säsongsfilm</title>
+<style>
+  :root { --cw: 24px; --rh: 40px; }
+  html, body { margin: 0; background: #000; }
+  #skarm {
+    position: relative; width: 720px; height: 1280px; overflow: hidden; background: #000;
+    font-family: 'Liberation Mono', 'DejaVu Sans Mono', monospace;
+    font-weight: 700; font-size: 40px; color: #fff;
+  }
+  .rad { position: absolute; left: 0; height: var(--rh); line-height: var(--rh); white-space: pre; }
+  .rad span { display: inline-block; width: var(--cw); text-align: center; }
+  .dubbel { transform: scaleY(2); transform-origin: top left; }
+  #linjer {
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 3px, rgba(0,0,0,.28) 3px, rgba(0,0,0,.28) 4px);
+  }
+</style>
+</head>
+<body>
+<div id="skarm"><div id="rader"></div><div id="linjer"></div></div>
+<script>
+// Säsongen som Text-TV: tabellen omgång för omgång, Lövens placering som
+// kurva och säsongen i siffror. Som matchfilmen är allt en funktion av
+// tiden, render(t), så den kan renderas ruta för ruta.
+const D = window.SASONG;
+const KOL = 30;
+const FARG = { vit: '#fff', gul: '#ff0', cyan: '#0ff', gron: '#0f0', rod: '#f00', bla: '#00f', magenta: '#f0f', svart: '#000' };
+
+const kortLag = n => n.replace(/^(IF|IK)\s+/, '').replace(/\s+(IF|HC|HK|BK|HF|AIK|IK|SK|IS|Hockey|Lakers HC|Redhawks)$/, '')
+  .replace('Djurgårdens', 'Djurgården').replace('Östersunds', 'Östersund').toUpperCase();
+const efternamn = n => (n || '').split(',')[0].trim().toUpperCase();
+const MANAD = ['JAN','FEB','MAR','APR','MAJ','JUN','JUL','AUG','SEP','OKT','NOV','DEC'];
+const DAG = ['SÖN','MÅN','TIS','ONS','TOR','FRE','LÖR'];
+const datumAv = d => { const x = new Date(String(d).slice(0, 10) + 'T12:00:00'); return `${x.getDate()} ${MANAD[x.getMonth()]}`; };
+const dagAv = d => { const x = new Date(String(d).slice(0, 10) + 'T12:00:00'); return `${DAG[x.getDay()]} ${x.getDate()} ${MANAD[x.getMonth()]}`; };
+const ordning = n => `${n}:${(n % 10 === 1 || n % 10 === 2) && n % 100 !== 11 && n % 100 !== 12 ? 'a' : 'e'}`.toUpperCase();
+const ease = x => (x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x));
+
+const N = D.rounds.length;
+const LAG = D.teams.length;
+// Saknas en placering (laget har inte spelat än) gäller den förra.
+const lag = D.teams.map(t => {
+  const ranks = [];
+  t.ranks.forEach((r, i) => ranks.push(r ?? ranks[i - 1] ?? LAG));
+  return { ...t, namn: kortLag(t.team), ranks };
+});
+// Före första omgången står lagen i bokstavsordning, som en tom tabell.
+[...lag].sort((a, b) => a.namn.localeCompare(b.namn, 'sv')).forEach((l, i) => { l.start = i + 1; });
+const vi = lag.find(l => l.bjk);
+// Serien är slut när tabellen är fastslagen eller ingen match återstår.
+const KLAR = D.settled || !D.nasta;
+const plats = (l, i) => (i < 0 ? l.start : l.ranks[i]);
+const matchVid = i => D.games.find(g => g.date === String(D.dates[i] || '').slice(0, 10));
+
+// Tidslinjen. Loppet får 2 sekunder per omgång när de är få och krymper
+// mot en halv när säsongen är lång, så filmen håller sig under minuten.
+const STEG = N <= 10 ? 2.0 : Math.max(0.45, 22 / N);
+const T = { brus: 0.6, rubrik: 0.9, titel: 1.8, tabell: 3.6, lopp: 5.0 };
+T.loppSlut = T.lopp + N * STEG;
+T.kurva = T.loppSlut + 3.4;
+T.fakta = T.kurva + 8.5;
+T.total = T.fakta + 10;
+
+function skriv(t, start, text, cps = 40) {
+  if (t < start) return '';
+  return text.slice(0, Math.floor((t - start) * cps));
+}
+
+let rader = [];
+const rad = (r, delar, opt = {}) => rader.push({ r, delar, ...opt });
+const mitt = s => s.padStart(Math.floor((KOL + s.length) / 2)).padEnd(KOL);
+
+function render(t) {
+  rader = [];
+  if (t < T.brus) {
+    let x = Math.floor(t * 25) * 9301 + 49297;
+    const slump = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+    const f = Object.values(FARG);
+    for (let r = 0; r < 32; r++) {
+      const delar = [];
+      for (let c = 0; c < KOL; c++) delar.push([slump() < 0.5 ? '█' : ' ', f[Math.floor(slump() * 7)], '#000']);
+      rad(r, delar);
+    }
+    return rita();
+  }
+
+  const senast = D.dates[N - 1] ? datumAv(D.dates[N - 1]) : '';
+  rad(0, [[skriv(t, T.rubrik, '377 SÄSONGEN'.padEnd(KOL - senast.length) + senast, 90), 'vit', 'svart']]);
+  rad(1, [[` ${D.serie}`.padEnd(KOL), 'gul', 'bla']]);
+
+  if (t < T.kurva) tabell(t);
+  else if (t < T.fakta) kurva(t);
+  else fakta(t);
+
+  rad(30, [[' sida377.se'.padEnd(KOL), 'svart', 'gul']]);
+  return rita();
+}
+
+/* ── Tabellen, omgång för omgång ── */
+function tabell(t) {
+  rad(3, [[skriv(t, T.titel, mitt(`${N} OMGÅNGAR`).trimEnd(), 24), 'gul', 'svart']], { dubbel: true });
+  if (t < T.tabell) return;
+
+  // Omgången som spelas just nu, och hur långt flytten har kommit.
+  const i = t < T.lopp ? -1 : Math.min(N - 1, Math.floor((t - T.lopp) / STEG));
+  const f = t < T.lopp ? 0 : t >= T.loppSlut ? 1 : ease(((t - T.lopp) % STEG) / STEG / 0.45);
+  const klar = t >= T.loppSlut;
+  const visa = Math.min(1, (t - T.tabell) / 1.0);
+
+  // Löven ritas sist, så den syns ovanpå när raderna går om varandra.
+  for (const l of [...lag].sort((a, b) => a.bjk - b.bjk)) {
+    const fore = plats(l, i - 1), nu = plats(l, i);
+    const y = fore + (nu - fore) * f;
+    if ((y - 1) / LAG > visa) continue;
+    const pil = i > 0 && !klar && fore !== nu ? (nu < fore ? '▲' : '▼') : ' ';
+    const pilFarg = nu < fore ? 'gron' : 'rod';
+    // Poängen fylls i när loppet är klart; under loppet bara Lövens.
+    const g = i >= 0 ? D.games.filter(x => x.date <= String(D.dates[i]).slice(0, 10)).pop() : null;
+    let p = '';
+    if (klar) p = skriv(t, T.loppSlut + 0.3 + (l.ranks[N - 1] - 1) * 0.08, String(l.points), 20);
+    else if (l.bjk && g) p = String(g.cum);
+    const pos = String(f > 0.5 || i < 0 ? nu : fore).padStart(2);
+    const fg = l.bjk ? 'gul' : 'vit', bg = l.bjk ? 'bla' : 'svart';
+    rad(5 + y, [[` ${pos} ${l.namn.slice(0, 14).padEnd(15)}`, fg, bg], [pil, pilFarg, bg], [p.padStart(4) + ' '.repeat(KOL - 24), fg, bg]]);
+  }
+
+  // Lövens match i omgången.
+  if (i >= 0) {
+    const g = matchVid(i);
+    const start = T.lopp + i * STEG;
+    rad(21, [[` OMGÅNG ${i + 1}`.padEnd(14) + datumAv(D.dates[i]).padStart(KOL - 15), 'cyan', 'svart']]);
+    if (g) {
+      const res = `${g.beyond ? 'Ö' : ''}${g.pts >= 2 ? 'V' : 'F'}`;
+      const text = ` ${g.home ? 'HEMMA' : 'BORTA'} ${kortLag(g.opponent).slice(0, 11).padEnd(12)}${g.gf}-${g.ga}`;
+      rad(23, [[skriv(t, start, text, STEG < 1 ? 400 : 45), 'vit', 'svart'], [t - start > Math.min(0.5, STEG * 0.3) ? ` ${res}` : '', g.pts >= 2 ? 'gron' : 'rod', 'svart']]);
+    } else {
+      rad(23, [[' LÖVEN SPELADE INTE', 'vit', 'svart']]);
+    }
+    const nu = plats(vi, i), fore = plats(vi, i - 1);
+    const rorelse = i === 0 || nu === fore ? '' : nu < fore ? `  UPP ${fore - nu}` : `  NER ${nu - fore}`;
+    rad(25, [[` LÖVEN ${ordning(nu)}`, 'gul', 'svart'], [rorelse, nu < fore ? 'gron' : 'rod', 'svart']], { dubbel: true });
+  }
+}
+
+/* ── Lövens placering som kurva ── */
+function kurva(t) {
+  rad(3, [[skriv(t, T.kurva, ' LÖVENS PLACERING', 24), 'gul', 'svart']], { dubbel: true });
+  const TOPP = 7, X0 = 4, BREDD = KOL - X0 - 1;
+  // Kolumn för kolumn: vilken omgång kolumnen visar.
+  const kol = c => Math.min(N - 1, Math.floor(c / BREDD * N));
+  const synligt = Math.floor(ease((t - T.kurva - 0.6) / 3.2) * BREDD);
+  const r = vi.ranks;
+  for (let p = 1; p <= LAG; p++) {
+    const delar = [[(p === 1 || p === LAG || p === r[N - 1]) ? String(p).padStart(3) + ' ' : '    ', p === r[N - 1] ? 'gul' : 'cyan', 'svart']];
+    for (let c = 0; c < BREDD; c++) {
+      const k = kol(c);
+      const forra = c > 0 ? r[kol(c - 1)] : r[k];
+      // Vid ett omgångsbyte fylls hela steget mellan placeringarna, så
+      // kurvan blir en sammanhängande trappa.
+      const lo = Math.min(r[k], forra), hi = Math.max(r[k], forra);
+      const pa = c < synligt && p >= lo && p <= hi;
+      delar.push([pa ? '█' : p % 2 ? '·' : ' ', pa ? 'gul' : 'bla', 'svart']);
+    }
+    rad(TOPP + p - 1, delar);
+  }
+  const basta = Math.min(...r), samsta = Math.max(...r);
+  const bOmg = r.indexOf(basta) + 1, sOmg = r.indexOf(samsta) + 1;
+  const s0 = T.kurva + 4.2;
+  rad(TOPP + LAG + 1, [[skriv(t, s0, ` BÄST   ${ordning(basta).padEnd(5)} OMGÅNG ${bOmg}`, 40), 'gron', 'svart']]);
+  rad(TOPP + LAG + 2, [[skriv(t, s0 + 0.9, ` SÄMST  ${ordning(samsta).padEnd(5)} OMGÅNG ${sOmg}`, 40), 'rod', 'svart']]);
+  rad(TOPP + LAG + 3, [[skriv(t, s0 + 1.8, ` NU     ${ordning(r[N - 1])}`, 40), 'gul', 'svart']]);
+}
+
+/* ── Säsongen i siffror ── */
+function fakta(t) {
+  rad(3, [[skriv(t, T.fakta, ` ${KLAR ? 'SÄSONGEN' : 'HITTILLS'}`, 24), 'gul', 'svart']], { dubbel: true });
+  const g = D.games;
+  const v = g.filter(x => x.pts === 3).length, ov = g.filter(x => x.pts === 2).length;
+  const of = g.filter(x => x.pts === 1).length, fl = g.filter(x => x.pts === 0).length;
+  const gf = g.reduce((s, x) => s + x.gf, 0), ga = g.reduce((s, x) => s + x.ga, 0);
+  const rader_ = [
+    ['POÄNG', `${vi.points} PÅ ${g.length}`],
+    ['V-ÖV-ÖF-F', `${v}-${ov}-${of}-${fl}`],
+    ['MÅL', `${gf}-${ga}`],
+  ];
+  if (D.streak && D.streak.length > 1) rader_.push(['SEGERSVIT', `${D.streak.length} RAKA`]);
+  if (D.poangbast) rader_.push(['POÄNGBÄST', `${efternamn(D.poangbast.name)} ${D.poangbast.points}P`]);
+  if (D.elo) rader_.push(['STYRKETAL', String(D.elo)]);
+  if (D.publik) rader_.push(['PUBLIKSNITT', Number(D.publik).toLocaleString('sv-SE')]);
+  rader_.forEach(([etikett, varde], k) => {
+    const s = T.fakta + 0.8 + k * 0.7;
+    rad(7 + k * 2, [[skriv(t, s, ` ${etikett.padEnd(12)}`, 60), 'cyan', 'svart'], [skriv(t, s + 0.2, varde.slice(0, KOL - 13), 40), 'vit', 'svart']]);
+  });
+  if (D.nasta && !KLAR) {
+    const s = T.fakta + 0.8 + rader_.length * 0.7 + 0.6;
+    const n = D.nasta;
+    rad(23, [[skriv(t, s, ' NÄSTA', 40), 'gul', 'svart']], { dubbel: true });
+    rad(26, [[skriv(t, s + 0.6, ` ${dagAv(n.date)}  ${n.is_home ? 'HEMMA' : 'BORTA'}`, 40), 'vit', 'svart']]);
+    rad(27, [[skriv(t, s + 1.0, ` ${kortLag(n.opponent)}`, 40), 'vit', 'svart']]);
+  }
+}
+
+function rita() {
+  const el = document.getElementById('rader');
+  let html = '';
+  for (const r of rader) {
+    let rad = '';
+    for (const [text, fg, bg] of r.delar) {
+      for (const ch of text) rad += `<span style="color:${FARG[fg] || fg};background:${FARG[bg] || bg}">${ch === ' ' ? '&nbsp;' : ch}</span>`;
+    }
+    html += `<div class="rad${r.dubbel ? ' dubbel' : ''}" style="top:${r.r * 40 + 10}px">${rad}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+// Ljudet behöver veta när Löven rör sig, inte bara när omgångarna går.
+const HANDELSER = D.rounds.map((_, i) => {
+  const g = matchVid(i);
+  return { t: T.lopp + i * STEG, flytt: plats(vi, i - 1) - plats(vi, i), vann: g ? g.pts >= 2 : null };
+});
+
+window.render = render;
+window.TIDER = { ...T, STEG, N, HANDELSER };
+if (!window.RENDERA_RUTOR) {
+  const t0 = performance.now();
+  const loop = () => { render(((performance.now() - t0) / 1000) % T.total); requestAnimationFrame(loop); };
+  loop();
+}
+</script>
+</body>
+</html>

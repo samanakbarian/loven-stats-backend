@@ -29,7 +29,20 @@ function kor(cmd, args) {
  * match: svaret från /api/v1/match/{id}, plus `serie` ("SHL 26/27").
  * Returnerar sökvägarna till filmen och stillbilden, och filmens tidslinje.
  */
-export async function renderaFilm(match, { mapp, ffmpeg = 'ffmpeg', chromiumPath } = {}) {
+export function renderaFilm(match, { mapp, ffmpeg = 'ffmpeg', chromiumPath } = {}) {
+  return renderaSida({
+    sida: 'film.html', global: 'MATCH', data: match, ljud: ljudspar,
+    // Stillbilden: slutresultatet, när "SLUT" står stilla.
+    posterTid: tider => tider.slut + 3,
+    mapp, ffmpeg, chromiumPath,
+  });
+}
+
+/**
+ * En film ur en HTML-sida med window.render(t) och window.TIDER. Datan läggs
+ * i window[global] innan sidan laddas; ljud(data, tider) ger en WAV.
+ */
+export async function renderaSida({ sida, global, data, ljud, posterTid, mapp, ffmpeg = 'ffmpeg', chromiumPath }) {
   fs.mkdirSync(mapp, { recursive: true });
   const rutor = path.join(mapp, 'rutor');
   fs.rmSync(rutor, { recursive: true, force: true });
@@ -38,26 +51,25 @@ export async function renderaFilm(match, { mapp, ffmpeg = 'ffmpeg', chromiumPath
   const browser = await chromium.launch(chromiumPath ? { executablePath: chromiumPath } : {});
   let tider;
   try {
-    const sida = await browser.newPage({ viewport: { width: 720, height: 1280 } });
-    await sida.addInitScript(`window.MATCH = ${JSON.stringify(match)}; window.RENDERA_RUTOR = true;`);
-    await sida.goto('file://' + path.join(HAR, 'film.html'));
-    await sida.evaluate(() => document.fonts.ready);
-    tider = await sida.evaluate(() => window.TIDER);
-    const skarm = await sida.$('#skarm');
+    const flik = await browser.newPage({ viewport: { width: 720, height: 1280 } });
+    await flik.addInitScript(`window[${JSON.stringify(global)}] = ${JSON.stringify(data)}; window.RENDERA_RUTOR = true;`);
+    await flik.goto('file://' + path.join(HAR, sida));
+    await flik.evaluate(() => document.fonts.ready);
+    tider = await flik.evaluate(() => window.TIDER);
+    const skarm = await flik.$('#skarm');
     const antal = Math.round(tider.total * FPS);
     for (let i = 0; i < antal; i++) {
-      await sida.evaluate(t => window.render(t), i / FPS);
+      await flik.evaluate(t => window.render(t), i / FPS);
       await skarm.screenshot({ path: path.join(rutor, `${String(i).padStart(4, '0')}.png`) });
     }
-    // Stillbilden: slutresultatet, när "SLUT" står stilla.
-    await sida.evaluate(t => window.render(t), tider.slut + 3);
+    await flik.evaluate(t => window.render(t), posterTid(tider));
     await skarm.screenshot({ path: path.join(mapp, 'poster.jpg'), type: 'jpeg', quality: 85 });
   } finally {
     await browser.close();
   }
 
   const wavFil = path.join(mapp, 'ljud.wav');
-  fs.writeFileSync(wavFil, ljudspar(match, tider));
+  fs.writeFileSync(wavFil, ljud(data, tider));
   const mp4 = path.join(mapp, 'film.mp4');
   await kor(ffmpeg, [
     '-hide_banner', '-loglevel', 'error', '-y',
