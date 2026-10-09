@@ -12,7 +12,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY package.json ./
 RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --omit=dev --no-audit --no-fund
-COPY film.html ljud.mjs rendera.mjs kontroll.mjs server.mjs ./
+COPY film.html ljud.mjs rendera.mjs kontroll.mjs server.mjs sasong.html hockey8.js ljud_sasong.mjs sasong.mjs ./
 
 ENV NODE_ENV=production
 CMD ["node", "server.mjs"]

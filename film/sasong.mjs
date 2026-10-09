@@ -24,6 +24,7 @@ export async function hamtaSasong(api, season) {
   const skaters = stat.bjorkloven_skaters?.regular || [];
   const poangbast = [...skaters].sort((a, b) => b.points - a.points || b.goals - a.goals)[0];
   return {
+    key: hist.season_key || '',
     serie: serieRad(stat.season || hist.season),
     rounds: hist.rounds,
     dates: hist.dates || [],
@@ -36,7 +37,8 @@ export async function hamtaSasong(api, season) {
     duell: dueller(trend),
     publik: m.attendance?.trend?.length ? m.attendance.avg : null,
     poangbast: poangbast ? { name: poangbast.player_name, points: poangbast.points, goals: poangbast.goals, assists: poangbast.assists } : null,
-    nasta: m.predictions?.next_game || null,
+    // Bara det filmen visar: sannolikheterna rör sig utan att något hänt.
+    nasta: m.predictions?.next_game ? (({ opponent, is_home, date }) => ({ opponent, is_home, date }))(m.predictions.next_game) : null,
   };
 }
 
