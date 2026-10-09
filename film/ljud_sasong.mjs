@@ -107,24 +107,25 @@ export function ljudSasong(data, T) {
   // Åttabitarsduellerna: en liten fanfar in, skär i isen, skottet och utfallet.
   if (T.DUELLER.length) {
     lagg(noter([392, 523, 659, 784, 659, 784, 1046], 0.08, 'fyrkant', 0.14), T.duell + 0.2);
+    const tempo = T.TEMPO || 1;
     for (const d of T.DUELLER) {
       // Skären: kort brus i takt med benen.
       for (let k = 0; k < 6; k++) {
         const m = Math.floor(0.05 * SR), x = new Float32Array(m);
         for (let j = 0; j < m; j++) x[j] = (r() * 2 - 1) * 0.05 * Math.sin(Math.PI * j / m);
-        lagg(x, d.t + 0.35 + k * 0.23);
+        lagg(x, d.t + (0.35 + k * 0.23) * tempo);
       }
       const knall = new Float32Array(Math.floor(0.04 * SR));
       for (let j = 0; j < knall.length; j++) knall[j] = (r() * 2 - 1) * 0.3 * Math.exp(-6 * j / knall.length);
-      lagg(knall, d.t + 1.7);
+      lagg(knall, d.t + 1.7 * tempo);
       if (d.utfall === 'mal') {
-        lagg(lur(0.9, 0.12), d.t + 1.95);
-        lagg(noter([523, 659, 784, 1046, 784, 1046], 0.07, 'fyrkant', 0.16), d.t + 2.0);
+        lagg(lur(0.9, 0.12), d.t + 1.95 * tempo);
+        lagg(noter([523, 659, 784, 1046, 784, 1046], 0.07, 'fyrkant', 0.16), d.t + 2.0 * tempo);
       } else if (d.utfall === 'stolpe') {
-        lagg(env(ton(1760, 0.35, 'sinus', 0.18), 0.001, 0.3), d.t + 1.95);
+        lagg(env(ton(1760, 0.35, 'sinus', 0.18), 0.001, 0.3), d.t + 1.95 * tempo);
       } else {
-        lagg(env(ton(98, 0.18, 'fyrkant', 0.16), 0.002, 0.1), d.t + 1.95);
-        lagg(noter([330, 247], 0.1, 'fyrkant', 0.1), d.t + 2.15);
+        lagg(env(ton(98, 0.18, 'fyrkant', 0.16), 0.002, 0.1), d.t + 1.95 * tempo);
+        lagg(noter([330, 247], 0.1, 'fyrkant', 0.1), d.t + 2.15 * tempo);
       }
     }
     // Slutsignal: en drill i visselpipan.

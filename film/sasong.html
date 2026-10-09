@@ -66,7 +66,9 @@ const T = { brus: 0.6, rubrik: 0.9, titel: 1.8, tabell: 3.6, lopp: 5.0 };
 T.loppSlut = T.lopp + N * STEG;
 T.kurva = T.loppSlut + 3.4;
 // Duellerna mot seriesnittet, om serien finns i datan.
-const DUELL = D.duell ? { intro: 2.2, steg: 3.2, n: D.duell.rader.length, slut: 3.0 } : null;
+// Ett anfall är ritat för 3,2 sekunder; tempo sträcker ut det jämnt.
+const TEMPO = 1.25;
+const DUELL = D.duell ? { intro: 2.6, steg: 3.2 * TEMPO, tempo: TEMPO, n: D.duell.rader.length, slut: 3.4 } : null;
 T.duell = T.kurva + 8.5;
 T.fakta = DUELL ? T.duell + DUELL.intro + DUELL.n * DUELL.steg + DUELL.slut : T.duell;
 T.total = T.fakta + 10;
@@ -242,7 +244,7 @@ const DUELLER = DUELL ? D.duell.rader.map((r, k) => ({
   t: T.duell + DUELL.intro + k * DUELL.steg,
   utfall: window.utfallAv(r),
 })) : [];
-window.TIDER = { ...T, STEG, N, HANDELSER, DUELLER };
+window.TIDER = { ...T, STEG, N, HANDELSER, DUELLER, TEMPO };
 if (!window.RENDERA_RUTOR) {
   const t0 = performance.now();
   const loop = () => { render(((performance.now() - t0) / 1000) % T.total); requestAnimationFrame(loop); };

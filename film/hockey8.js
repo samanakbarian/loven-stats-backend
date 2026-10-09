@@ -115,7 +115,8 @@ function duellScen(c, u, S, D, serie) {
   const rader = D.rader;
   const n = rader.length;
   const i = u < S.intro ? -1 : Math.min(n - 1, Math.floor((u - S.intro) / S.steg));
-  const v = i < 0 ? 0 : u - S.intro - i * S.steg;
+  // v: tid i anfallet, i de 3,2 sekunder anfallet är ritat för.
+  const v = i < 0 ? 0 : (u - S.intro - i * S.steg) / (S.tempo || 1);
   const slut = u >= S.intro + n * S.steg;
 
   const utfall = rader.map(utfallAv);
