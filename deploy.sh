@@ -13,6 +13,7 @@
 #   bash deploy.sh views      # skapa/uppdatera core- och marts-vyerna
 #   bash deploy.sh restore-env # återställ miljövariabler från äldre revision
 #   bash deploy.sh budget    # budgetlarm på projektet, utan deploy
+#   bash deploy.sh film      # matchfilmerna: bucket, tjänst och schema
 #
 # Backfill kör scrapern mot säsonger som inte är markerade aktiva, så de får
 # fält som lagts till i efterhand — game_id, periodresultat, publik, trupp.
@@ -365,6 +366,69 @@ except Exception:
 err = (d.get('meta') or {}).get('error')
 print(f\"  tweets: {d.get('count', 0)}\" + (f'  fel: {err}' if err else ''))
 " || true
+  exit 0
+fi
+
+if [[ "$TARGET" == "film" ]]; then
+  # Matchfilmerna (film/). En Cloud Run-tjänst renderar en film per färdig
+  # match och lägger den i en egen, publik bucket — filmerna är lika publika
+  # som matchrapporterna. Tjänsten själv är stängd: bara schemaläggaren får
+  # anropa den, med ett token från projektets standardkonto.
+  FILM_BUCKET="${FILM_BUCKET:-${PROJECT_ID}-matchfilm}"
+  PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+  SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+  API_URL=$(gcloud run services describe loven-stats-api --region "$REGION" --format='value(status.url)')
+
+  say "Bucket gs://$FILM_BUCKET"
+  if ! gcloud storage buckets describe "gs://$FILM_BUCKET" >/dev/null 2>&1; then
+    gcloud storage buckets create "gs://$FILM_BUCKET" --location "$REGION" --uniform-bucket-level-access --quiet
+  fi
+  gcloud storage buckets add-iam-policy-binding "gs://$FILM_BUCKET" \
+    --member=allUsers --role=roles/storage.objectViewer --quiet >/dev/null \
+    || fail "Kunde inte göra bucketen publik. Projektet kan ha 'public access prevention' påslaget."
+  gcloud storage buckets add-iam-policy-binding "gs://$FILM_BUCKET" \
+    --member="serviceAccount:$SA" --role=roles/storage.objectAdmin --quiet >/dev/null
+  # Sidan hämtar filmens JSON och, för Dela, själva filen med fetch. Det
+  # kräver CORS; filmen i <video> gör det inte.
+  CORS_FIL=$(mktemp)
+  printf '[{"origin":["*"],"method":["GET","HEAD"],"responseHeader":["Content-Type","Content-Length","Content-Range","Range"],"maxAgeSeconds":3600}]' > "$CORS_FIL"
+  gcloud storage buckets update "gs://$FILM_BUCKET" --cors-file="$CORS_FIL" --quiet >/dev/null
+  rm -f "$CORS_FIL"
+
+  say "Deployar matchfilm-tjänsten"
+  # En instans och en körning i taget: renderingen tar ett par minuter per
+  # match och ska aldrig göra samma match två gånger samtidigt.
+  gcloud run deploy loven-matchfilm \
+    --source film \
+    --region "$REGION" \
+    --no-allow-unauthenticated \
+    --memory 2Gi --cpu 2 \
+    --concurrency 1 --max-instances 1 \
+    --timeout 1800 \
+    --update-env-vars "FILM_BUCKET=${FILM_BUCKET},API_URL=${API_URL}" \
+    --quiet
+  gcloud run services add-iam-policy-binding loven-matchfilm --region "$REGION" \
+    --member="serviceAccount:$SA" --role=roles/run.invoker --quiet >/dev/null
+  FILM_URL=$(gcloud run services describe loven-matchfilm --region "$REGION" --format='value(status.url)')
+
+  # Tio minuter efter API:ts omhämtning (:45), som i sin tur kommer en
+  # kvart efter skörden (:30). Då är matchrapporten färsk.
+  FILM_CRON="${FILM_CRON:-55 0,7,18,22 * * *}"
+  say "Sätter schemat: $FILM_CRON"
+  if gcloud scheduler jobs describe loven-matchfilm-job --location "$REGION" >/dev/null 2>&1; then
+    VERB=update
+  else
+    VERB=create
+  fi
+  gcloud scheduler jobs $VERB http loven-matchfilm-job \
+    --location "$REGION" --schedule "$FILM_CRON" --time-zone "Europe/Stockholm" \
+    --uri "${FILM_URL}/kor" --http-method GET --attempt-deadline 1800s \
+    --oidc-service-account-email "$SA" --oidc-token-audience "$FILM_URL" \
+    --quiet
+
+  say "Klart. Gör filmerna nu (tar några minuter per match):"
+  echo "  curl -s -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${FILM_URL}/kor"
+  echo "Filmerna hamnar på https://storage.googleapis.com/${FILM_BUCKET}/film/<game_id>.mp4"
   exit 0
 fi
 

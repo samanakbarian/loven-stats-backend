@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<title>Matchfilm</title>
+<style>
+  :root {
+    --svart: #000; --vit: #fff; --gul: #ff0; --cyan: #0ff; --gron: #0f0;
+    --rod: #f00; --bla: #00f; --magenta: #f0f;
+    --cw: 24px; --rh: 40px;
+  }
+  html, body { margin: 0; background: #000; }
+  #skarm {
+    position: relative; width: 720px; height: 1280px; overflow: hidden;
+    background: var(--svart);
+    font-family: 'Liberation Mono', 'DejaVu Sans Mono', monospace;
+    font-weight: 700; font-size: 40px; color: var(--vit);
+  }
+  .rad {
+    position: absolute; left: 0; height: var(--rh); line-height: var(--rh);
+    white-space: pre; letter-spacing: 0;
+  }
+  .rad span { display: inline-block; width: var(--cw); text-align: center; }
+  .dubbel { transform: scaleY(2); transform-origin: top left; }
+  /* Linjer som på en gammal tv, utan att lysa. */
+  #linjer {
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 3px, rgba(0,0,0,.28) 3px, rgba(0,0,0,.28) 4px);
+  }
+</style>
+</head>
+<body>
+<div id="skarm"><div id="rader"></div><div id="linjer"></div></div>
+<script>
+// Hela filmen är en funktion av tiden: render(t) ritar bildrutan för t
+// sekunder. Då går den att spela upp i realtid och att rendera ruta för ruta.
+const D = window.MATCH;
+const KOL = 30;
+const FARG = { vit: '#fff', gul: '#ff0', cyan: '#0ff', gron: '#0f0', rod: '#f00', bla: '#00f', magenta: '#f0f', svart: '#000' };
+const BJK = /bj[oö]rkl[oö]ven/i;
+
+const kortLag = n => n.replace(/^IF\s+/, '').replace(/\s+(IF|HC|BK|HF|AIK|IK|Lakers HC|Redhawks)$/, '').replace('Djurgårdens', 'Djurgården').toUpperCase();
+const efternamn = n => (n || '').split(',')[0].trim().toUpperCase();
+const VI_HEMMA = BJK.test(D.home_team);
+const H = kortLag(D.home_team), B = kortLag(D.away_team);
+const [hm, bm] = D.result.split('-').map(s => parseInt(s, 10));
+const MANAD = ['JAN','FEB','MAR','APR','MAJ','JUN','JUL','AUG','SEP','OKT','NOV','DEC'];
+const DAG = ['SÖN','MÅN','TIS','ONS','TOR','FRE','LÖR'];
+const dt = new Date(D.date + 'T12:00:00');
+const datum = `${DAG[dt.getDay()]} ${dt.getDate()} ${MANAD[dt.getMonth()]}`;
+const sek = s => { const [m, x] = s.split(':').map(Number); return m * 60 + x; };
+const klocka = s => `${String(Math.floor(s / 60)).padStart(2, '0')}.${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const lagKod = code => (code === 'IFB' ? 'IFB' : code);
+const arVi = code => code === 'IFB';
+
+// Matchens längd i spelsekunder. Förlängning (fjärde perioden) slutar vid
+// det avgörande målet, annars efter fem minuter och straffar.
+const PERIODER = (D.period_results || '').split(',').length;
+const FORL = PERIODER >= 4;
+const STRAFFAR = PERIODER >= 5 || /GWS/.test(JSON.stringify(D.goals));
+const forlMal = D.goals.map(g => g.time).map(x => { const [m, s] = x.split(':').map(Number); return m * 60 + s; }).filter(x => x > 3600);
+const SLUTSEK = !FORL ? 3600 : (forlMal.length && !STRAFFAR ? Math.max(...forlMal) : 3900);
+const periodNamn = per => (per >= 4 ? 'FÖRLÄNGNING' : per === 3 ? '3:E PERIODEN' : `${per}:A PERIODEN`);
+
+// Händelserna i matchordning. Ett 5 + 20 blir en rad.
+const handelser = [];
+for (const g of D.goals) {
+  const tag = /ENG/.test(g.score_state || '') ? ' TOM BUR' : /PP/.test(g.score_state || '') ? ' PP' : /SH/.test(g.score_state || '') ? ' BP' : '';
+  // TOM = mål i tom bur.
+  const st = (g.score_state || '').split(' ')[0];
+  if (/GWS/.test(g.score_state || '')) {
+    // Det avgörande straffmålet hör till straffläggningen, inte till klockan.
+    handelser.push({ t: 3900, typ: 'mal', vi: arVi(g.team_code), text: `STRAFF ${st.padEnd(4)} ${efternamn(g.scorer)}` });
+    continue;
+  }
+  handelser.push({ t: sek(g.time), typ: 'mal', vi: arVi(g.team_code), text: `${klocka(sek(g.time))} ${st.padEnd(4)} ${efternamn(g.scorer)}${tag}` });
+}
+const pen = {};
+for (const p of D.penalties) {
+  if (!p.minutes) continue;
+  const k = p.time + p.player;
+  if (pen[k]) { pen[k].min.push(p.minutes); continue; }
+  pen[k] = { t: sek(p.time), vi: arVi(p.team_code), min: [p.minutes], namn: p.player === 'Team penalty' ? 'LAGSTRAFF' : efternamn(p.player) };
+}
+for (const p of Object.values(pen)) {
+  handelser.push({ t: p.t, typ: 'utv', vi: p.vi, text: `${klocka(p.t)} ${p.min.join('+')} MIN ${p.namn}` });
+}
+for (const per of (FORL ? [2, 3, 4] : [2, 3])) handelser.push({ t: (per - 1) * 1200 - 0.5, typ: 'per', text: `---- ${periodNamn(per)} ----` });
+if (STRAFFAR) handelser.push({ t: 3899.5, typ: 'per', text: '---- STRAFFLÄGGNING ----' });
+handelser.sort((a, b) => a.t - b.t);
+
+// Skott per period, kumulativt, för staplarna.
+const skott = side => (D.teams[side].shots_by_period || '').split(',').map(Number);
+const viSkott = skott('ours'), deSkott = skott('theirs');
+const kum = a => a.reduce((acc, v, i) => (acc.push((acc[i - 1] || 0) + v), acc), []);
+const viKum = kum(viSkott), deKum = kum(deSkott);
+const PER_START = [0, 1200, 2400, 3600];
+const PER_LANGD = [1200, 1200, 1200, Math.max(1, SLUTSEK - 3600)];
+const skottVid = (k, s) => {
+  const per = Math.min(k.length - 1, s >= 3600 ? 3 : Math.floor(s / 1200));
+  const fore = per ? k[per - 1] : 0;
+  return Math.round(fore + (k[per] - fore) * Math.min(1, (s - PER_START[per]) / PER_LANGD[per]));
+};
+const maxSkott = Math.max(viKum[2] || 0, deKum[2] || 0, 1);
+
+// Tidslinjen i sekunder.
+// Klockan går 24 sekunder per 60 minuter; förlängningen förlänger filmen.
+const EXTRA = (SLUTSEK - 3600) / 3600 * 24 + (FORL ? 1.0 : 0);
+const T = { brus: 0.6, rubrik: 0.9, titel: 1.8, klockStart: 4.5, klockSlut: 28.5 + EXTRA, slut: 29.0 + EXTRA + (FORL ? 0.6 : 0), basta: 34.5 + EXTRA + (FORL ? 0.6 : 0), total: 42 + EXTRA + (FORL ? 0.6 : 0) };
+const spelTid = t => Math.max(0, Math.min(SLUTSEK, (t - T.klockStart) / (T.klockSlut - T.klockStart) * SLUTSEK));
+
+function skriv(t, start, text, cps = 40) {
+  if (t < start) return '';
+  return text.slice(0, Math.floor((t - start) * cps));
+}
+
+// En rad är en lista av [text, förgrund, bakgrund].
+let rader = [];
+const rad = (r, delar, opt = {}) => rader.push({ r, delar, ...opt });
+
+function render(t) {
+  rader = [];
+  if (t < T.brus) {
+    // Mottagningsbrus: slumpade block i tv-färgerna, deterministiskt per ruta.
+    let x = Math.floor(t * 25) * 9301 + 49297;
+    const slump = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+    const f = Object.values(FARG);
+    for (let r = 0; r < 32; r++) {
+      const delar = [];
+      for (let c = 0; c < KOL; c++) delar.push([slump() < 0.5 ? '█' : ' ', f[Math.floor(slump() * 7)], '#000']);
+      rad(r, delar);
+    }
+    return rita();
+  }
+
+  // Sidhuvud som på Text-TV: sidnummer, namn och datum.
+  const huvud = `377 LÖVENLÄGET`.padEnd(KOL - datum.length) + datum;
+  rad(0, [[skriv(t, T.rubrik, huvud, 90), 'vit', 'svart']]);
+  rad(1, [[` ${D.serie || 'SHL 26/27'}`.padEnd(KOL), 'gul', 'bla']]);
+
+  const titel = `${H}-${B}`;
+  rad(3, [[skriv(t, T.titel, titel.padStart(Math.floor((KOL + titel.length) / 2)), 20), 'gul', 'svart']], { dubbel: true });
+  const plats = `${D.venue}  ${Number(D.spectators).toLocaleString('sv-SE')}`;
+  rad(6, [[skriv(t, T.titel + 1.2, plats.slice(0, KOL), 35), 'cyan', 'svart']]);
+
+  if (t >= T.klockStart && t < T.basta) {
+    const s = spelTid(t);
+    const hs = handelser.filter(h => h.typ === 'mal' && h.t <= s);
+    const hmal = t >= T.slut ? hm : hs.filter(h => VI_HEMMA ? h.vi : !h.vi).length;
+    const bmal = t >= T.slut ? bm : hs.filter(h => VI_HEMMA ? !h.vi : h.vi).length;
+
+    if (t < T.slut) {
+      const per = s >= 3600 ? 4 : Math.floor(s / 1200) + 1;
+      rad(8, [[` ${klocka(s)}`, 'vit', 'svart'], [`  ${hmal}-${bmal}`, 'gul', 'svart']], { dubbel: true });
+      rad(10, [[` ${periodNamn(per)}`, 'cyan', 'svart']]);
+    } else {
+      // Slutsignalen blinkar som på riktig Text-TV.
+      const syns = Math.floor((t - T.slut) * 2.5) % 2 === 0 || t - T.slut > 2.4;
+      rad(8, [[syns ? ' SLUT' : '     ', 'vit', 'svart'], [`  ${hm}-${bm}`, 'gul', 'svart'], [FORL ? (STRAFFAR ? ' STR' : ' ÖT') : '', 'cyan', 'svart']], { dubbel: true });
+      rad(10, [[` ${D.period_results}`.slice(0, KOL), 'cyan', 'svart']]);
+    }
+
+    // Skotten som staplar.
+    const ss = t >= T.slut ? SLUTSEK : s;
+    const bredd = 14;
+    const stapel = (n, farg) => [[' '.repeat(Math.round(n / maxSkott * bredd)), farg, farg], [' '.repeat(bredd + 1 - Math.round(n / maxSkott * bredd)), 'svart', 'svart']];
+    const hS = VI_HEMMA ? skottVid(viKum, ss) : skottVid(deKum, ss);
+    const bS = VI_HEMMA ? skottVid(deKum, ss) : skottVid(viKum, ss);
+    const hF = VI_HEMMA ? 'gron' : 'vit', bF = VI_HEMMA ? 'vit' : 'gron';
+    rad(12, [[' SKOTT', 'vit', 'svart']]);
+    rad(13, [[` ${H.slice(0, 10).padEnd(11)}`, hF, 'svart'], ...stapel(hS, hF), [String(hS).padStart(3), 'vit', 'svart']]);
+    rad(14, [[` ${B.slice(0, 10).padEnd(11)}`, bF, 'svart'], ...stapel(bS, bF), [String(bS).padStart(3), 'vit', 'svart']]);
+
+    // Händelserna skrivs in när klockan passerar dem. Får de inte plats
+    // rullar de äldsta upp och ut, som en ticker.
+    const synliga = handelser.filter(h => h.t <= (t >= T.slut ? SLUTSEK : s));
+    const MAX_RADER = 13;
+    let r = 16;
+    for (const h of synliga.slice(-MAX_RADER)) {
+      const start = T.klockStart + Math.max(0, Math.min(h.t, SLUTSEK)) / SLUTSEK * (T.klockSlut - T.klockStart);
+      const farg = h.typ === 'per' ? 'cyan' : h.typ === 'utv' ? 'gul' : h.vi ? 'gron' : 'vit';
+      rad(r++, [[' ' + skriv(t, start, h.text, 35).slice(0, KOL - 1), farg, 'svart']]);
+    }
+  }
+
+  if (t >= T.basta) {
+    rad(8, [[' MATCHENS BÄSTA', 'cyan', 'svart']], { dubbel: true });
+    rad(11, [[' GameScore', 'vit', 'svart']]);
+    D.best.slice(0, 3).forEach((b, i) => {
+      const start = T.basta + 0.8 + i * 1.0;
+      const namn = efternamn(b.name);
+      const lag = b.is_ours ? 'IFB' : kortLag(b.team || '').slice(0, 3);
+      const text = ` ${i + 1} ${namn.padEnd(17).slice(0, 17)} ${lag.padEnd(4)}${String(b.score.toFixed(2)).replace('.', ',')}`;
+      rad(14 + i * 2, [[skriv(t, start, text, 40), b.is_ours ? 'gron' : 'vit', 'svart']]);
+    });
+    const vi = D.teams.ours, de = D.teams.theirs;
+    const sk = VI_HEMMA ? `${vi.shots}-${de.shots}` : `${de.shots}-${vi.shots}`;
+    rad(22, [[skriv(t, T.basta + 4.2, ` SKOTT ${sk}   PUBLIK ${Number(D.spectators).toLocaleString('sv-SE')}`, 60), 'gul', 'svart']]);
+  }
+
+  rad(30, [[' sida377.se'.padEnd(KOL), 'svart', 'gul']]);
+  return rita();
+}
+
+function rita() {
+  const el = document.getElementById('rader');
+  let html = '';
+  for (const r of rader) {
+    let rad = '';
+    for (const [text, fg, bg] of r.delar) {
+      for (const ch of text) rad += `<span style="color:${FARG[fg] || fg};background:${FARG[bg] || bg}">${ch === ' ' ? '&nbsp;' : ch}</span>`;
+    }
+    html += `<div class="rad${r.dubbel ? ' dubbel' : ''}" style="top:${r.r * 40 + 10}px">${rad}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+window.render = render;
+window.TOTAL = T.total;
+window.TIDER = { ...T, SLUTSEK, FORL, STRAFFAR };
+if (!window.RENDERA_RUTOR) {
+  const t0 = performance.now();
+  const loop = () => { render(((performance.now() - t0) / 1000) % T.total); requestAnimationFrame(loop); };
+  loop();
+}
+</script>
+</body>
+</html>

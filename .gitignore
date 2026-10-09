@@ -24,3 +24,4 @@ scratch/
 /*.json
 /*.txt
 /*.html
+film/node_modules/
