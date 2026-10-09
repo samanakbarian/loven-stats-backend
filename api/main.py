@@ -302,7 +302,7 @@ squad_cache = TTLCache(maxsize=16, ttl=21600)   # 6 hours caching
 league_cache = TTLCache(maxsize=16, ttl=21600)  # 6 hours caching
 
 
-def fraga_parallellt(bq, fragor: dict[str, str], strikt: bool = False) -> dict[str, list[dict]]:
+def fraga_parallellt(bq, fragor: dict[str, str], strikt: bool | set[str] = False) -> dict[str, list[dict]]:
     """Kor flera BigQuery-fragor samtidigt, och ger raderna per namn.
 
     BigQuery har en fast avgift per fraga — jobbskapande, planering, utskick —
@@ -316,6 +316,9 @@ def fraga_parallellt(bq, fragor: dict[str, str], strikt: bool = False) -> dict[s
     kor vidare (strikt=False). Anropare dar ett fel bubblade upp till ett
     felsvar maste fortsatta gora det (strikt=True) — annars renderas sidan med
     nollor och SER riktig ut, vilket ar samre an ett synligt fel.
+
+    `strikt` kan ocksa vara en mangd namn: da ar just de fragorna barande och
+    ett fel i dem bubblar upp, medan resten far bli tomma.
 
     bigquery.Client ar tradsaker.
     """
@@ -333,7 +336,7 @@ def fraga_parallellt(bq, fragor: dict[str, str], strikt: bool = False) -> dict[s
             try:
                 ut[namn] = f.result()
             except Exception:
-                if strikt:
+                if strikt is True or (isinstance(strikt, set) and namn in strikt):
                     raise
                 logging.warning("Fragan %s gick inte att kora", namn, exc_info=True)
     return ut
@@ -4253,7 +4256,12 @@ def get_match(game_id: int, refresh: bool = False):
         # Matchens egna fragor. Alla ar nycklade pa game_id och beror inte av
         # varandra, sa de gar samtidigt i stallet for i foljd — atta rundresor
         # blir en. Koden nedan plockar ur `rader` nar den behover dem.
-        rader = fraga_parallellt(bq, {
+        #
+        # Handelserna, schemaraden och lagens summering bar rapporten. Ett fel
+        # i nagon av dem far inte bli en tom lista: da byggdes en rapport utan
+        # mal och utvisningar som sag riktig ut och cachades i sex timmar
+        # (match 1109953, 9 oktober). Nu blir det ett felsvar, som inte cachas.
+        rader = fraga_parallellt(bq, strikt={"events", "sched", "summary"}, fragor={
             "events": f"""
                 SELECT a.*
                 FROM `{bq.project}.core.game_events` a
