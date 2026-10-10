@@ -402,6 +402,31 @@ def seriespel_per_sasong(bq, regular: int) -> list[dict]:
         return []
 
 
+def samma_dag(serie: list[dict], dag: str, utom) -> list[dict]:
+    """Seriens matcher en viss dag, utom en, med resultat.
+
+    Dagen och inte omgangsnumret: Swehockey har inget omgangsnummer, och en
+    SHL-omgang spelas nastan alltid samma kvall. seriespel_per_sasong har
+    redan sallat bort matcher utan resultat.
+    """
+    ut = []
+    for r in serie:
+        if str(r.get("match_date") or "")[:10] != dag or str(r.get("game_id")) == str(utom):
+            continue
+        h, a = _score(r.get("result"))
+        perioder = len(parse_period_results(r.get("period_results")))
+        ut.append({
+            "game_id": r.get("game_id"),
+            "home_team": r.get("home_team"),
+            "away_team": r.get("away_team"),
+            "home_goals": h,
+            "away_goals": a,
+            "overtime": perioder > 3,
+            "shootout": perioder > 4,
+        })
+    return ut
+
+
 def cached_ok(cache):
     """Som @cached, men lagrar bara lyckade svar.
 
@@ -836,12 +861,30 @@ def get_standings(season: str = None, refresh: bool = False):
                 best[team] = r
         rows = sorted(best.values(), key=lambda r: (r.get("rank") or 99, str(r.get("team_name") or "")))
 
+        # Seriens ovriga resultat samma dag som var senaste match, till
+        # Matcher-sidan under den senaste matchen. Ett tillagg: gar det inte
+        # att rakna star tabellen anda.
+        omgang = None
+        try:
+            serie = seriespel_per_sasong(bq, int(regular_id))
+            vara = [
+                r for r in serie
+                if BJK_HOME.search(str(r.get("home_team") or "")) or BJK_HOME.search(str(r.get("away_team") or ""))
+            ]
+            if vara:
+                sist = vara[-1]
+                dag = str(sist.get("match_date") or "")[:10]
+                omgang = {"date": dag, "games": samma_dag(serie, dag, sist.get("game_id"))}
+        except Exception:
+            logging.warning("Kunde inte rakna omgangen for /standings", exc_info=True)
+
         return {
             "status": "ok",
             "season": active["name"],
             "season_key": active["key"],
             "count": len(rows),
             "standings": rows,
+            "same_day": omgang,
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/standings")
