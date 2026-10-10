@@ -1,6 +1,42 @@
 # Deploy
 
 **Backend deployas för hand från Cloud Shell med `bash deploy.sh`.**
+Frontend deployas av Netlify vid push till `main` i `slutspel`.
+
+## Så görs det i dag
+
+Alltid från `master`, i ett block som börjar med `cd`:
+
+```
+cd ~/loven-stats-backend && git checkout master && git pull && bash deploy.sh api
+```
+
+| Mål | Gör |
+|---|---|
+| `api` | Cloud Run `loven-stats-api`, en instans (`MAX_INSTANCES`, förval 1), värmer cachen efteråt |
+| `scraper` | Cloud Functions `swehockey-stats-scraper` |
+| `views` | BigQuery-vyerna i `core` och `marts` |
+| `film` | Cloud Run `loven-matchfilm`, bucketen `granskaren-d51a1-matchfilm` (publik, CORS), schemat :55 |
+| `news` | Cloud Functions `silly-season-scraper` |
+| `schedule` | skördens schema, varmhållningen och cacheomhämtningen |
+| `backfill` | hämtar om avslutade säsonger, utan deploy |
+| `budget` | budgetlarm på projektet |
+| `restore-env` | återställer miljövariabler från en äldre revision |
+| `all` | api och scraper |
+
+Ordningen när flera delar ändrats: `views` före `scraper` före `api`.
+Filmtjänsten läser bara API:t och kan deployas när som helst.
+
+Filmerna görs direkt, utan att vänta på schemat:
+
+```
+curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$(gcloud run services describe loven-matchfilm --region europe-west1 --format='value(status.url)')/kor"
+```
+
+Med `?alla=1` gås hela säsongen igenom, med `?game_id=` en match, med
+`?sasong=ha_2526` en äldre säsongsfilm.
+
+## Den automatiska deployen som togs bort
 
 Det fanns en GitHub Actions-workflow som skulle göra det automatiskt vid push
 till `master`. Den blev aldrig färdiguppsatt — hemligheterna `GCP_WIF_PROVIDER`

@@ -4,6 +4,27 @@ Skriven 2026-10-02, efter två veckors SHL i drift. Bygger vidare på backlogg
 33 och ersätter den inte — 33 ställde diagnosen före premiären, det här är
 planen nu när det finns verklig last att utgå från.
 
+## Läget 10 oktober
+
+Etapperna nedan är inte påbörjade. Under tiden är symtomen lindrade, inte
+lösta:
+
+- **En instans** (5 okt). Alla besökare delar samma varma cache, så två
+  instanser kan inte längre visa olika siffror. Kostar ingenting extra.
+- **Parallella frågor** (`fraga_parallellt`). Matchrapportens åtta frågor går
+  samtidigt, en rundresa i stället för åtta (mätt kall 5,9 s före).
+- **gzip** och **varmhållning direkt efter deploy**.
+- **Nyckelkontroll** framför BigQuery, så påhittade adresser inte kostar.
+- **Felsvar i stället för tomma svar** i matchrapporten (10 okt).
+
+Och ett första steg i målbildens riktning, utanför API:t: **filmtjänsten**
+(`film/`) bygger artefakter efter skörden, bara för det som ändrats, med
+fingeravtryck och kodversion, och lägger dem i en publik bucket som sidan
+läser direkt. Det är samma mönster som etapp 1–5 beskriver, provat i liten
+skala. Lärdomarna därifrån: JSON:en skrivs sist som signal, kontrollen före
+skrivningen hindrar att fel data blir en artefakt, och kodversionen i
+fingeravtrycket gör att en ändrad byggare bygger om allt.
+
 ## Svaret kort
 
 **Datalagret håller. Läsvägen gör det inte.**

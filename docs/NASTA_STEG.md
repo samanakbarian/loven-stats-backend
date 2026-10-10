@@ -1,34 +1,42 @@
 # Nästa steg
 
-Uppdaterad 2026-09-22, efter SHL-premiären.
+Uppdaterad 2026-10-10, efter sju omgångar av SHL 2026/27.
 
 Det här är överlämningen: var projektet står, hur det hänger ihop, och vad
-som är värt att veta innan man rör något.
+som är värt att veta innan man rör något. Hela systemet beskrivs i
+[SYSTEM.md](SYSTEM.md), kraven i [ICKE_FUNKTIONELLA_KRAV.md](ICKE_FUNKTIONELLA_KRAV.md).
 
 ## Var vi står
 
-SHL 2026/27 har börjat. **En match spelad**: Djurgården–Björklöven 0–3 borta
-den 19 september, 14 100 åskådare. Laget ligger trea på målskillnad efter
-första omgången. Nästa match är borta mot Örebro den 24 september.
+Sju omgångar spelade. Björklöven trea med 14 poäng (4–1–0–2), nästa match
+hemma mot Frölunda 10 oktober.
 
-Frontend är live på `sida377.se`. Backend är live på Cloud Run.
+Allt är driftsatt. Det som tillkommit sedan premiären:
 
-**Odeployat just nu:** `663d6ac` (cachen för spelarprofilernas målhändelser)
-och feature 26 — seriens matcher, Swehockeys lagstatistik och
-`/api/v1/league`. Ordningen spelar roll: vyerna först, sedan scrapern (som kör
-en gång och fyller tabellerna), sist API:t.
+- **Matchfilmer och säsongsfilm** (`film/`, Cloud Run `loven-matchfilm`).
+  Matchen som Text-TV på 42 sekunder i varje matchrapport; säsongen med en
+  åttabitarsduell mot seriesnittet överst i Utveckling. Görs efter varje
+  skörd, bara när datan ändrats.
+- **Matchrapporten felar hellre än visar tomt** (10 okt). En misslyckad fråga
+  gav en rapport utan mål som cachades i sex timmar.
+- **En API-instans, gzip och varmhållning efter deploy** (5 okt). Laddtiderna
+  berodde på kalla cacher i flera instanser.
+- **Nyckelkontroll** framför BigQuery: påhittade säsonger och matcher kostar
+  ingenting.
+- **GameScore bara för utespelare.** Målvakter har egen statistik.
+- **Game misconduct** räknas som 20 minuter (officiellt) men förklaras på
+  sidan och ger inget powerplay.
 
-```
-cd ~/loven-stats-backend && git pull origin master && bash deploy.sh views && bash deploy.sh scraper && bash deploy.sh api
-```
+**Inte driftsatt, bara lokalt:**
+- grenen `intro8` i backend: startfemman i åttabitar före hemmamatcher, med
+  egen hymn. Prov på en gammal match, väntar på beslut om var den ska ligga.
+- grenarna `prognos` i båda repona: en scenarioflik. Vilande.
 
-Förra säsongen för jämförelse — HA 25/26:s lagstatistik och dess 364 matcher.
-Tidsbudgeten gör att det blir tre-fyra körningar; kör samma rad tills
-`league_events` laddar 0 rader.
-
-```
-cd ~/loven-stats-backend && EVENTS_LIMIT=0 bash deploy.sh backfill
-```
+**Att göra en gång:**
+- Matcher äldre än 14 dagar när filmtjänsten startade saknar film
+  (Djurgården 19 sep, Örebro 24 sep): `/kor?alla=1`.
+- HA 25/26 och 23/24 har ingen säsongsfilm. `/kor?sasong=ha_2526` och
+  `/kor?sasong=ha_2324`, en i taget. Ägaren avvaktar.
 
 Frontend behöver aldrig deployas för hand. Netlify bygger på push till `main`.
 
@@ -61,7 +69,7 @@ riktigt: Djurgårdens skott i premiären skrevs upp från 38 till 40 klockan
 22:26 på matchkvällen, och sajten följde med. Flashscore gjorde det inte.
 
 Skörden kör **00:30, 07:30, 18:30 och 22:30** svensk tid. Femton minuter
-senare tvingas API-cacherna om. Hela seriens schema, tabell, spelar- och
+senare tvingas API-cacherna om, och tio minuter efter det görs filmerna. Hela seriens schema, tabell, spelar- och
 målvaktsstatistik hämtas varje gång; matchhändelser, uppställningar och
 protokoll bara för lagets egna matcher, och bara inom `SWEHOCKEY_REFRESH_DAYS`
 (21). En rättelse som kommer senare än så når säsongssiffrorna men inte
@@ -171,9 +179,13 @@ rapporten på namn i första hand, annars på lag och tröja.
   byttes till "På isen vid mål" av precis det skälet.
 - **Svenska överallt**, inklusive kod, kommentarer och commit-meddelanden.
 - **Grunddesignen rörs inte.** Färgtoken, kortform och typografi ligger fast.
-- **Deploykommandon som ett kopieringsbart block som börjar med `cd`.**
-- Push direkt till `main` respektive `master`. Inga pull requests om det inte
-  efterfrågas.
+- **Deploykommandon som ett kopieringsbart block som börjar med `cd`**, och
+  alltid med `git checkout master && git pull`.
+- **Ingenting pushas utan ägarens uttryckliga ja**, och inget driftsätts som
+  kan sabba sidan. Testa noga först; visuella ändringar visas som skärmbilder
+  innan de pushas.
+- Push direkt till `main` respektive `master` när ja är givet. Inga pull
+  requests om det inte efterfrågas.
 
 ## Fallgropar i driften
 
@@ -208,6 +220,17 @@ API:t** — proxyns certifikat går inte igenom. Mönstret som fungerar:
 Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
 `python3 -c "import ast; ast.parse(...)"` innan push, alltid.
 
+Alternativ till stubbarna: låt Playwright skicka API-anropen via Node
+(`page.route` + `fetch`), som litar på proxyns certifikat. Då ser sidan
+riktig data.
+
+**Filmerna** provas lokalt med `node film/lokal.mjs <mapp> <game_id>` och
+`node film/lokal_sasong.mjs <mapp> [säsong]`. Hela tjänstens körning, med
+fingeravtryck och kontroller, går att köra mot en låtsasbucket genom att
+anropa `kor({ bucket })` i `film/server.mjs` med ett eget bucketobjekt. En
+omskrivning av renderaren ska ge matchfilmer som är identiska ruta för ruta
+(jämför md5 på bild- och ljudspår med ffmpeg).
+
 ## Öppna punkter
 
 **Medvetet inte gjorda:**
@@ -220,6 +243,10 @@ Parserändringar testas mot sparad HTML från Swehockey, inte mot nätet.
   när det finns tio–femton omgångar att rita.
 
 **Kvar att göra:**
+
+- CI och larm, se "Vägen framåt" i `docs/ICKE_FUNKTIONELLA_KRAV.md`.
+- Lint: tio äldre fel i `Statistics.tsx` och ett i `Matchrapport.tsx`
+  (setState i effekter m.m.). Inga nya ska tillkomma.
 
 - API:ts arkitektur (feature 36): tre lager, svarsmodeller, CI. Plan och
   praxis i `docs/API_ARKITEKTUR.md`. Görs innan API:t växer mer.
@@ -246,11 +273,13 @@ sig. Läs den innan du lägger till en endpoint eller ännu en värmningsväg.
 Läs i den här ordningen:
 
 1. Det här dokumentet.
-2. `docs/HALLBAR_ARKITEKTUR.md` — vart läsvägen ska.
-3. `docs/DATAPLATTFORM.md` — datamodellen och varför avdupliceringen finns.
-4. `docs/SWEHOCKEY_STATS_SCRAPER.md` — vad som hämtas och hur ofta.
-5. `docs/DEPLOY.md` — kommandona.
-6. `docs/FEATURE_BACKLOG_2026.md` — 1 843 rader, slå upp vid behov.
+2. `docs/SYSTEM.md` — komponenterna, schemat och filmerna.
+3. `docs/ICKE_FUNKTIONELLA_KRAV.md` — kraven, läget och vägen framåt.
+4. `docs/HALLBAR_ARKITEKTUR.md` — vart läsvägen ska.
+5. `docs/DATAPLATTFORM.md` — datamodellen och varför avdupliceringen finns.
+6. `docs/SWEHOCKEY_STATS_SCRAPER.md` — vad som hämtas och hur ofta.
+7. `docs/DEPLOY.md` — kommandona.
+8. `docs/FEATURE_BACKLOG_2026.md` — 2 100 rader, slå upp vid behov.
 
 Och innan du ändrar en siffra på sajten: öppna Swehockeys sida för samma
 match och jämför. Det har löst fler frågor den här veckan än koden har.

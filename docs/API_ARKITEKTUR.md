@@ -1,10 +1,11 @@
 # API:ts arkitektur — mål och väg dit
 
-Backloggen: feature 36. Status: planerad, inte påbörjad.
+Backloggen: feature 36. Status: planerad, inte påbörjad. Ordningen mot
+övrigt arbete står under "Vägen framåt" i `ICKE_FUNKTIONELLA_KRAV.md`.
 
 ## Läget i dag
 
-`api/main.py` är 6 700 rader med 29 endpoints och 87 funktioner. Varje
+`api/main.py` är 7 100 rader (10 oktober) med 29 endpoints. Varje
 endpoint bygger sin SQL som f-sträng, räknar, formar svaret och fångar sina
 egna fel. Det fungerar, men:
 
