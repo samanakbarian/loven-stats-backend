@@ -84,7 +84,8 @@ async function inneHash(bucket, bas) {
 /** Säsongsfilmen. season tom = den aktiva. */
 export async function korSasong({ season = '', bucket, ffmpeg, chromiumPath }) {
   const data = await hamtaSasong(API, season);
-  const fel = kontrolleraSasong(data);
+  // Den aktiva säsongen hämtar hela serien, så där måste snitten vara kompletta.
+  const fel = kontrolleraSasong(data, { kravSerie: !season });
   if (fel.length) return { id: `säsong ${data.key || season}`, status: 'hoppad', fel };
   if (!data.key) return { id: 'säsong', status: 'hoppad', fel: ['säsongens nyckel saknas'] };
   const avtryck = crypto.createHash('sha256').update(JSON.stringify({ data, version: VERSION_SASONG })).digest('hex').slice(0, 16);

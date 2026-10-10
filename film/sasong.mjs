@@ -18,7 +18,7 @@ export async function hamtaSasong(api, season) {
   };
   const [hist, ana, stat, trend] = await Promise.all([
     hamta('/api/v1/table-history'), hamta('/api/v1/analytics'), hamta('/api/v1/statistics'),
-    hamta('/api/v1/league-trend').catch(() => null),
+    hamta('/api/v1/league-trend').catch(e => ({ status: 'error', error: String(e.message || e) })),
   ]);
   const m = ana.modules || {};
   const skaters = stat.bjorkloven_skaters?.regular || [];
@@ -35,6 +35,10 @@ export async function hamtaSasong(api, season) {
     })),
     streak: m.streaks?.longest_win || null,
     duell: dueller(trend),
+    // Hur många spelade matcher som har båda lagens siffror. Snitten bygger
+    // på dem, och kvällens matcher kommer in i olika hämtningar.
+    tackning: trend?.coverage || null,
+    trendFel: trend?.status === 'ok' ? null : trend?.error || trend?.status || 'saknas',
     publik: m.attendance?.trend?.length ? m.attendance.avg : null,
     poangbast: poangbast ? { name: poangbast.player_name, points: poangbast.points, goals: poangbast.goals, assists: poangbast.assists } : null,
     // Bara det filmen visar: sannolikheterna rör sig utan att något hänt.
@@ -42,9 +46,23 @@ export async function hamtaSasong(api, season) {
   };
 }
 
-/** Samma tanke som kontroll.mjs: hellre ingen film än en som inte stämmer. */
-export function kontrolleraSasong(s) {
+/**
+ * Samma tanke som kontroll.mjs: hellre ingen film än en som inte stämmer.
+ *
+ * kravSerie: seriens siffror måste vara kompletta, annars jämförs Löven mot
+ * ett halvt snitt — eller så faller duellen bort helt när snittet för Lövens
+ * senaste match saknas. Gäller den aktiva säsongen, där alla matcher hämtas;
+ * äldre HA-säsonger har bara Lövens och får sin film utan duell.
+ */
+export function kontrolleraSasong(s, { kravSerie = false } = {}) {
   const fel = [];
+  if (kravSerie) {
+    if (s.trendFel) fel.push(`seriens siffror gick inte att hämta (${s.trendFel})`);
+    else if (!s.tackning || s.tackning.games < s.tackning.played) {
+      fel.push(`seriens siffror saknas för ${s.tackning ? s.tackning.played - s.tackning.games : '?'} spelade matcher`);
+    } else if (!s.duell) fel.push('seriesnittet saknas för Lövens senaste match');
+    else if (s.duell.matcher !== s.games.length) fel.push(`Lövens siffror finns för ${s.duell.matcher} av ${s.games.length} matcher`);
+  }
   if (!s.rounds?.length) fel.push('inga omgångar');
   if (!s.teams?.some(t => t.bjk)) fel.push('Björklöven saknas i tabellen');
   for (const t of s.teams || []) if (t.ranks.length !== s.rounds.length) fel.push(`${t.team}: ${t.ranks.length} placeringar på ${s.rounds.length} omgångar`);
