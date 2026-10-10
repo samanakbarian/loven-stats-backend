@@ -187,7 +187,7 @@ def _hamta_kanda(tvinga: bool = False) -> dict:
         return _kanda
 
 
-_MATCHVAG = re.compile(r"^/api/v1/match/(\d+)/?$")
+_MATCHVAG = re.compile(r"^/api/v1/(?:match|league-game)/(\d+)/?$")
 
 
 def _okand_nyckel(vag: str, q) -> str | None:
@@ -4737,6 +4737,116 @@ def get_match(game_id: int, refresh: bool = False):
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/match/%s", game_id)
+        return {"status": "error", "game_id": game_id, "error": str(e)}
+
+
+@app.get("/api/v1/league-game/{game_id}")
+@cached_ok(cache=match_cache)
+def get_league_game(game_id: int, refresh: bool = False):
+    """En av seriens ovriga matcher i sammandrag, for raden pa Matcher-sidan.
+
+    Det som finns for seriens matcher: malen med skytt och tid, skott,
+    utvisningsminuter och malvakter. Ingen GameScore och inga femmor — det
+    skordas bara for vara egna matcher.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        gid = int(game_id)
+        rader = fraga_parallellt(bq, strikt={"events", "sched"}, fragor={
+            "events": f"""
+                SELECT event_type, period, time, team_code, player_name,
+                       assist1_name, assist2_name, home_goals, away_goals,
+                       is_power_play, is_short_handed, is_empty_net, is_game_winning_shot,
+                       penalty_minutes, home_team, away_team, event_index
+                FROM `{bq.project}.core.league_game_events`
+                WHERE game_id = {gid}
+                ORDER BY event_index
+                """,
+            "sched": f"""
+                SELECT match_date, home_team, away_team, result, period_results, spectators, venue
+                FROM `{bq.project}.core.schedule`
+                WHERE game_id = {gid}
+                ORDER BY scraped_at DESC
+                LIMIT 1
+                """,
+            "summary": f"""
+                SELECT is_home, team_name, shots, shots_by_period, pim
+                FROM `{bq.project}.core.league_game_summary`
+                WHERE game_id = {gid}
+                """,
+            "goalies": f"""
+                SELECT team_code, goalie_name, saves, shots_against, goals_against, save_pct
+                FROM `{bq.project}.core.league_game_goalies`
+                WHERE game_id = {gid}
+                """,
+        })
+        sched = rader["sched"][0] if rader["sched"] else {}
+        events = rader["events"]
+        if not sched or not events:
+            return {"status": "not_found", "game_id": gid, "error": "Matchen finns inte i datalagret."}
+
+        # Lagkoden till hemma eller borta: malet som okade hemmalagets siffra
+        # gjordes av hemmalaget.
+        sida_for: dict[str, str] = {}
+        forra = (0, 0)
+        mal = []
+        for e in events:
+            if e.get("event_type") != "goal":
+                continue
+            h, a = int(e.get("home_goals") or 0), int(e.get("away_goals") or 0)
+            sida = "home" if h > forra[0] else "away" if a > forra[1] else None
+            forra = (h, a)
+            if sida and e.get("team_code"):
+                sida_for[str(e["team_code"])] = sida
+            mal.append({
+                "period": e.get("period"),
+                "time": e.get("time"),
+                "team": sida,
+                "scorer": e.get("player_name"),
+                "assists": [x for x in (e.get("assist1_name"), e.get("assist2_name")) if x],
+                "score": f"{h}-{a}",
+                "power_play": bool(e.get("is_power_play")),
+                "short_handed": bool(e.get("is_short_handed")),
+                "empty_net": bool(e.get("is_empty_net")),
+                "shootout": bool(e.get("is_game_winning_shot")),
+            })
+
+        lag = {}
+        for r in rader["summary"]:
+            lag["home" if r.get("is_home") else "away"] = {
+                "shots": r.get("shots"), "shots_by_period": r.get("shots_by_period"), "pim": r.get("pim"),
+            }
+        malvakter = [
+            {
+                "team": sida_for.get(str(g.get("team_code") or "")),
+                "name": g.get("goalie_name"),
+                "saves": g.get("saves"),
+                "shots_against": g.get("shots_against"),
+                "save_pct": g.get("save_pct"),
+            }
+            for g in rader["goalies"]
+        ]
+        h, a = _score(sched.get("result"))
+        perioder = len(parse_period_results(sched.get("period_results")))
+        return {
+            "status": "ok",
+            "game_id": gid,
+            "date": str(sched.get("match_date") or "")[:10],
+            "home_team": sched.get("home_team"),
+            "away_team": sched.get("away_team"),
+            "home_goals": h,
+            "away_goals": a,
+            "period_results": sched.get("period_results"),
+            "overtime": perioder > 3,
+            "shootout": perioder > 4,
+            "spectators": sched.get("spectators"),
+            "venue": sched.get("venue"),
+            "goals": mal,
+            "teams": lag,
+            "goalies": malvakter,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/league-game/%s", game_id)
         return {"status": "error", "game_id": game_id, "error": str(e)}
 
 
