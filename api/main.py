@@ -923,6 +923,16 @@ def warmup(refresh: bool = False):
     port = os.environ.get("PORT", "8080")
     ut: dict[str, Any] = {}
 
+    # Hjalpcacherna som endpoints delar har egen TTL och berors inte av
+    # refresh=1 pa endpointen — den kringgar bara endpointens egen cache.
+    # Matchrapportens Sammanhang laste darfor seriens resultat fran fore
+    # kvallens omgang i upp till sex timmar: "14 poang efter 7 matcher" i
+    # rapporten fran match 8 (10 oktober). En omhamtning efter skorden ska
+    # borja fran tomt.
+    if refresh:
+        for c in (league_cache, _mal_cache, squad_cache):
+            c.clear()
+
     # Cachenyckeln innehaller season-argumentet, sa /standings och
     # /standings?season=shl_2627 ar TVA poster. Varmhallningen anropade bara
     # den utan parameter medan frontenden alltid skickar en — sa efter varje
