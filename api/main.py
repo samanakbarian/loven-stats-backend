@@ -3868,6 +3868,8 @@ def get_lines(season: str = None, refresh: bool = False):
 
         tally = {}
         unattributed = {"for": 0, "against": 0}
+        # (match, femma, gf/ga) per tilldelat mal, for kombinationerna nedan.
+        tilldelade: list[tuple] = []
         for g in goals:
             ours = _is_ours(g.get("team_code"))
             on = numbers(g.get("on_ice_for") if ours else g.get("on_ice_against"))
@@ -3904,6 +3906,7 @@ def get_lines(season: str = None, refresh: bool = False):
             line = skyttens if skyttens in delade else delade[0]
             row = tally.setdefault(line, {"gf": 0, "ga": 0})
             row["gf" if ours else "ga"] += 1
+            tilldelade.append((g["game_id"], line, "gf" if ours else "ga"))
 
         lines = []
         for n in sorted(tally):
@@ -3934,11 +3937,75 @@ def get_lines(season: str = None, refresh: bool = False):
         listed = {name for row in lines for name in row["forwards"] + row["defence"]}
         everyone = {name for n in tally for name in members.get(n, Counter())}
 
+        # Kombinationerna. Femmans nummer sager vem som stod dar just den
+        # kvallen, inte over sasongen: nar tranaren gor om blandas olika
+        # spelare under samma rubrik. Har knyts varje mal till kedjan (tre
+        # forwards) och backparet som faktiskt var femman i den matchen, och
+        # samma spelare slas ihop oavsett vilket nummer de hade.
+        kombinationer = None
+        try:
+            datum: dict[int, str] = {}
+            gids = sorted({int(l["game_id"]) for l in lineups if l.get("game_id") is not None})
+            if gids:
+                for r in bq.query(
+                    f"SELECT game_id, ANY_VALUE(match_date) AS d FROM `{bq.project}.core.schedule` "
+                    f"WHERE game_id IN ({','.join(str(x) for x in gids)}) GROUP BY game_id"
+                ).result():
+                    datum[int(r["game_id"])] = str(r["d"] or "")[:10]
+            enhet: dict[tuple, dict] = {}
+            for l in lineups:
+                if l.get("block") != "line" or not l.get("line_number"):
+                    continue
+                e = enhet.setdefault((int(l["game_id"]), int(l["line_number"])), {"f": set(), "d": set()})
+                namn = clean_person(l.get("player_name"))
+                (e["d"] if is_back(namn) else e["f"]).add(namn)
+
+            senaste = max(gids, key=lambda x: (datum.get(x, ""), x)) if gids else None
+
+            def samla(del_: str) -> list[dict]:
+                rader: dict[frozenset, dict] = {}
+                for (gid, n), e in enhet.items():
+                    if not e[del_]:
+                        continue
+                    k = frozenset(e[del_])
+                    r = rader.setdefault(k, {"games": set(), "gf": 0, "ga": 0, "nu": None})
+                    r["games"].add(gid)
+                    if gid == senaste:
+                        r["nu"] = n
+                for gid, n, vad in tilldelade:
+                    e = enhet.get((gid, n))
+                    if e and e[del_]:
+                        rader[frozenset(e[del_])][vad] += 1
+                ut = [
+                    {
+                        "players": sorted(k),
+                        "games": len(r["games"]),
+                        "goals_for": r["gf"],
+                        "goals_against": r["ga"],
+                        "latest_line": r["nu"],
+                    }
+                    for k, r in rader.items()
+                ]
+                # Kvallens femmor forst, i nummerordning; sedan de som spelat
+                # mest ihop.
+                ut.sort(key=lambda r: (r["latest_line"] is None, r["latest_line"] or 0, -r["games"], -(r["goals_for"] - r["goals_against"])))
+                return ut
+
+            kombinationer = {
+                "latest_game_id": senaste,
+                "latest_date": datum.get(senaste) if senaste else None,
+                "forwards": samla("f"),
+                "defence": samla("d"),
+            }
+        except Exception:
+            logging.warning("Kunde inte rakna kombinationerna", exc_info=True)
+
         return {
             "status": "ok",
             "season": active["name"],
             "season_key": active["key"],
             "lines": lines,
+            "combinations": kombinationer,
             "totals": {
                 "games": len({l["game_id"] for l in lineups}),
                 "goals_for": sum(v["gf"] for v in tally.values()),
