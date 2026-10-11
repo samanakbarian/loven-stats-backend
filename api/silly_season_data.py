@@ -61,6 +61,7 @@ SILLY_SEASON_BASELINE = {
         # från en redaktion; databaser (Flashscore m.fl.) räcker inte.
         { "name": "Tarmo Reunanen", "number": 11, "pos": "LD", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Ettårskontrakt, från TPS", "source": "dagenshockey.se/hockeynews.se 2026-07-15" },
         { "name": "Josiah Didier", "number": 44, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "En säsong, från Laval Rocket", "source": "svt.se" },
+        { "name": "Alfred Barklund", "number": 57, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Från AIK", "source": "flashscore.de, bekräftat av sajtens ägare 2026-10-11" },
         # ── Forwards ──
         { "name": "Lucas Wallmark", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2032", "note": "6-årskontrakt, moderklubb", "age": 31,
           # Står inte i Swehockeys trupp under skadan. hurbra.se 2026-10, via Expressen.
@@ -69,6 +70,7 @@ SILLY_SEASON_BASELINE = {
         { "name": "Marcus Nilsson", "number": 10, "pos": "LW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 35 },
         { "name": "Philip Hemmyr", "number": None, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 21 },
         { "name": "Gustav Possler", "number": 71, "pos": "RW", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde dec 2025", "age": 32 },
+        { "name": "Robin Kovacs", "number": 86, "pos": "RW", "status": "NYFÖRVÄRV", "contractUntil": "2029", "note": "Treårskontrakt, från Linköping", "source": "flashscore.de, bekräftat av sajtens ägare 2026-10-11" },
         { "name": "Phil Di Giuseppe", "number": 34, "pos": "LW", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Ettårskontrakt", "source": "rotowire.com" },
         { "name": "Albin Lundin", "number": 33, "pos": "CE", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 30 },
         { "name": "Fredrik Forsberg", "number": 56, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 30 },
