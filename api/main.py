@@ -2092,11 +2092,14 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
                 contracts_loose[loose] = None if loose in contracts_loose else p
 
         players = []
+        traffade: set[int] = set()
         for r in rows:
             raw_name = r.get("player_name", "")
             c = contracts.get(_key(raw_name))
             if c is None:
                 c = contracts_loose.get(_surname_initial(raw_name))
+            if c is not None:
+                traffade.add(id(c))
             players.append(
                 {
                     "name": _display(r.get("player_name")),
@@ -2126,6 +2129,25 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
 
         scraped = max((str(r.get("scraped_at")) for r in rows if r.get("scraped_at")), default=None)
 
+        # Kontrakterade som inte star i Swehockeys trupp, som en langtidsskadad.
+        # De hor till kontraktslaget men inte till trupplistan.
+        slutar = re.search(r"(\d{4})/(\d{2})", str(active.get("name") or ""))
+        slutar_ar = 2000 + int(slutar.group(2)) if slutar else 9999
+        utanfor = [
+            {
+                "name": p.get("name"),
+                "position": p.get("pos"),
+                "status": p.get("status"),
+                "contract_until": p.get("contractUntil"),
+                "absent": p.get("absent"),
+            }
+            for p in SILLY_SEASON_BASELINE.get("roster", [])
+            if id(p) not in traffade
+            and p.get("status") != "UTGÅENDE"
+            and str(p.get("contractUntil") or "").isdigit()
+            and int(p["contractUntil"]) >= slutar_ar
+        ]
+
         return {
             "status": "ok",
             "season": active["name"],
@@ -2137,6 +2159,7 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
             "contract_data_updated": SILLY_SEASON_BASELINE.get("last_manual_update"),
             "contract_matches": sum(1 for p in players if p["has_contract_info"]),
             "players": players,
+            "outside_roster": utanfor,
         }
     except Exception as e:
         logging.exception("Failed to load /api/v1/roster")

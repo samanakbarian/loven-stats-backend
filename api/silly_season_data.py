@@ -2,7 +2,7 @@ SILLY_SEASON_BASELINE = {
     "season": "2026/2027",
     "league": "SHL",
     "headline": "Två tunga värvningar presenterade – SHL-bygget växer",
-    "last_manual_update": "2026-06-13T02:00:00Z",
+    "last_manual_update": "2026-10-11T00:00:00Z",
 
     "confirmed_extensions": [
         { "name": "Joel Mustonen", "number": 39, "pos": "CE", "contractUntil": "2027", "years": 1, "date": "2026-05-18", "source": "bjorkloven.com", "note": "Förlängning bekräftad", "age": 34 },
@@ -57,12 +57,19 @@ SILLY_SEASON_BASELINE = {
         { "name": "Marcus Björk", "number": 47, "pos": "RD", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 29 },
         { "name": "Anton Malmström", "number": 64, "pos": "LD", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde dec 2025", "age": 26 },
         { "name": "Topi Niemelä", "number": None, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2028", "note": "Nyförvärv från Malmö", "age": 23 },
+        # Tillagda 2026-10-11 ur pressen. Bara uppgifter med kontraktslängd
+        # från en redaktion; databaser (Flashscore m.fl.) räcker inte.
+        { "name": "Tarmo Reunanen", "number": 11, "pos": "LD", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Ettårskontrakt, från TPS", "source": "dagenshockey.se/hockeynews.se 2026-07-15" },
+        { "name": "Josiah Didier", "number": 44, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "En säsong, från Laval Rocket", "source": "svt.se" },
         # ── Forwards ──
-        { "name": "Lucas Wallmark", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2032", "note": "6-årskontrakt, moderklubb", "age": 31 },
+        { "name": "Lucas Wallmark", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2032", "note": "6-årskontrakt, moderklubb", "age": 31,
+          # Står inte i Swehockeys trupp under skadan. hurbra.se 2026-10, via Expressen.
+          "absent": "skadad" },
         { "name": "Axel Ottosson", "number": 18, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Kapten, tvåårskontrakt", "age": 30 },
         { "name": "Marcus Nilsson", "number": 10, "pos": "LW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 35 },
-        { "name": "Philip Hemyr", "number": None, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 21 },
+        { "name": "Philip Hemmyr", "number": None, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 21 },
         { "name": "Gustav Possler", "number": 71, "pos": "RW", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde dec 2025", "age": 32 },
+        { "name": "Phil Di Giuseppe", "number": 34, "pos": "LW", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Ettårskontrakt", "source": "rotowire.com" },
         { "name": "Albin Lundin", "number": 33, "pos": "CE", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 30 },
         { "name": "Fredrik Forsberg", "number": 56, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 30 },
         { "name": "Oscar Tellström", "number": 91, "pos": "LW", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde dec 2025", "age": 24 },
