@@ -2129,7 +2129,21 @@ def get_roster(season: str = None, team: str = "björklöven", refresh: bool = F
 
         scraped = max((str(r.get("scraped_at")) for r in rows if r.get("scraped_at")), default=None)
 
-        # Kontrakterade som inte star i Swehockeys trupp, som en langtidsskadad.
+        # Skadade star inte i Swehockeys trupp men hor till den. De laggs till
+        # i listan, markerade, i stallet for att forsvinna under skadan.
+        for p in SILLY_SEASON_BASELINE.get("roster", []):
+            if p.get("injured") and id(p) not in traffade:
+                traffade.add(id(p))
+                players.append({
+                    "name": p.get("name"), "jersey_number": p.get("number"), "position": p.get("pos"),
+                    "games_played": 0, "goals": 0, "assists": 0, "points": 0, "pim": 0, "plus_minus": 0,
+                    "status": p.get("status"), "contract_until": p.get("contractUntil"), "age": p.get("age"),
+                    "note": p.get("note"), "has_contract_info": True, "injured": True,
+                })
+        for pl in players:
+            pl.setdefault("injured", False)
+
+        # Kontrakterade som inte hor till truppen just nu, som en utlanad.
         # De hor till kontraktslaget men inte till trupplistan.
         slutar = re.search(r"(\d{4})/(\d{2})", str(active.get("name") or ""))
         slutar_ar = 2000 + int(slutar.group(2)) if slutar else 9999

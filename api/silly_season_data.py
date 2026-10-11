@@ -64,8 +64,9 @@ SILLY_SEASON_BASELINE = {
         { "name": "Alfred Barklund", "number": 57, "pos": "RD", "status": "NYFÖRVÄRV", "contractUntil": "2027", "note": "Från AIK", "source": "flashscore.de, bekräftat av sajtens ägare 2026-10-11" },
         # ── Forwards ──
         { "name": "Lucas Wallmark", "number": None, "pos": "CE", "status": "NYFÖRVÄRV", "contractUntil": "2032", "note": "6-årskontrakt, moderklubb", "age": 31,
-          # Står inte i Swehockeys trupp under skadan. hurbra.se 2026-10, via Expressen.
-          "absent": "skadad" },
+          # Står inte i Swehockeys trupp under skadan men hör till truppen.
+          # hurbra.se 2026-10, via Expressen.
+          "injured": True },
         { "name": "Axel Ottosson", "number": 18, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Kapten, tvåårskontrakt", "age": 30 },
         { "name": "Marcus Nilsson", "number": 10, "pos": "LW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 35 },
         { "name": "Philip Hemmyr", "number": None, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 21 },
@@ -76,7 +77,7 @@ SILLY_SEASON_BASELINE = {
         { "name": "Fredrik Forsberg", "number": 56, "pos": "RW", "status": "SIGNERAD", "contractUntil": "2027", "note": "", "age": 30 },
         { "name": "Oscar Tellström", "number": 91, "pos": "LW", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde dec 2025", "age": 24 },
         { "name": "Lenni Killinen", "number": 37, "pos": "LW", "status": "FÖRLÄNGD", "contractUntil": "2027", "note": "Förlängde jan 2026", "age": 26 },
-        { "name": "Gustaf Kangas", "number": 17, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde jan 2026", "age": 21 },
+        { "name": "Gustaf Kangas", "number": 17, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2028", "note": "Förlängde jan 2026", "age": 21, "absent": "utlånad" },
         { "name": "Daniel Brodin", "number": 34, "pos": "RW", "status": "UTGÅENDE", "contractUntil": "2026", "note": "", "age": 36 },
         { "name": "Joel Mustonen", "number": 39, "pos": "CE", "status": "FÖRLÄNGD", "contractUntil": "2027", "note": "Förlängd", "age": 34 },
         { "name": "Jacob Olofsson", "number": 32, "pos": "CE", "status": "UTGÅENDE", "contractUntil": "2026", "note": "", "age": 26 },
