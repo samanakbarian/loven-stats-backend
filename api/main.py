@@ -4120,10 +4120,15 @@ def get_table_history(season: str = None, refresh: bool = False):
         played = {e["team"]: e["games_played"] for e in final}
 
         series = {}
+        poang = {}
         for entry in final:
             team = entry["team"]
             series[team] = [next((x["rank"] for x in r["table"] if x["team"] == team), None)
                             for r in rounds]
+            # Poangen efter varje omgang, sa avstandet till en viss placering
+            # gar att rita: "8 poang ner till kvalplatsen".
+            poang[team] = [next((x["points"] for x in r["table"] if x["team"] == team), None)
+                           for r in rounds]
 
         trailing = sum(1 for t in played if played[t] > (
             next((x["games_played"] for x in (rounds[-1]["table"] if rounds else [])
@@ -4146,6 +4151,7 @@ def get_table_history(season: str = None, refresh: bool = False):
                     "points": e["points"],
                     "games_played": e["games_played"],
                     "ranks": series[e["team"]],
+                    "points_by_round": poang[e["team"]],
                 }
                 for e in final
             ],
