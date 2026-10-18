@@ -5549,7 +5549,10 @@ def get_analytics(season: str = None, refresh: bool = False):
         }
 
         # â”€â”€ Attendance â”€â”€
-        home_games = [g for g in bjk_games if is_bjk(g.get("home_team", ""))]
+        # Bara spelade. Schemat har hela serien, sa utan resultatkravet stod det
+        # 26 hemmamatcher efter fem (18 oktober).
+        home_games = [g for g in bjk_games if is_bjk(g.get("home_team", ""))
+                      and re.match(r'\d+\s*-\s*\d+', (g.get("result") or "").strip())]
         specs = [g.get("spectators") for g in home_games if g.get("spectators")]
         attendance = {
             "avg": round(sum(specs) / max(len(specs), 1)) if specs else 0,
