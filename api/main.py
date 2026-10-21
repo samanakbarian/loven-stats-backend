@@ -684,6 +684,20 @@ def _place_in(table, team) -> dict | None:
     return None
 
 
+def _utan_straffmal(shots, saves):
+    """Malvaktens skott utan det avgorande straffmalet.
+
+    Swehockey ger forlorande lagets malvakt ett skott och ett insläppt mal
+    for straffmalet som avgor en straffläggning. Malvaktsstatistik raknar
+    inte straffläggningen: SHL.se har Langhamer 34 av 36 mot Djurgarden
+    17 oktober dar protokollet sager 34 av 37, och Mann 13 av 15 mot
+    Frolunda dar det sager 13 av 16. Raddningarna ar desamma.
+    """
+    if shots is None or saves is None or shots <= saves:
+        return shots
+    return shots - 1
+
+
 def _form_rows(rows, team, limit=5) -> list[dict]:
     """Lagets senaste matcher, aldst forst."""
     out = []
@@ -1529,9 +1543,19 @@ def _motstandarens_spelare(bq, regular: int, them: str, played: list[dict]) -> d
             g = max(spelat, key=lambda g: (g.get("games_played") or 0, g.get("shots_against") or 0))
         namn = _namnnyckel(g["goalie_name"])
         starts = [starter.get(gid) == namn if gid in starter else None for gid in senaste]
+        # Forlorade straffläggningar: straffmalet ar inget skott for malvakten.
+        straffforlust = {
+            int(r["game_id"]) for r in senaste_rader
+            if r.get("game_id") is not None and not r["won"]
+            and len(parse_period_results(next((x.get("period_results") for x in played
+                                               if x.get("game_id") == r["game_id"]), None))) > 4
+        }
         rs = [malvakt_match.get((gid, namn)) for gid in senaste]
         sparat = sum(r["saves"] or 0 for r in rs if r)
-        skott = sum(r["shots"] or 0 for r in rs if r)
+        skott = sum(
+            (_utan_straffmal(r["shots"], r["saves"]) if gid in straffforlust else r["shots"]) or 0
+            for gid, r in zip(senaste, rs) if r
+        )
         malvakt = {
             "name": namn,
             "games_played": g.get("games_played"),
@@ -4926,18 +4950,29 @@ def get_league_game(game_id: int, refresh: bool = False):
             lag["home" if r.get("is_home") else "away"] = {
                 "shots": r.get("shots"), "shots_by_period": r.get("shots_by_period"), "pim": r.get("pim"),
             }
-        malvakter = [
-            {
-                "team": sida_for.get(str(g.get("team_code") or "")),
-                "name": g.get("goalie_name"),
-                "saves": g.get("saves"),
-                "shots_against": g.get("shots_against"),
-                "save_pct": g.get("save_pct"),
-            }
-            for g in rader["goalies"]
-        ]
         h, a = _score(sched.get("result"))
         perioder = len(parse_period_results(sched.get("period_results")))
+        # Laget som forlorade en straffläggning: straffmalet raknas inte for
+        # malvakten, se _utan_straffmal.
+        forlorare = ("away" if (h or 0) > (a or 0) else "home") if perioder > 4 else None
+
+        def malvakt(g):
+            sida = sida_for.get(str(g.get("team_code") or ""))
+            skott, rädd = g.get("shots_against"), g.get("saves")
+            if sida and sida == forlorare and skott and rädd is not None:
+                # Bara den som stod i mal vid slutet: den med flest skott.
+                andra = [x for x in rader["goalies"] if x is not g
+                         and sida_for.get(str(x.get("team_code") or "")) == sida]
+                if all((x.get("shots_against") or 0) < skott for x in andra):
+                    skott = _utan_straffmal(skott, rädd)
+            return {
+                "team": sida,
+                "name": g.get("goalie_name"),
+                "saves": rädd,
+                "shots_against": skott,
+                "save_pct": round(100 * rädd / skott, 2) if skott and rädd is not None else g.get("save_pct"),
+            }
+        malvakter = [malvakt(g) for g in rader["goalies"]]
         return {
             "status": "ok",
             "game_id": gid,
