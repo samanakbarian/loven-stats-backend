@@ -935,6 +935,7 @@ _VARMNINGSVAGAR = (
     ("/api/v1/league", True),
     ("/api/v1/prediction", True),
     ("/api/v1/onice", True),
+    ("/api/v1/formen", True),
     # Tabellen över tid, simuleringen, vändningarna, motståndarna och truppen
     # saknades. 26 september visade kurvan läget före kvällens övriga matcher
     # i tre timmar efter att tabellen själv var rättad.
@@ -3538,6 +3539,107 @@ def get_goalies(season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/goalies")
         return {"status": "error", "error": str(e), "goalies": []}
+
+
+@app.get("/api/v1/formen")
+@cached_ok(cache=stats_cache)
+def get_formen(season: str = None, refresh: bool = False):
+    """Lagets matcher en och en, till kortet "Formen just nu".
+
+    Skotten och malen per match kommer ur /shots. Har laggs till det som
+    behovs for att se vad som andrats: mal i lika styrka (utan tom bur),
+    vem som gjorde 1-0, och varje spelares poang match for match. Sidan
+    valjer sjalv hur manga av de senaste matcherna den jamfor med resten.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        skott = get_shots(season=season)
+        log = skott.get("game_log") or []
+        if not log:
+            return {"status": "not_found", "error": "Inga spelade matcher.", "games": [], "players": []}
+        ids = ",".join(str(int(g["game_id"])) for g in log)
+        rader = fraga_parallellt(bq, strikt={"mal"}, fragor={
+            "mal": f"""
+                SELECT a.game_id, a.team_code, a.time, a.score_state
+                FROM `{bq.project}.core.game_events` a
+                INNER JOIN (
+                    SELECT game_id, MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.core.game_events`
+                    WHERE game_id IN ({ids})
+                    GROUP BY game_id
+                ) b ON a.game_id = b.game_id AND a.scraped_at = b.max_s
+                WHERE a.game_id IN ({ids}) AND a.event_type = 'goal'
+            """,
+            "spelare": f"""
+                SELECT game_id, player_key, goals, assists, points
+                FROM `{bq.project}.marts.fact_player_game`
+                WHERE game_id IN ({ids})
+                  AND REGEXP_CONTAINS(IFNULL(team_key, ''), r'(?i)bj[oö]rkl[oö]ven')
+                  AND IFNULL(in_lineup, TRUE)
+            """,
+        })
+        mal: dict[int, list[dict]] = {}
+        for r in rader["mal"]:
+            mal.setdefault(int(r["game_id"]), []).append(r)
+
+        def minut(t) -> float:
+            try:
+                mm, ss = str(t or "").split(":")[:2]
+                return int(mm) + int(ss) / 60.0
+            except ValueError:
+                return 0.0
+
+        games = []
+        for g in log:
+            gid = int(g["game_id"])
+            ev_gf = ev_ga = tom = 0
+            forsta = None
+            for r in sorted(mal.get(gid, []), key=lambda r: minut(r.get("time"))):
+                vi = str(r.get("team_code") or "").upper() in ("IFB", "BJK")
+                st = str(r.get("score_state") or "")
+                if forsta is None and "GWS" not in st:
+                    forsta = "us" if vi else "them"
+                if "ENG" in st:
+                    tom += 0 if vi else 1
+                    continue
+                if "(EQ)" in st:
+                    if vi:
+                        ev_gf += 1
+                    else:
+                        ev_ga += 1
+            games.append({
+                "game_id": gid,
+                "date": str(g.get("date") or "")[:10],
+                "opponent": g.get("opponent"),
+                "is_home": g.get("is_home"),
+                "goals_for": g.get("goals_for"),
+                "goals_against": g.get("goals_against"),
+                "shots_for": g.get("shots_for"),
+                "shots_against": g.get("shots_against"),
+                "ev_goals_for": ev_gf,
+                "ev_goals_against": ev_ga,
+                "empty_net_against": tom,
+                "first_goal": forsta,
+            })
+
+        per_spelare: dict[str, dict[int, int]] = {}
+        for r in rader["spelare"]:
+            per_spelare.setdefault(_namnnyckel(r["player_key"]), {})[int(r["game_id"])] = int(r.get("points") or 0)
+        players = sorted(
+            ({"name": n, "points": {str(k): v for k, v in m.items()}} for n, m in per_spelare.items()),
+            key=lambda p: (-sum(p["points"].values()), p["name"]),
+        )
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "games": games,
+            "players": players,
+        }
+    except Exception as e:
+        logging.exception("get_formen misslyckades")
+        return {"status": "error", "error": str(e), "games": [], "players": []}
 
 
 @app.get("/api/v1/onice")
