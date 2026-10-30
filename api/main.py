@@ -153,7 +153,7 @@ async def taktbegransa(request: Request, call_next):
 # inte avvisas medan listan är gammal. Går hämtningen inte alls släpps allt
 # igenom: hellre som förut än en sida som slutar fungera.
 _kanda_lock = threading.Lock()
-_kanda: dict = {"sasonger": None, "matcher": None, "hamtad": 0.0}
+_kanda: dict = {"sasonger": None, "matcher": None, "lag": None, "hamtad": 0.0}
 KANDA_TTL = 3600
 KANDA_OMHAMTNING = 300
 
@@ -179,7 +179,18 @@ def _hamta_kanda(tvinga: bool = False) -> dict:
                     """
                 ).result()
             }
-            _kanda.update(sasonger=sasonger, matcher=matcher, hamtad=nu)
+            # Lagen i spelschemat, för /lag som tar vilket lag som helst.
+            lag = {
+                str(r["t"])
+                for r in bq.query(
+                    f"""
+                    SELECT home_team AS t FROM `{bq.project}.core.schedule` WHERE home_team IS NOT NULL
+                    UNION DISTINCT
+                    SELECT away_team FROM `{bq.project}.core.schedule` WHERE away_team IS NOT NULL
+                    """
+                ).result()
+            }
+            _kanda.update(sasonger=sasonger, matcher=matcher, lag=lag, hamtad=nu)
         except Exception:
             logging.warning("Kunde inte hamta kanda sasonger och matcher", exc_info=True)
             # Försök inte igen vid varje anrop; vänta som vid en omhämtning.
@@ -205,7 +216,12 @@ def _okand_nyckel(vag: str, q) -> str | None:
         return "sims ska vara jämna tusental."
     team = q.get("team")
     if team is not None and not BJK_HOME.search(team):
-        return "Okänt lag."
+        # /lag tar vilket lag som helst i serien, övriga bara vårt.
+        if vag.rstrip("/") != "/api/v1/lag":
+            return "Okänt lag."
+        kanda = _hamta_kanda()
+        if kanda["lag"] is not None and team not in kanda["lag"]:
+            return "Okänt lag."
     if q.get("team_query") is not None:
         return "team_query stöds inte."
 
