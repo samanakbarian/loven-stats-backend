@@ -936,6 +936,7 @@ _VARMNINGSVAGAR = (
     ("/api/v1/prediction", True),
     ("/api/v1/onice", True),
     ("/api/v1/formen", True),
+    ("/api/v1/spelarprofiler", True),
     # Tabellen över tid, simuleringen, vändningarna, motståndarna och truppen
     # saknades. 26 september visade kurvan läget före kvällens övriga matcher
     # i tre timmar efter att tabellen själv var rättad.
@@ -3640,6 +3641,144 @@ def get_formen(season: str = None, refresh: bool = False):
     except Exception as e:
         logging.exception("get_formen misslyckades")
         return {"status": "error", "error": str(e), "games": [], "players": []}
+
+
+@app.get("/api/v1/spelarprofiler")
+@cached_ok(cache=stats_cache)
+def get_spelarprofiler(season: str = None, refresh: bool = False):
+    """Spelarprofiler for hela serien: atta matt per match, med percentil mot
+    seriens spelare pa samma position (forward eller back).
+
+    Matten ar de som gar att rakna ur Swehockey for alla lag: mal, forsta-
+    och andraassist, powerplaypoang, poang i lika styrka, mal for och emot pa
+    isen i lika styrka, och utvisningsminuter. Istid, skottpositioner och
+    skottforsok finns inte dar, sa varden per 60 minuter och xG gar inte.
+
+    Samma urval som /players: minst fyra av tio av seriens omgangar, minst tre
+    matcher. Spelare under gransen far vardena men ingen percentil.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        sid = int(active["regular"])
+        rader = fraga_parallellt(bq, strikt={"sasong", "mal", "pa_isen"}, fragor={
+            "sasong": f"""
+                SELECT a.player_name, a.team_code, a.position, a.jersey_number,
+                       a.games_played, a.goals, a.assists, a.points, a.pim
+                FROM `{bq.project}.core.player_season_stats` a
+                INNER JOIN (
+                    SELECT MAX(scraped_at) AS max_s
+                    FROM `{bq.project}.core.player_season_stats`
+                    WHERE season_group_id = {sid}
+                ) b ON a.scraped_at = b.max_s
+                WHERE a.season_group_id = {sid}
+            """,
+            "mal": f"""
+                SELECT scorer_key, assist1_key, assist2_key, is_power_play,
+                       is_short_handed, is_empty_net, is_shootout_winner
+                FROM `{bq.project}.marts.fact_goal`
+                WHERE season_group_id = {sid}
+            """,
+            "pa_isen": f"""
+                SELECT player_key, SUM(IFNULL(gf_on_ev, 0)) AS gf_ev, SUM(IFNULL(ga_on_ev, 0)) AS ga_ev,
+                       COUNTIF(gf_on_ev IS NOT NULL OR ga_on_ev IS NOT NULL) AS matcher_med_isen
+                FROM `{bq.project}.marts.fact_player_game`
+                WHERE season_group_id = {sid}
+                GROUP BY player_key
+            """,
+        })
+
+        def nyckel(n) -> str:
+            n = re.sub(r"\s*\([^)]*\)\s*$", "", str(n or ""))
+            return re.sub(r"\s+", " ", re.sub(r"[*]+", "", n)).strip().lower()
+
+        def grupp(pos) -> str:
+            p = str(pos or "").upper()
+            if p.startswith("G"):
+                return "G"
+            return "D" if p in ("LD", "RD", "D") or p.endswith("D") else "F"
+
+        # Malen: avgorande straffar raknas inte, som i Swehockeys statistik.
+        raknat: dict[str, Counter] = {}
+        for g in rader["mal"]:
+            if g.get("is_shootout_winner"):
+                continue
+            pp = bool(g.get("is_power_play"))
+            lika = not pp and not g.get("is_short_handed") and not g.get("is_empty_net")
+            for roll, namn in (("g", g.get("scorer_key")), ("a1", g.get("assist1_key")), ("a2", g.get("assist2_key"))):
+                if not namn:
+                    continue
+                c = raknat.setdefault(nyckel(namn), Counter())
+                c[roll] += 1
+                if pp:
+                    c["ppp"] += 1
+                if lika:
+                    c["evp"] += 1
+        isen = {nyckel(r["player_key"]): r for r in rader["pa_isen"]}
+
+        max_gp = max((int(r.get("games_played") or 0) for r in rader["sasong"]), default=0)
+        MIN_GP = max(3, round(max_gp * 0.4))
+        MATT = ("mal", "assist1", "assist2", "pp_poang", "lika_poang", "isen_for", "isen_emot", "utv_min")
+        LAGRE_BATTRE = {"isen_emot", "utv_min"}
+
+        spelare = []
+        for r in rader["sasong"]:
+            g = grupp(r.get("position"))
+            gp = int(r.get("games_played") or 0)
+            if g == "G" or gp == 0:
+                continue
+            k = nyckel(r.get("player_name"))
+            c = raknat.get(k, Counter())
+            i = isen.get(k) or {}
+            per = lambda v: round(float(v or 0) / gp, 3)
+            spelare.append({
+                "name": re.sub(r"[*]+", "", str(r.get("player_name") or "")).strip(),
+                "team": r.get("team_code"),
+                "number": r.get("jersey_number"),
+                "position": r.get("position"),
+                "group": g,
+                "games_played": gp,
+                "goals": int(r.get("goals") or 0),
+                "assists": int(r.get("assists") or 0),
+                "points": int(r.get("points") or 0),
+                "values": {
+                    "mal": per(r.get("goals")),
+                    "assist1": per(c["a1"]),
+                    "assist2": per(c["a2"]),
+                    "pp_poang": per(c["ppp"]),
+                    "lika_poang": per(c["evp"]),
+                    "isen_for": per(i.get("gf_ev")),
+                    "isen_emot": per(i.get("ga_ev")),
+                    "utv_min": per(r.get("pim")),
+                },
+            })
+
+        pool = {gr: [p for p in spelare if p["group"] == gr and p["games_played"] >= MIN_GP] for gr in ("F", "D")}
+        for p in spelare:
+            if p["games_played"] < MIN_GP:
+                p["percentiles"] = None
+                continue
+            jmf = pool[p["group"]]
+            p["percentiles"] = {}
+            for m in MATT:
+                v = p["values"][m]
+                vals = [o["values"][m] for o in jmf]
+                battre = sum(1 for x in vals if (x > v if m in LAGRE_BATTRE else x < v))
+                lika = sum(1 for x in vals if x == v)
+                p["percentiles"][m] = round((battre + lika / 2) / len(vals) * 100) if vals else None
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "min_games": MIN_GP,
+            "pool": {gr: len(v) for gr, v in pool.items()},
+            "metrics": list(MATT),
+            "players": sorted(spelare, key=lambda p: (-p["points"], p["name"])),
+        }
+    except Exception as e:
+        logging.exception("get_spelarprofiler misslyckades")
+        return {"status": "error", "error": str(e), "players": []}
 
 
 @app.get("/api/v1/onice")
