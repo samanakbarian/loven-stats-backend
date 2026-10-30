@@ -1007,6 +1007,10 @@ def warmup(refresh: bool = False):
     if refresh:
         for c in (league_cache, _mal_cache, squad_cache):
             c.clear()
+        # Lagsidorna (/lag?team=...) är en post per lag och värms inte här;
+        # de tas bort så att nästa besök räknar om dem med skördens siffror.
+        for nyckel in [k for k in list(stats_cache.keys()) if k and k[0] == "get_lag"]:
+            stats_cache.pop(nyckel, None)
 
     # Cachenyckeln innehaller season-argumentet, sa /standings och
     # /standings?season=shl_2627 ar TVA poster. Varmhallningen anropade bara
@@ -3492,6 +3496,23 @@ def get_lag(team: str, season: str = None, refresh: bool = False):
                 WHERE season_group_id = {regular} AND team_name = '{lag}' AND role = 'skater'
                 GROUP BY player_number, player_name
             """,
+            # Målen per period och spelform, för och emot. Straffläggningens
+            # avgörande räknas inte: det är inget mål i matchen.
+            "perioder": f"""
+                SELECT e.period,
+                       c.team_name = '{lag}' AS for_laget,
+                       COUNT(*) AS mal,
+                       COUNTIF(IFNULL(e.is_power_play, FALSE)) AS pp,
+                       COUNTIF(IFNULL(e.is_short_handed, FALSE)) AS sh,
+                       COUNTIF(IFNULL(e.is_empty_net, FALSE)) AS tom
+                FROM `{bq.project}.core.match_events` e
+                JOIN `{bq.project}.core.match_team_code` c
+                  ON c.game_id = e.game_id AND c.team_code = e.team_code
+                WHERE e.season_group_id = {regular} AND e.event_type = 'goal'
+                  AND (e.home_team = '{lag}' OR e.away_team = '{lag}')
+                  AND NOT REGEXP_CONTAINS(IFNULL(e.score_state, ''), r'GWS')
+                GROUP BY 1, 2
+            """,
             "malvakter": f"""
                 SELECT goalie_name, games_played, save_pct, gaa, shots_against, saves, goals_against, shutouts
                 FROM `{bq.project}.core.goalie_season_stats`
@@ -3566,11 +3587,27 @@ def get_lag(team: str, season: str = None, refresh: bool = False):
         ]
         goalies.sort(key=lambda g: -g["games_played"])
 
+        perioder: dict[int, dict[str, int]] = {}
+        for r in rader["perioder"]:
+            # Okänd lagkod: målet kan inte placeras, och räknas inte alls
+            # hellre än som insläppt.
+            if r.get("period") is None or r.get("for_laget") is None:
+                continue
+            per = min(int(r["period"]), 4)  # förlängningarna som en
+            d = perioder.setdefault(per, {"period": per, "gf": 0, "ga": 0, "gf_pp": 0, "ga_pp": 0,
+                                          "gf_sh": 0, "ga_sh": 0, "gf_en": 0, "ga_en": 0})
+            sida = "gf" if r.get("for_laget") else "ga"
+            d[sida] += int(r.get("mal") or 0)
+            d[f"{sida}_pp"] += int(r.get("pp") or 0)
+            d[f"{sida}_sh"] += int(r.get("sh") or 0)
+            d[f"{sida}_en"] += int(r.get("tom") or 0)
+
         return {
             "status": "ok",
             "season": active["name"],
             "season_key": active["key"],
             "team": team,
+            "periods": [perioder[k] for k in sorted(perioder)],
             "is_ours": bool(BJK_HOME.search(team)),
             "games": games,
             "players": players,
