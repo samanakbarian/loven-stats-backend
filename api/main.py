@@ -3382,6 +3382,189 @@ def get_league_trend(season: str = None, refresh: bool = False):
         return {"status": "error", "error": str(e), "teams": []}
 
 
+def _efternamn(namn) -> str:
+    """Efternamnets forsta del, utan accenter: "Ekeståhl-Jonsson, Lukas" -> "ekestahl"."""
+    ren = unicodedata.normalize("NFKD", str(namn or "").split(",")[0])
+    ren = ren.encode("ascii", "ignore").decode().lower()
+    return re.split(r"[\s\-']", ren.strip())[0] if ren.strip() else ""
+
+
+def _fornamn(namn) -> str:
+    ren = unicodedata.normalize("NFKD", str(namn or "").partition(",")[2])
+    return ren.encode("ascii", "ignore").decode().strip().lower()
+
+
+def _rapportrad(spelare: dict, rapport: list[dict]) -> dict:
+    """Matchrapportens rader for en spelare i sasongsstatistiken, summerade.
+
+    Troja och efternamn: rapporten kortar langa namn ("EKESTÅHL-JONSSON
+    Luka") och skriver versaler annorlunda, men efternamnets borjan och
+    trojan stammer. En spelare som bytt nummer under sasongen far bada.
+    """
+    nr = spelare.get("jersey_number")
+    ef = _efternamn(spelare.get("player_name"))
+    ut = {"shots": None, "fo_won": 0, "fo_lost": 0, "games_with_report": 0}
+    for r in rapport:
+        if not ef or _efternamn(r.get("player_name")) != ef:
+            continue
+        if nr is not None and r.get("player_number") is not None and int(r["player_number"]) != int(nr):
+            # Annan troja: samma spelare bara om aven fornamnet borjar lika.
+            # Annars ar det en lagkamrat med samma efternamn.
+            if _fornamn(r.get("player_name"))[:3] != _fornamn(spelare.get("player_name"))[:3]:
+                continue
+        ut["shots"] = (ut["shots"] or 0) + int(r.get("shots") or 0)
+        ut["fo_won"] += int(r.get("fo_won") or 0)
+        ut["fo_lost"] += int(r.get("fo_lost") or 0)
+        ut["games_with_report"] += int(r.get("games_with_report") or 0)
+    return ut
+
+
+@app.get("/api/v1/lag")
+@cached_ok(cache=stats_cache)
+def get_lag(team: str, season: str = None, refresh: bool = False):
+    """Ett lag i serien: matcherna en och en, spelarna och malvakterna.
+
+    Vilket lag som helst, inte bara vart. Resultaten ur schemat, skotten ur
+    matchernas sammanfattning (var och seriens), spelarnas sasong ur
+    Swehockeys spelarstatistik och skott och tekningar ur matchrapporterna
+    via marten. Placeringar mot de andra lagen star i /league, utvecklingen
+    i /league-trend; sidan hamtar dem dar.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular = int(active["regular"])
+        schema = [
+            dict(r.items())
+            for r in bq.query(
+                f"""
+                SELECT game_id, match_date, home_team, away_team, result, period_results
+                FROM `{bq.project}.core.schedule`
+                WHERE season_group_id = {regular} AND game_id IS NOT NULL
+                """
+            ).result()
+        ]
+        lagen = {str(g.get("home_team") or "") for g in schema} | {str(g.get("away_team") or "") for g in schema}
+        if team not in lagen:
+            return {"status": "not_found", "error": "Laget finns inte i serien.", "games": [], "players": [], "goalies": []}
+        # Namnet ar nu ett av schemats egna, men citeras anda.
+        lag = team.replace("\\", "").replace("'", "\\'")
+
+        rader = fraga_parallellt(bq, fragor={
+            "skott": f"""
+                SELECT game_id, team_name, shots
+                FROM `{bq.project}.core.match_team_summary`
+                WHERE season_group_id = {regular}
+            """,
+            "spelare": f"""
+                SELECT player_name, jersey_number, position, games_played,
+                       goals, assists, points, plus_minus, pim
+                FROM `{bq.project}.core.player_season_stats`
+                WHERE season_group_id = {regular} AND team_code = '{lag}' AND games_played > 0
+                  AND IFNULL(position, '') != 'GK'
+            """,
+            # Per troja och namn: rapporten kortar langa namn och skriver
+            # "O'neill" dar statistiken skriver "O'Neill", sa namnet ensamt
+            # racker inte for att hitta spelaren.
+            "rapport": f"""
+                SELECT player_number, player_name,
+                       SUM(shots) AS shots,
+                       SUM(faceoffs_won) AS fo_won,
+                       SUM(faceoffs_lost) AS fo_lost,
+                       COUNT(DISTINCT game_id) AS games_with_report
+                FROM `{bq.project}.core.match_boxscore`
+                WHERE season_group_id = {regular} AND team_name = '{lag}' AND role = 'skater'
+                GROUP BY player_number, player_name
+            """,
+            "malvakter": f"""
+                SELECT goalie_name, games_played, save_pct, gaa, shots_against, saves, goals_against, shutouts
+                FROM `{bq.project}.core.goalie_season_stats`
+                WHERE season_group_id = {regular} AND team_code = '{lag}'
+            """,
+        }, strikt={"spelare"})
+
+        skott: dict[tuple[int, str], int] = {}
+        for r in rader["skott"]:
+            if r.get("game_id") is not None and r.get("shots") is not None:
+                skott[(int(r["game_id"]), str(r.get("team_name") or ""))] = int(r["shots"])
+
+        games = []
+        for g in sorted(schema, key=lambda g: (str(g.get("match_date") or ""), g["game_id"])):
+            hemma = g.get("home_team") == team
+            if not hemma and g.get("away_team") != team:
+                continue
+            h, a = _score(g.get("result"))
+            if h is None:
+                continue
+            mot = g.get("away_team") if hemma else g.get("home_team")
+            gf, ga = (h, a) if hemma else (a, h)
+            efter = len(parse_period_results(g.get("period_results"))) > 3
+            gid = int(g["game_id"])
+            games.append({
+                "game_id": gid,
+                "date": str(g.get("match_date") or "")[:10],
+                "opponent": mot,
+                "is_home": hemma,
+                "goals_for": gf,
+                "goals_against": ga,
+                "beyond_regulation": efter,
+                "points": (2 if efter else 3) if gf > ga else (1 if efter else 0),
+                "shots_for": skott.get((gid, team)),
+                "shots_against": skott.get((gid, str(mot or ""))),
+            })
+
+        players = []
+        for r in rader["spelare"]:
+            b = _rapportrad(r, rader["rapport"])
+            won, lost = int(b.get("fo_won") or 0), int(b.get("fo_lost") or 0)
+            players.append({
+                "name": _namnnyckel(r.get("player_name")),
+                "number": r.get("jersey_number"),
+                "position": r.get("position"),
+                "games_played": int(r.get("games_played") or 0),
+                "goals": int(r.get("goals") or 0),
+                "assists": int(r.get("assists") or 0),
+                "points": int(r.get("points") or 0),
+                "plus_minus": r.get("plus_minus"),
+                "pim": int(r.get("pim") or 0),
+                # Skott och tekningar bara ur matcherna med rapport; antalet
+                # sadana matcher star bredvid sa att ett lagt tal kan forklaras.
+                "shots": int(b["shots"]) if b.get("shots") is not None else None,
+                "faceoffs": won + lost,
+                "fo_pct": round(won / (won + lost) * 100, 1) if won + lost else None,
+                "games_with_report": int(b.get("games_with_report") or 0),
+            })
+        players.sort(key=lambda p: (-p["points"], -p["goals"], p["name"]))
+
+        goalies = [
+            {
+                "name": _namnnyckel(r.get("goalie_name")),
+                "games_played": int(r.get("games_played") or 0),
+                "save_pct": r.get("save_pct"),
+                "gaa": r.get("gaa"),
+                "shots_against": r.get("shots_against"),
+                "shutouts": r.get("shutouts"),
+            }
+            for r in rader["malvakter"]
+            if int(r.get("games_played") or 0) > 0
+        ]
+        goalies.sort(key=lambda g: -g["games_played"])
+
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "team": team,
+            "is_ours": bool(BJK_HOME.search(team)),
+            "games": games,
+            "players": players,
+            "goalies": goalies,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/lag")
+        return {"status": "error", "error": str(e), "games": [], "players": [], "goalies": []}
+
+
 @app.get("/api/v1/goalies")
 @cached_ok(cache=stats_cache)
 def get_goalies(season: str = None, refresh: bool = False):
