@@ -3647,12 +3647,18 @@ def get_formen(season: str = None, refresh: bool = False):
 @cached_ok(cache=stats_cache)
 def get_spelarprofiler(season: str = None, refresh: bool = False):
     """Spelarprofiler for hela serien: atta matt per match, med percentil mot
-    seriens spelare pa samma position (forward eller back).
+    spelare i samma roll.
 
-    Matten ar de som gar att rakna ur Swehockey for alla lag: mal, forsta-
-    och andraassist, powerplaypoang, poang i lika styrka, mal for och emot pa
-    isen i lika styrka, och utvisningsminuter. Istid, skottpositioner och
-    skottforsok finns inte dar, sa varden per 60 minuter och xG gar inte.
+    Karnan ar lika styrka: mal, forsta- och andraassist, mal for och emot pa
+    isen och malandelen pa isen. Powerplaypoang star som en egen axel och
+    utvisningsminuter som disciplin. Forsta versionen raknade mal och assist i
+    alla lagen och jamforde mot hela ligan; da sag Bjorklovens powerplayskyttar
+    ut som seriens basta medan laget var samst i fem mot fem.
+
+    Rollen ersatter istiden, som Swehockey inte har. Per match gynnar den som
+    spelar mest, sa en forward i kedja 1-2 jamfors med andra i kedja 1-2, och
+    en back i par 1-2 med andra i par 1-2. Rollen ar den kedja spelaren
+    stått i flest matcher.
 
     Samma urval som /players: minst fyra av tio av seriens omgangar, minst tre
     matcher. Spelare under gransen far vardena men ingen percentil.
@@ -3678,6 +3684,12 @@ def get_spelarprofiler(season: str = None, refresh: bool = False):
                        is_short_handed, is_empty_net, is_shootout_winner
                 FROM `{bq.project}.marts.fact_goal`
                 WHERE season_group_id = {sid}
+            """,
+            "roll": f"""
+                SELECT player_key, line_number, COUNT(*) AS matcher
+                FROM `{bq.project}.marts.fact_lineup_slot`
+                WHERE season_group_id = {sid} AND block = 'line' AND line_number IS NOT NULL
+                GROUP BY player_key, line_number
             """,
             "pa_isen": f"""
                 SELECT player_key, SUM(IFNULL(gf_on_ev, 0)) AS gf_ev, SUM(IFNULL(ga_on_ev, 0)) AS ga_ev,
@@ -3710,15 +3722,26 @@ def get_spelarprofiler(season: str = None, refresh: bool = False):
                     continue
                 c = raknat.setdefault(nyckel(namn), Counter())
                 c[roll] += 1
+                if lika:
+                    c[roll + "_lika"] += 1
                 if pp:
                     c["ppp"] += 1
-                if lika:
-                    c["evp"] += 1
         isen = {nyckel(r["player_key"]): r for r in rader["pa_isen"]}
+        kedjor: dict[str, Counter] = {}
+        for r in rader["roll"]:
+            kedjor.setdefault(nyckel(r["player_key"]), Counter())[int(r["line_number"])] += int(r["matcher"] or 0)
+
+        def roll(k: str) -> str | None:
+            c = kedjor.get(k)
+            if not c:
+                return None
+            # Vanligaste kedjan; lika antal gar till den hogre kedjan.
+            kedja = sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+            return "topp" if kedja <= 2 else "ovriga"
 
         max_gp = max((int(r.get("games_played") or 0) for r in rader["sasong"]), default=0)
         MIN_GP = max(3, round(max_gp * 0.4))
-        MATT = ("mal", "assist1", "assist2", "pp_poang", "lika_poang", "isen_for", "isen_emot", "utv_min")
+        MATT = ("mal", "assist1", "assist2", "pp_poang", "isen_for", "isen_emot", "isen_andel", "utv_min")
         LAGRE_BATTRE = {"isen_emot", "utv_min"}
 
         spelare = []
@@ -3731,34 +3754,45 @@ def get_spelarprofiler(season: str = None, refresh: bool = False):
             c = raknat.get(k, Counter())
             i = isen.get(k) or {}
             per = lambda v: round(float(v or 0) / gp, 3)
+            gf, ga = float(i.get("gf_ev") or 0), float(i.get("ga_ev") or 0)
             spelare.append({
                 "name": re.sub(r"[*]+", "", str(r.get("player_name") or "")).strip(),
                 "team": r.get("team_code"),
                 "number": r.get("jersey_number"),
                 "position": r.get("position"),
                 "group": g,
+                "role": roll(k),
                 "games_played": gp,
                 "goals": int(r.get("goals") or 0),
                 "assists": int(r.get("assists") or 0),
                 "points": int(r.get("points") or 0),
                 "values": {
-                    "mal": per(r.get("goals")),
-                    "assist1": per(c["a1"]),
-                    "assist2": per(c["a2"]),
+                    "mal": per(c["g_lika"]),
+                    "assist1": per(c["a1_lika"]),
+                    "assist2": per(c["a2_lika"]),
                     "pp_poang": per(c["ppp"]),
-                    "lika_poang": per(c["evp"]),
-                    "isen_for": per(i.get("gf_ev")),
-                    "isen_emot": per(i.get("ga_ev")),
+                    "isen_for": per(gf),
+                    "isen_emot": per(ga),
+                    # Utan mal pa isen ar andelen inte noll utan okand; mitten.
+                    "isen_andel": round(100 * gf / (gf + ga), 1) if gf + ga else 50.0,
                     "utv_min": per(r.get("pim")),
                 },
             })
 
-        pool = {gr: [p for p in spelare if p["group"] == gr and p["games_played"] >= MIN_GP] for gr in ("F", "D")}
+        def jamforelse(p: dict) -> list[dict]:
+            # Samma position och roll. Saknas rollen (ingen uppstallning) blir
+            # det hela positionen.
+            return [o for o in spelare if o["group"] == p["group"] and o["games_played"] >= MIN_GP
+                    and (p["role"] is None or o["role"] == p["role"])]
+
+        pool = {f"{gr}_{rl}": sum(1 for o in spelare if o["group"] == gr and o["role"] == rl and o["games_played"] >= MIN_GP)
+                for gr in ("F", "D") for rl in ("topp", "ovriga")}
         for p in spelare:
             if p["games_played"] < MIN_GP:
                 p["percentiles"] = None
                 continue
-            jmf = pool[p["group"]]
+            jmf = jamforelse(p)
+            p["compared_with"] = len(jmf)
             p["percentiles"] = {}
             for m in MATT:
                 v = p["values"][m]
@@ -3772,7 +3806,7 @@ def get_spelarprofiler(season: str = None, refresh: bool = False):
             "season": active["name"],
             "season_key": active["key"],
             "min_games": MIN_GP,
-            "pool": {gr: len(v) for gr, v in pool.items()},
+            "pool": pool,
             "metrics": list(MATT),
             "players": sorted(spelare, key=lambda p: (-p["points"], p["name"])),
         }
