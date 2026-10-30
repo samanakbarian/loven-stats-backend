@@ -3513,6 +3513,18 @@ def get_lag(team: str, season: str = None, refresh: bool = False):
                   AND NOT REGEXP_CONTAINS(IFNULL(e.score_state, ''), r'GWS')
                 GROUP BY 1, 2
             """,
+            # Vem som gjorde matchens första mål.
+            "forsta": f"""
+                SELECT e.game_id,
+                       ARRAY_AGG(c.team_name = '{lag}' ORDER BY e.period, e.time LIMIT 1)[OFFSET(0)] AS for_laget
+                FROM `{bq.project}.core.match_events` e
+                JOIN `{bq.project}.core.match_team_code` c
+                  ON c.game_id = e.game_id AND c.team_code = e.team_code
+                WHERE e.season_group_id = {regular} AND e.event_type = 'goal'
+                  AND (e.home_team = '{lag}' OR e.away_team = '{lag}')
+                  AND NOT REGEXP_CONTAINS(IFNULL(e.score_state, ''), r'GWS')
+                GROUP BY e.game_id
+            """,
             "malvakter": f"""
                 SELECT goalie_name, games_played, save_pct, gaa, shots_against, saves, goals_against, shutouts
                 FROM `{bq.project}.core.goalie_season_stats`
@@ -3525,6 +3537,7 @@ def get_lag(team: str, season: str = None, refresh: bool = False):
             if r.get("game_id") is not None and r.get("shots") is not None:
                 skott[(int(r["game_id"]), str(r.get("team_name") or ""))] = int(r["shots"])
 
+        forsta = {int(r["game_id"]): r.get("for_laget") for r in rader["forsta"] if r.get("game_id") is not None}
         games = []
         for g in sorted(schema, key=lambda g: (str(g.get("match_date") or ""), g["game_id"])):
             hemma = g.get("home_team") == team
@@ -3535,8 +3548,16 @@ def get_lag(team: str, season: str = None, refresh: bool = False):
                 continue
             mot = g.get("away_team") if hemma else g.get("home_team")
             gf, ga = (h, a) if hemma else (a, h)
-            efter = len(parse_period_results(g.get("period_results"))) > 3
+            perioder = parse_period_results(g.get("period_results"))
+            efter = len(perioder) > 3
             gid = int(g["game_id"])
+            # Ställningen efter varje ordinarie period, sett från laget.
+            ack, stallning = [0, 0], []
+            for p in perioder[:3]:
+                h_, a_ = int(p.get("home_gf") or 0), int(p.get("away_gf") or 0)
+                ack = [ack[0] + (h_ if hemma else a_), ack[1] + (a_ if hemma else h_)]
+                stallning.append(list(ack))
+            fg = forsta.get(gid)
             games.append({
                 "game_id": gid,
                 "date": str(g.get("match_date") or "")[:10],
@@ -3548,6 +3569,8 @@ def get_lag(team: str, season: str = None, refresh: bool = False):
                 "points": (2 if efter else 3) if gf > ga else (1 if efter else 0),
                 "shots_for": skott.get((gid, team)),
                 "shots_against": skott.get((gid, str(mot or ""))),
+                "score_by_period": stallning,
+                "first_goal": None if fg is None else ("for" if fg else "against"),
             })
 
         players = []
