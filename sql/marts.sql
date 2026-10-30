@@ -383,6 +383,23 @@ serie_on_sum AS (
   FROM serie_on
   GROUP BY game_id, player_key
 ),
+-- Matchrapporten för seriens matcher. Rapportens namn är förkortade
+-- ("EKESTÅHL-JONSSON Luka"), så spelaren hittas via tröja och lag i
+-- uppställningen. Utan uppställning går raden inte att knyta och tas inte med.
+serie_box AS (
+  SELECT b.game_id, l.player_key,
+         ANY_VALUE(b.shots) AS shots,
+         ANY_VALUE(b.official_plus_minus) AS official_plus_minus,
+         ANY_VALUE(b.faceoffs_won) AS faceoffs_won,
+         ANY_VALUE(b.faceoffs_lost) AS faceoffs_lost,
+         ANY_VALUE(b.faceoff_pct) AS faceoff_pct
+  FROM `@PROJECT@.core.match_boxscore` b
+  JOIN serie_lineup l
+    ON l.game_id = b.game_id AND l.team_name = b.team_name
+   AND l.player_number = b.player_number
+  WHERE NOT b.is_ours AND b.role = 'skater'
+  GROUP BY b.game_id, l.player_key
+),
 serie AS (
   SELECT r.game_id, r.season_group_id, r.player_key,
          -- Uppställningens lag före händelsens: lagkoden kan saknas.
@@ -409,15 +426,16 @@ SELECT
   IF(u.game_id IS NULL, NULL, IFNULL(o.gf_on_ev, 0)) AS gf_on_ev,
   IF(u.game_id IS NULL, NULL, IFNULL(o.ga_on_ev, 0)) AS ga_on_ev,
   IF(u.game_id IS NULL, NULL, IFNULL(o.gf_on_ev, 0) - IFNULL(o.ga_on_ev, 0)) AS plus_minus,
-  CAST(NULL AS INT64) AS shots, CAST(NULL AS INT64) AS official_plus_minus,
-  CAST(NULL AS INT64) AS faceoffs_won, CAST(NULL AS INT64) AS faceoffs_lost,
-  CAST(NULL AS FLOAT64) AS faceoff_pct,
-  FALSE AS has_report,
+  bx.shots, bx.official_plus_minus,
+  bx.faceoffs_won, bx.faceoffs_lost,
+  bx.faceoff_pct,
+  bx.player_key IS NOT NULL AS has_report,
   IF(u.game_id IS NULL, CAST(NULL AS BOOL), s.in_lineup) AS in_lineup,
   FALSE AS is_ours_game
 FROM serie s
 LEFT JOIN serie_med_uppst u ON u.game_id = s.game_id
-LEFT JOIN serie_on_sum o ON o.game_id = s.game_id AND o.player_key = s.player_key;
+LEFT JOIN serie_on_sum o ON o.game_id = s.game_id AND o.player_key = s.player_key
+LEFT JOIN serie_box bx ON bx.game_id = s.game_id AND bx.player_key = s.player_key;
 
 -- Lag x match: skott, räddningar, utvisningar och PDO ur matchrapporten,
 -- mål ur resultatet.

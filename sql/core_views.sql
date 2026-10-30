@@ -95,6 +95,22 @@ CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_lineups` 
   scraped_at TIMESTAMP
 );
 
+-- Matchrapporten för seriens övriga matcher: skott och tekningar per
+-- spelare. Samma fält som vår swehockey_game_boxscore.
+CREATE TABLE IF NOT EXISTS `@PROJECT@.raw_sports.swehockey_league_game_boxscore` (
+  game_id INT64, season_group_id INT64, match_date STRING,
+  team_side INT64, team_name STRING, role STRING,
+  player_number INT64, player_name STRING,
+  shots INT64, goals INT64, assists INT64, points INT64,
+  official_plus_minus INT64, pim INT64,
+  faceoffs_won INT64, faceoffs_lost INT64, faceoff_pct FLOAT64,
+  saves INT64, goals_against INT64, shots_against INT64,
+  save_pct FLOAT64, shutout INT64, time_on_ice STRING,
+  source_etag STRING, report_url STRING,
+  source STRING, content_hash STRING, run_id STRING, source_url STRING,
+  scraped_at TIMESTAMP
+);
+
 -- Avstämningens avvikelser per körning (backlogg 46). Skrivs av skrapan, en
 -- rad per spelare som avviker plus en markörrad per kontroll och körning,
 -- så att det går att se hur länge en avvikelse legat kvar.
@@ -160,6 +176,10 @@ QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 
 CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_lineups` AS
 SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_lineups`
+QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
+
+CREATE OR REPLACE VIEW `@PROJECT@.core.league_game_boxscore` AS
+SELECT * FROM `@PROJECT@.raw_sports.swehockey_league_game_boxscore`
 QUALIFY scraped_at = MAX(scraped_at) OVER (PARTITION BY game_id);
 
 -- --------------------------------------------------------- ögonblicksbilder --
@@ -401,6 +421,60 @@ SELECT
   SAFE_CAST(player_number AS INT64) AS player_number,
   CAST(player_name AS STRING) AS player_name
 FROM `@PROJECT@.core.league_game_lineups`;
+
+-- Matchrapporten för hela serien: vår och de övrigas, en rad per spelare.
+CREATE OR REPLACE VIEW `@PROJECT@.core.match_boxscore` AS
+SELECT
+  TRUE AS is_ours,
+  SAFE_CAST(game_id AS INT64) AS game_id,
+  SAFE_CAST(season_group_id AS INT64) AS season_group_id,
+  CAST(match_date AS STRING) AS match_date,
+  SAFE_CAST(team_side AS INT64) AS team_side,
+  CAST(team_name AS STRING) AS team_name,
+  CAST(role AS STRING) AS role,
+  SAFE_CAST(player_number AS INT64) AS player_number,
+  CAST(player_name AS STRING) AS player_name,
+  SAFE_CAST(shots AS INT64) AS shots,
+  SAFE_CAST(goals AS INT64) AS goals,
+  SAFE_CAST(assists AS INT64) AS assists,
+  SAFE_CAST(points AS INT64) AS points,
+  SAFE_CAST(official_plus_minus AS INT64) AS official_plus_minus,
+  SAFE_CAST(pim AS INT64) AS pim,
+  SAFE_CAST(faceoffs_won AS INT64) AS faceoffs_won,
+  SAFE_CAST(faceoffs_lost AS INT64) AS faceoffs_lost,
+  SAFE_CAST(faceoff_pct AS FLOAT64) AS faceoff_pct,
+  SAFE_CAST(saves AS INT64) AS saves,
+  SAFE_CAST(goals_against AS INT64) AS goals_against,
+  SAFE_CAST(shots_against AS INT64) AS shots_against,
+  SAFE_CAST(save_pct AS FLOAT64) AS save_pct,
+  CAST(time_on_ice AS STRING) AS time_on_ice
+FROM `@PROJECT@.core.game_boxscore`
+UNION ALL
+SELECT
+  FALSE AS is_ours,
+  SAFE_CAST(game_id AS INT64) AS game_id,
+  SAFE_CAST(season_group_id AS INT64) AS season_group_id,
+  CAST(match_date AS STRING) AS match_date,
+  SAFE_CAST(team_side AS INT64) AS team_side,
+  CAST(team_name AS STRING) AS team_name,
+  CAST(role AS STRING) AS role,
+  SAFE_CAST(player_number AS INT64) AS player_number,
+  CAST(player_name AS STRING) AS player_name,
+  SAFE_CAST(shots AS INT64) AS shots,
+  SAFE_CAST(goals AS INT64) AS goals,
+  SAFE_CAST(assists AS INT64) AS assists,
+  SAFE_CAST(points AS INT64) AS points,
+  SAFE_CAST(official_plus_minus AS INT64) AS official_plus_minus,
+  SAFE_CAST(pim AS INT64) AS pim,
+  SAFE_CAST(faceoffs_won AS INT64) AS faceoffs_won,
+  SAFE_CAST(faceoffs_lost AS INT64) AS faceoffs_lost,
+  SAFE_CAST(faceoff_pct AS FLOAT64) AS faceoff_pct,
+  SAFE_CAST(saves AS INT64) AS saves,
+  SAFE_CAST(goals_against AS INT64) AS goals_against,
+  SAFE_CAST(shots_against AS INT64) AS shots_against,
+  SAFE_CAST(save_pct AS FLOAT64) AS save_pct,
+  CAST(time_on_ice AS STRING) AS time_on_ice
+FROM `@PROJECT@.core.league_game_boxscore`;
 
 -- Lagkod till lagnamn per säsong. Händelserna bär koden ("MIF"),
 -- sammanfattningen namnet. Ett mål som ökar hemmalagets siffra är
