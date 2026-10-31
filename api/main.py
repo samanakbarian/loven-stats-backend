@@ -5408,6 +5408,101 @@ def get_match(game_id: int, refresh: bool = False):
         return {"status": "error", "game_id": game_id, "error": str(e)}
 
 
+@app.get("/api/v1/match/{game_id}/niva")
+@cached_ok(cache=stats_cache)
+def get_match_niva(game_id: int, refresh: bool = False):
+    """Spelarna i en match mot sin egen nivå: GameScore i matchen mot snittet
+    i lagets tidigare matcher samma säsong.
+
+    Båda lagen. Tidigare matcher, inte hela säsongen: en rapport från
+    oktober ska säga samma sak i mars. Snittet räknas bara för den som
+    spelat minst tre matcher före; annars står det tomt. Samma GameScore
+    som Matchens bästa, se gamescore.py.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        sched = next(iter(bq.query(
+            f"""
+            SELECT season_group_id, DATE(match_date) AS d, home_team, away_team
+            FROM `{bq.project}.core.schedule`
+            WHERE game_id = {int(game_id)}
+            LIMIT 1
+            """
+        ).result()), None)
+        if sched is None:
+            return {"status": "not_found", "error": "Matchen finns inte.", "players": []}
+        sg, dag = int(sched["season_group_id"]), sched["d"]
+        lag = [str(sched["home_team"] or ""), str(sched["away_team"] or "")]
+        lista = ", ".join("'" + t.replace("\\", "").replace("'", "\\'") + "'" for t in lag)
+
+        rader = fraga_parallellt(bq, strikt=True, fragor={
+            "spelare": f"""
+                SELECT f.game_id, f.player_key, f.team_key, f.shots, f.faceoffs_won,
+                       f.faceoffs_lost, f.gf_on_ev, f.ga_on_ev, g.match_date
+                FROM `{bq.project}.marts.fact_player_game` f
+                JOIN `{bq.project}.marts.dim_game` g USING (game_id)
+                WHERE f.season_group_id = {sg} AND f.team_key IN ({lista})
+                  AND g.match_date <= DATE '{dag.isoformat()}'
+                  AND IFNULL(f.in_lineup, TRUE)
+            """,
+            "handelser": f"""
+                SELECT e.game_id, e.event_type, e.player_name, e.assist1_name, e.assist2_name,
+                       e.penalty_minutes, e.score_state
+                FROM `{bq.project}.core.match_events` e
+                JOIN `{bq.project}.marts.dim_game` g USING (game_id)
+                WHERE e.season_group_id = {sg} AND e.event_type IN ('goal', 'penalty')
+                  AND (g.home_team_key IN ({lista}) OR g.away_team_key IN ({lista}))
+                  AND g.match_date <= DATE '{dag.isoformat()}'
+            """,
+        })
+
+        per_match_spelare: dict[int, list[dict]] = {}
+        datum: dict[int, Any] = {}
+        for r in rader["spelare"]:
+            gid = int(r["game_id"])
+            per_match_spelare.setdefault(gid, []).append(r)
+            datum[gid] = r.get("match_date")
+        per_match_ev: dict[int, list[dict]] = {}
+        for r in rader["handelser"]:
+            per_match_ev.setdefault(int(r["game_id"]), []).append(r)
+
+        # GameScore per spelare och match. Laget ingår i nyckeln: samma namn
+        # kan finnas i två lag.
+        historik: dict[tuple[str, str], list[float]] = {}
+        nu: list[dict] = []
+        for gid, sp in per_match_spelare.items():
+            # Bara spelarna i de här två lagen: en annan match med ett av
+            # lagen innehåller även motståndarens rader.
+            sp = [r for r in sp if r.get("team_key") in lag]
+            poang = gamescore.alla_spelare(per_match_ev.get(gid, []), sp)
+            for p in poang:
+                if not p.get("full"):
+                    continue
+                if gid == int(game_id):
+                    nu.append(p)
+                elif datum.get(gid) is not None and datum[gid] < dag:
+                    historik.setdefault((p["name"], str(p.get("team") or "")), []).append(p["score"])
+
+        players = []
+        for p in nu:
+            tidigare = historik.get((p["name"], str(p.get("team") or "")), [])
+            snitt = round(sum(tidigare) / len(tidigare), 2) if len(tidigare) >= 3 else None
+            players.append({
+                "name": clean_person(p["name"]),
+                "team": p.get("team"),
+                "is_ours": bool(BJK_HOME.search(str(p.get("team") or ""))),
+                "score": p["score"],
+                "average": snitt,
+                "games_before": len(tidigare),
+                "diff": round(p["score"] - snitt, 2) if snitt is not None else None,
+            })
+        players.sort(key=lambda x: (x["diff"] is None, -(x["diff"] or 0), x["name"]))
+        return {"status": "ok", "game_id": int(game_id), "players": players}
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/match/%s/niva", game_id)
+        return {"status": "error", "error": str(e), "players": []}
+
+
 @app.get("/api/v1/league-game/{game_id}")
 @cached_ok(cache=match_cache)
 def get_league_game(game_id: int, refresh: bool = False):

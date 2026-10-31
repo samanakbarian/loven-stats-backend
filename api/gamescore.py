@@ -47,7 +47,15 @@ def matchens_basta(
     skaters: list[dict[str, Any]],
     antal: int = 3,
 ) -> list[dict[str, Any]]:
-    """De `antal` bästa utespelarna i matchen, båda lagen, med det som gav poängen.
+    """De `antal` bästa utespelarna i matchen, båda lagen. Se alla_spelare."""
+    return alla_spelare(events, skaters)[:antal]
+
+
+def alla_spelare(
+    events: list[dict[str, Any]],
+    skaters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Alla utespelare i matchen, båda lagen, bäst först, med det som gav poängen.
 
     events: matchens händelser (mål med assist1/assist2, utvisningar).
     skaters: rader ur fact_player_game för matchen, båda lagen.
@@ -93,4 +101,4 @@ def matchens_basta(
             "full": s.get("shots") is not None,
         })
     ut.sort(key=lambda x: (-x["score"], x["name"]))
-    return ut[:antal]
+    return ut
