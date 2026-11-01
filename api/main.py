@@ -2832,6 +2832,90 @@ def get_prediction(season: str = None, refresh: bool = False):
         return {"status": "error", "error": str(e), "games": []}
 
 
+@app.get("/api/v1/simulator")
+@cached_ok(cache=stats_cache)
+def get_simulator(season: str = None, refresh: bool = False):
+    """Underlaget för simulatorn på sajten: varje återstående match med
+    matchmodellens sannolikheter, så att webbläsaren kan spela resten av
+    säsongen själv med de utfall besökaren låser.
+
+    Samma modell och osäkerhet som /projection: lagens styrka är skattad,
+    så varje simulering drar en avvikelse per lag (sigma 0,09 på målskalan).
+    Sannolikheterna ges för nio nivåer av skillnaden i avvikelse mellan
+    lagen, från −4 till +4 sigma; klienten väljer närmaste. Ett par
+    hemmavinst i ordinarie tid och hemmavinst eller förlängning per nivå.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        active = lookup_season(season)
+        regular_id = int(active["regular"])
+        if not str(active.get("key", "")).startswith("shl"):
+            return {"status": "not_found", "error": "Simulatorn finns bara för SHL.", "games": []}
+        rader = fraga_parallellt(bq, strikt=True, fragor={
+            "schema": f"""
+                SELECT game_id, home_team, away_team, result, match_date
+                FROM `{bq.project}.core.schedule`
+                WHERE season_group_id = {regular_id}
+                ORDER BY match_date
+            """,
+            "tabell": f"""
+                SELECT team_name, points, games_played, goal_diff, rank
+                FROM `{bq.project}.core.standings`
+                WHERE season_group_id = {regular_id}
+            """,
+        })
+        if not rader["schema"] or not rader["tabell"]:
+            return {"status": "not_found", "error": "Tabell eller spelschema saknas.", "games": []}
+        sk = _skatta_matchmodell(_shl_historik(bq), datetime.now(timezone.utc).date() + timedelta(days=1))
+        if sk is None:
+            return {"status": "not_found", "error": "Matchmodellen saknar underlag.", "games": []}
+
+        par = matchmodell.Parametrar()
+        sigma = 0.09
+        steg = [sigma * k for k in range(-4, 5)]
+        games = []
+        for g in rader["schema"]:
+            h, a = str(g.get("home_team") or ""), str(g.get("away_team") or "")
+            if not h or not a or re.match(r"\s*\d+\s*-\s*\d+", str(g.get("result") or "")):
+                continue
+            nh, na = matchmodell.lagnyckel(h), matchmodell.lagnyckel(a)
+            rutnat = []
+            for d in steg:
+                u = matchmodell.utfall(matchmodell.Skattning(
+                    sk.niva, sk.hemma,
+                    {nh: sk.anfall.get(nh, 0.0) + d / 2, na: sk.anfall.get(na, 0.0) - d / 2},
+                    {nh: sk.forsvar.get(nh, 0.0) + d / 2, na: sk.forsvar.get(na, 0.0) - d / 2}),
+                    nh, na, par)
+                rutnat.append([round(u["hemma_ordinarie"], 4),
+                               round(u["hemma_ordinarie"] + u["forlangning"], 4)])
+            games.append({
+                "game_id": g.get("game_id"),
+                "date": str(g.get("match_date") or "")[:10],
+                "home": h,
+                "away": a,
+                "grid": rutnat,
+            })
+        return {
+            "status": "ok",
+            "season": active["name"],
+            "season_key": active["key"],
+            "sigma": sigma,
+            "steps": [round(x, 4) for x in steg],
+            "ot_home": par.ot_hemma,
+            "teams": [{
+                "team": str(r["team_name"]),
+                "points": int(r.get("points") or 0),
+                "games_played": int(r.get("games_played") or 0),
+                "goal_diff": int(r.get("goal_diff") or 0),
+                "rank": int(r.get("rank") or 0),
+            } for r in rader["tabell"]],
+            "games": games,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/simulator")
+        return {"status": "error", "error": str(e), "games": []}
+
+
 @app.get("/api/v1/projection")
 @cached_ok(cache=analytics_cache)
 def get_projection(
