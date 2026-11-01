@@ -594,6 +594,19 @@ NEWS_BLOB = os.environ.get("NEWS_BLOB_NAME", "raw/news/feed_latest.json")
 # Björklöven på slutet.
 _LAGET = re.compile(r"bj[oö]rkl[oö]ven|\bl[oö]ven\b", re.IGNORECASE)
 
+# Tablåer, lagsidor och spelsidor. De är inga nyheter, och Google ger dem
+# ett nytt datum varje gång sidan uppdateras: "MoDo Hockey - IF Björklöven"
+# (Svenskalag, en match från förra säsongen) och "Skellefteå AIK - IF
+# Björklöven på Sön 08 nov 22:30" (TV.nu, en repris) hamnade överst
+# 1 november 2026.
+_INTE_NYHETER_KALLOR = {"tv.nu", "tvmatchen.nu", "svenskalag", "bettingstugan.se"}
+_INTE_NYHETER_TITEL = re.compile(
+    r"speltips|\bodds\b|tv & stream|tv-kanal|\bpå tv\b|kanal,? tid|tv, stream", re.IGNORECASE)
+
+
+def _ar_nyhet(titel: str, kalla: str) -> bool:
+    return (kalla or "").strip().lower() not in _INTE_NYHETER_KALLOR and not _INTE_NYHETER_TITEL.search(titel or "")
+
 # Ungdoms- och damlag prövas först, annars taggas en U18-match som "match" och
 # hamnar bland A-lagets rader.
 _UNGDOM = re.compile(r"\bU1[5-9]\b|\bU2[01]\b|\bJ1[89]\b|\bJ20\b|\bdam(er|lag)?\b", re.IGNORECASE)
@@ -703,6 +716,8 @@ def bygg_nyhetsflode() -> list[dict[str, Any]]:
         url = art.get("link") or ""
         kalla = art.get("source_name") or ""
         titel = _utan_kalla(titel_rå, kalla)
+        if not _ar_nyhet(titel, kalla):
+            continue
         # Samma händelse kommer ofta från flera källor med snarlik rubrik.
         nyckel = re.sub(r"[^a-z0-9]+", "", titel.lower())[:60]
         if (url and url in sedda_url) or (nyckel and nyckel in sedda_titel):
@@ -763,8 +778,29 @@ def sla_ihop_nyheter(gamla: list[dict[str, Any]], nya: list[dict[str, Any]]) -> 
     självt vid nästa lyckade.
     """
     per_id: dict[str, dict[str, Any]] = {a["id"]: a for a in gamla if a.get("id")}
+    # Tidigaste datum per rubrik, för samma artikel under en annan länk.
+    def rubrik(a: dict[str, Any]) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(a.get("title") or "").lower())[:60]
+    forsta_per_rubrik: dict[str, str] = {}
+    for a in gamla:
+        k, ts = rubrik(a), a.get("ts") or ""
+        if k and ts and (k not in forsta_per_rubrik or ts < forsta_per_rubrik[k]):
+            forsta_per_rubrik[k] = ts
     # Nya raden vinner: uppmärkningen kan ha förbättrats sedan förra körningen.
-    per_id.update({a["id"]: a for a in nya if a.get("id")})
+    # Men datumet behåller vi det tidigaste. Google News ger en gammal artikel
+    # ett nytt datum när sidan indexeras om, och då hoppade den upp överst:
+    # Hockeynews intervju med Dower Nilsson från i somras stod som 1 november.
+    for a in nya:
+        if not a.get("id"):
+            continue
+        ts = a.get("ts") or ""
+        for tidigare in (per_id.get(a["id"], {}).get("ts"), forsta_per_rubrik.get(rubrik(a))):
+            if tidigare and (not ts or tidigare < ts):
+                ts = tidigare
+        per_id[a["id"]] = {**a, "ts": ts} if ts else a
+    # Det som redan låg i flödet men inte är en nyhet tas bort i efterhand.
+    per_id = {k: a for k, a in per_id.items()
+              if a.get("type") != "press" or _ar_nyhet(a.get("title") or "", a.get("source") or "")}
 
     grans = (datetime.now(timezone.utc) - timedelta(days=NYHET_MAX_DAGAR)).isoformat()
     kvar = [a for a in per_id.values() if (a.get("ts") or "") >= grans]
@@ -883,6 +919,58 @@ def spara_nyheter(items: list[dict[str, Any]]) -> None:
 
 NEWS_BQ_DATASET = os.environ.get("NEWS_BQ_DATASET", "raw_sports")
 NEWS_BQ_TABLE = os.environ.get("NEWS_BQ_TABLE", "news_articles")
+
+
+def ratta_med_historiken(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Varje artikels tidigaste publiceringsdatum ur raw_sports.news_articles.
+
+    Bloben minns bara det senaste flödet; tabellen har varje körning. En
+    artikel som Google gett ett nytt datum får tillbaka det första vi såg.
+    Ett fel här får inte fälla skörden: då står datumen som de står.
+    """
+    ids = [a["id"] for a in items if a.get("id") and a.get("type") == "press"]
+    if not ids:
+        return items
+    try:
+        from google.cloud import bigquery
+
+        bq = bigquery.Client(project=PROJECT_ID)
+        jobb = bq.query(
+            f"""
+            SELECT article_id, MIN(published_at) AS forst
+            FROM `{PROJECT_ID}.{NEWS_BQ_DATASET}.{NEWS_BQ_TABLE}`
+            WHERE article_id IN UNNEST(@ids)
+            GROUP BY article_id
+            """,
+            job_config=bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ArrayQueryParameter("ids", "STRING", ids),
+            ]),
+        )
+        forst = {r["article_id"]: r["forst"].isoformat() for r in jobb.result() if r["forst"] is not None}
+    except Exception:
+        logging.exception("Kunde inte lasa nyhetshistoriken; datumen star som de star")
+        return items
+    ut, rattade = [], 0
+    for a in items:
+        tidigare = forst.get(a.get("id"))
+        if tidigare and a.get("ts") and _jamforbar(tidigare) < _jamforbar(a["ts"]):
+            a = {**a, "ts": tidigare}
+            rattade += 1
+        ut.append(a)
+    if rattade:
+        logging.info("Nyhetsflode: %d datum rattade mot historiken", rattade)
+    grans = (datetime.now(timezone.utc) - timedelta(days=NYHET_MAX_DAGAR)).isoformat()
+    ut = [a for a in ut if (a.get("ts") or "") >= grans]
+    ut.sort(key=lambda a: a.get("ts") or "", reverse=True)
+    return ut
+
+
+def _jamforbar(ts: str) -> str:
+    """ISO-tid i UTC med samma form, så att strängar kan jämföras."""
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return str(ts)
 
 
 def landa_nyheter_i_bq(items: list[dict[str, Any]]) -> None:
@@ -1023,7 +1111,7 @@ def run_scraper(request):
             if not nya:
                 logging.warning("Nyhetsskorden gav noll rader; behaller %d befintliga", len(gamla))
             else:
-                sammanslaget = sla_ihop_nyheter(gamla, nya)
+                sammanslaget = ratta_med_historiken(sla_ihop_nyheter(gamla, nya))
                 logging.info("Nyhetsflode: %d nya, %d befintliga, %d efter sammanslagning",
                              len(nya), len(gamla), len(sammanslaget))
                 spara_nyheter(sammanslaget)
