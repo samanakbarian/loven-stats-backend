@@ -198,7 +198,7 @@ def _hamta_kanda(tvinga: bool = False) -> dict:
         return _kanda
 
 
-_MATCHVAG = re.compile(r"^/api/v1/(?:match|league-game)/(\d+)/?$")
+_MATCHVAG = re.compile(r"^/api/v1/(?:match|league-game)/(\d+)(?:/vinstchans)?/?$")
 
 
 def _okand_nyckel(vag: str, q) -> str | None:
@@ -5585,6 +5585,43 @@ def get_match_niva(game_id: int, refresh: bool = False):
     except Exception as e:
         logging.exception("Failed to load /api/v1/match/%s/niva", game_id)
         return {"status": "error", "error": str(e), "players": []}
+
+
+@app.get("/api/v1/match/{game_id}/vinstchans")
+@cached_ok(cache=stats_cache)
+def get_match_vinstchans(game_id: int, refresh: bool = False):
+    """Matchmodellens bild före en spelad match, för vinstchansen mål för mål.
+
+    Styrkorna skattas på matcherna före matchdagen, alltså det modellen
+    visste när pucken släpptes. Klienten räknar sedan chansen genom matchen
+    ur ställningen och tiden kvar, med samma Poisson som utfall(). Bara SHL:
+    för andra serier svarar den not_found.
+    """
+    try:
+        bq = bigquery.Client(project=BQ_PROJECT_ID or None)
+        rows = _shl_historik(bq)
+        rad = next((r for r in rows if r.get("game_id") is not None and int(r["game_id"]) == int(game_id)), None)
+        if rad is None:
+            return {"status": "not_found", "error": "Matchmodellen finns bara för SHL."}
+        dag = datetime.fromisoformat(str(rad.get("match_date"))[:10]).date()
+        sk = _skatta_matchmodell(rows, dag)
+        if sk is None:
+            return {"status": "not_found", "error": "Inga matcher att skatta på."}
+        par = matchmodell.Parametrar()
+        u = matchmodell.utfall(sk, matchmodell.lagnyckel(rad["home_team"]), matchmodell.lagnyckel(rad["away_team"]), par)
+        return {
+            "status": "ok",
+            "game_id": int(game_id),
+            "home_team": rad["home_team"],
+            "away_team": rad["away_team"],
+            "expected_goals": [round(u["mal_hemma"], 3), round(u["mal_borta"], 3)],
+            "p_home_win": round(u["hemma_vinst"], 3),
+            "ot_home": par.ot_hemma,
+            "tie_extra": par.lika_extra,
+        }
+    except Exception as e:
+        logging.exception("Failed to load /api/v1/match/%s/vinstchans", game_id)
+        return {"status": "error", "error": str(e)}
 
 
 @app.get("/api/v1/league-game/{game_id}")
