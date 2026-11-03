@@ -965,6 +965,9 @@ _VARMNINGSVAGAR = (
     ("/api/v1/opponents?venue=away", True),
     ("/api/v1/opponents?last=10", True),
     ("/api/v1/roster", True),
+    # Simulatorn saknades: den räknades först när någon öppnade fliken, och
+    # på en nystartad instans tog det runt 40 sekunder (3 november).
+    ("/api/v1/simulator", True),
     ("/api/v1/lovenlaget", False),
     ("/api/v1/feed?limit=200", False),
     ("/api/v1/x-feed", False),
@@ -1056,14 +1059,15 @@ def warmup(refresh: bool = False):
         ]
         spelade.sort(key=lambda g: str(g.get("match_date") or ""), reverse=True)
         for g in spelade[:5]:
-            vag = f"/api/v1/match/{int(g['game_id'])}"
-            url = f"http://127.0.0.1:{port}{vag}" + ("?refresh=true" if refresh else "")
-            t0 = time.perf_counter()
-            try:
-                rr = requests.get(url, timeout=120)
-                ut[vag] = {"http": rr.status_code, "sek": round(time.perf_counter() - t0, 2)}
-            except Exception as e:
-                ut[vag] = {"fel": str(e)[:90]}
+            # Rapporten och vinstchansen, som rapporten hämtar för SHL-matcher.
+            for vag in (f"/api/v1/match/{int(g['game_id'])}", f"/api/v1/match/{int(g['game_id'])}/vinstchans"):
+                url = f"http://127.0.0.1:{port}{vag}" + ("?refresh=true" if refresh else "")
+                t0 = time.perf_counter()
+                try:
+                    rr = requests.get(url, timeout=120)
+                    ut[vag] = {"http": rr.status_code, "sek": round(time.perf_counter() - t0, 2)}
+                except Exception as e:
+                    ut[vag] = {"fel": str(e)[:90]}
     except Exception:
         logging.exception("Kunde inte värma matchrapporterna")
     return {"status": "ok", "uppdaterad": refresh, "varmda": ut}
