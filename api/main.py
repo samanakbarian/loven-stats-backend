@@ -285,11 +285,19 @@ BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", "")
 BQ_DATASET = os.environ.get("BQ_DATASET", "loven_marts")
 BQ_LOVENLAGET_TABLE = os.environ.get("BQ_LOVENLAGET_TABLE", "mart_lovenlaget_snapshot")
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN", "")
+# Huvudsökningen. Utan lang:sv: korta tweets och tweets med mest
+# emojis språkbestäms ofta fel av X och föll bort, och ordet Björklöven
+# används inte i andra sammanhang. #IFBjörklöven och omnämnanden av
+# klubbens konto matchar inte ordet Björklöven och står därför för sig.
 X_QUERY_DEFAULT = os.environ.get(
     "X_QUERY_DEFAULT",
-    '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
+    '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven OR #IFBjörklöven OR #IFBjorkloven OR @Bjorkloven) -is:retweet -is:reply'
 )
-X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "40"))
+# Högst en sida per sökning. 40 räckte en vanlig vecka (29 tweets 4–11
+# november), men en matchvecka eller ett nyförvärv kan ge fler, och då
+# föll de äldsta bort. X tar betalt per tweet som returneras, och samma
+# tweet räknas en gång per dygn hur ofta den än hämtas.
+X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "100"))
 X_QUERY_BROAD_DEFAULT = os.environ.get(
     "X_QUERY_BROAD_DEFAULT",
     '((Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven OR Löven OR #Löven) (hockey OR SHL OR allsvenskan OR nyförvärv OR förlänger OR lämnar OR silly)) -is:retweet -is:reply lang:sv'
