@@ -287,12 +287,12 @@ BQ_LOVENLAGET_TABLE = os.environ.get("BQ_LOVENLAGET_TABLE", "mart_lovenlaget_sna
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN", "")
 X_QUERY_DEFAULT = os.environ.get(
     "X_QUERY_DEFAULT",
-    '(BjÃ¶rklÃ¶ven OR Bjorkloven OR #BjÃ¶rklÃ¶ven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
+    '(Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven) -is:retweet -is:reply lang:sv'
 )
 X_MAX_RESULTS_DEFAULT = int(os.environ.get("X_MAX_RESULTS_DEFAULT", "40"))
 X_QUERY_BROAD_DEFAULT = os.environ.get(
     "X_QUERY_BROAD_DEFAULT",
-    '((BjÃ¶rklÃ¶ven OR Bjorkloven OR #BjÃ¶rklÃ¶ven OR #Bjorkloven OR LÃ¶ven OR #LÃ¶ven) (hockey OR SHL OR allsvenskan OR nyfÃ¶rvÃ¤rv OR fÃ¶rlÃ¤nger OR lÃ¤mnar OR silly)) -is:retweet -is:reply lang:sv'
+    '((Björklöven OR Bjorkloven OR #Björklöven OR #Bjorkloven OR Löven OR #Löven) (hockey OR SHL OR allsvenskan OR nyförvärv OR förlänger OR lämnar OR silly)) -is:retweet -is:reply lang:sv'
 )
 X_QUERY_OFFICIAL_DEFAULT = os.environ.get(
     "X_QUERY_OFFICIAL_DEFAULT",
